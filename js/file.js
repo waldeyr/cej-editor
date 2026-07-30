@@ -1,21 +1,27 @@
 // File operations: File System Access API, import/export, drag-drop on page
 window.FileOps = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   const hasFSA = 'showOpenFilePicker' in window;
+  const hasDirPicker = 'showDirectoryPicker' in window;
   const isSecure = window.isSecureContext;
   const supportsFSA = hasFSA && isSecure;
+  const supportsDirPicker = hasDirPicker && isSecure;
   // mtime of the on-disk file the last time we read or wrote it. Used to
   // detect external modifications when the editor regains focus.
   let lastKnownMtime = null;
   let externalChangePending = false;
+  let lastAssetsWarnKey = '';
+  let assetsPromptInFlight = false;
+  let lastAssetsPromptFile = '';
 
   function init() {
     const warn = document.getElementById('browser-warning');
     if (warn && !supportsFSA) {
       if (!isSecure && location.protocol === 'http:') {
-        warn.innerHTML = `Live local-file editing requires HTTPS. <a href="${location.href.replace(/^http:/, 'https:')}" style="color:inherit;text-decoration:underline;">Switch to HTTPS →</a>`;
+        warn.innerHTML = `${I18N.t('ui.file.browserWarnHttps')} <a href="${location.href.replace(/^http:/, 'https:')}" style="color:inherit;text-decoration:underline;">HTTPS</a>`;
       } else if (!hasFSA) {
-        warn.textContent = "Your browser doesn't support live local file editing (Safari/Firefox). Import/Export still works.";
+        warn.textContent = I18N.t('ui.file.browserWarnFallback');
       }
       warn.hidden = false;
     }
@@ -48,11 +54,19 @@ window.FileOps = (function() {
       if (f) importFile(f);
       fileInput.value = '';
     });
+
+    const assetsBtn = document.getElementById('tb-assets-dir');
+    if (assetsBtn) {
+      assetsBtn.disabled = !supportsDirPicker;
+      if (!supportsDirPicker) {
+        assetsBtn.title = I18N.t('ui.file.assetsDirUnsupported');
+      }
+    }
   }
 
   async function openLocalFile() {
     if (!supportsFSA) {
-      toast('Live local editing requires Chrome/Edge. Use Import instead.', 'warn');
+      toast(I18N.t('ui.file.fsaRequired'), 'warn');
       promptImport();
       return;
     }
@@ -62,19 +76,23 @@ window.FileOps = (function() {
       // dismissed and reopened. Simpler to let the user pick any file.
       const [handle] = await window.showOpenFilePicker({ multiple: false });
       const file = await handle.getFile();
-      const text = await file.text();
+      const text = await window.EncodingDetector.readFileWithEncoding(file);
+      if (window.AssetResolver) {
+        window.AssetResolver.revokeAllObjectUrls();
+        window.AssetResolver.setCurrentFileName(file.name);
+      }
       ES.setFile(handle, file.name);
       ES.state.sourceHtml = text;
       lastKnownMtime = file.lastModified;
       clearExternalChange();
       await window.ModeSwitch.loadIntoInitialMode(text);
       ES.addRecent(file.name);
-      toast(`Opened ${file.name} — changes will save to disk`, 'success');
+      toast(I18N.t('ui.file.opened', { name: file.name }), 'success');
       ES.setDirty(false);
     } catch (e) {
       if (e.name !== 'AbortError') {
         console.error(e);
-        toast('Could not open file: ' + e.message, 'error');
+        toast(I18N.t('ui.file.openError', { message: e.message }), 'error');
       }
     }
   }
@@ -85,15 +103,19 @@ window.FileOps = (function() {
 
   async function importFile(file) {
     try {
-      const text = await file.text();
+      const text = await window.EncodingDetector.readFileWithEncoding(file);
+      if (window.AssetResolver) {
+        window.AssetResolver.revokeAllObjectUrls();
+        window.AssetResolver.setCurrentFileName(file.name);
+      }
       ES.setFile(null, file.name);
       ES.state.sourceHtml = text;
       await window.ModeSwitch.loadIntoInitialMode(text);
       ES.addRecent(file.name);
-      toast(`Imported ${file.name} (read-only — use Export to save)`, '');
+      toast(I18N.t('ui.file.imported', { name: file.name }), '');
       ES.setDirty(false);
     } catch (e) {
-      toast('Could not import: ' + e.message, 'error');
+      toast(I18N.t('ui.file.importError', { message: e.message }), 'error');
     }
   }
 
@@ -112,7 +134,7 @@ window.FileOps = (function() {
     }
     if (!ES.state.doc) return ES.state.sourceHtml || '';
     if (!ES.state.dirty && ES.state.sourceHtml) return ES.state.sourceHtml;
-    let serialized = stripEditorTraces('<!DOCTYPE html>\n' + ES.state.doc.documentElement.outerHTML);
+    let serialized = serializeForSave(ES.state.doc);
     if (ES.state.sourceHtml) {
       // Splice the user's edit back into the original source so untouched
       // regions stay byte-identical (preserves doctype casing, original
@@ -133,6 +155,15 @@ window.FileOps = (function() {
       serialized = spliced !== null ? spliced : reEncodeEntities(serialized, ES.state.sourceHtml);
     }
     return serialized;
+  }
+
+  function serializeForSave(doc) {
+    const raw = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+    const parsed = new DOMParser().parseFromString(raw, 'text/html');
+    if (window.AssetResolver && typeof window.AssetResolver.restoreOriginalAttrs === 'function') {
+      window.AssetResolver.restoreOriginalAttrs(parsed);
+    }
+    return stripEditorTraces('<!DOCTYPE html>\n' + parsed.documentElement.outerHTML);
   }
 
   // Reduce the serialized-edited HTML back to (original source) + (just the
@@ -415,20 +446,17 @@ window.FileOps = (function() {
           const pre = await ES.state.fileHandle.getFile();
           if (lastKnownMtime != null && pre.lastModified > lastKnownMtime) {
             const overwrite = await window.Dialog.confirm({
-              title: 'File changed on disk',
-              message:
-                'Someone (or something) modified this file since you last read it. ' +
-                'Saving now will overwrite those external changes.\n\n' +
-                'Overwrite anyway, or cancel and use ↻ Refresh to see the disk version first?',
-              confirmLabel: 'Overwrite disk',
-              cancelLabel: 'Cancel',
+              title: I18N.t('ui.file.overwriteTitle'),
+              message: I18N.t('ui.file.overwriteMsg'),
+              confirmLabel: I18N.t('ui.file.overwriteConfirm'),
+              cancelLabel: I18N.t('ui.file.cancel'),
               danger: true,
             });
             if (!overwrite) {
               markExternalChange();
               const s = document.getElementById('save-status');
               s.dataset.state = 'dirty';
-              s.textContent = '● Unsaved';
+              s.textContent = I18N.t('ui.toolbar.unsaved');
               return;
             }
           }
@@ -436,7 +464,7 @@ window.FileOps = (function() {
 
         const status = document.getElementById('save-status');
         status.dataset.state = 'saving';
-        status.textContent = 'Saving…';
+        status.textContent = I18N.t('ui.file.saving');
         await writeWithPermissionRecovery(ES.state.fileHandle, html);
         ES.state.sourceHtml = html;
         ES.setDirty(false);
@@ -445,16 +473,56 @@ window.FileOps = (function() {
         try { const f = await ES.state.fileHandle.getFile(); lastKnownMtime = f.lastModified; } catch (_) {}
         clearExternalChange();
         status.dataset.state = 'saved';
-        status.textContent = 'Saved';
-        toast('Saved', 'success');
+        status.textContent = I18N.t('ui.file.saved');
+        toast(I18N.t('ui.file.saved'), 'success');
       } catch (e) {
         const status = document.getElementById('save-status');
         status.dataset.state = 'error';
-        status.textContent = 'Error';
-        toast('Save failed: ' + e.message, 'error');
+        status.textContent = I18N.getLang() === 'pt-BR' ? 'Erro' : 'Error';
+        toast(I18N.t('ui.file.saveFailed', { message: e.message }), 'error');
       }
     } else {
       exportFile();
+    }
+  }
+
+  async function saveAs() {
+    const html = currentHtml();
+    if (!html) return;
+    if (!supportsFSA || typeof window.showSaveFilePicker !== 'function') {
+      exportFile();
+      return;
+    }
+
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: ES.state.fileName || 'untitled.html',
+        types: [
+          {
+            description: 'HTML',
+            accept: { 'text/html': ['.html', '.htm'] },
+          },
+        ],
+      });
+
+      const status = document.getElementById('save-status');
+      status.dataset.state = 'saving';
+      status.textContent = I18N.t('ui.file.saving');
+      await writeWithPermissionRecovery(handle, html);
+      ES.setFile(handle, handle.name || 'untitled.html');
+      ES.state.sourceHtml = html;
+      ES.setDirty(false);
+      try { const f = await handle.getFile(); lastKnownMtime = f.lastModified; } catch (_) {}
+      clearExternalChange();
+      status.dataset.state = 'saved';
+      status.textContent = I18N.t('ui.file.saved');
+      toast(I18N.t('ui.file.savedAs', { name: handle.name || 'untitled.html' }), 'success');
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      const status = document.getElementById('save-status');
+      status.dataset.state = 'error';
+      status.textContent = I18N.getLang() === 'pt-BR' ? 'Erro' : 'Error';
+      toast(I18N.t('ui.file.saveFailed', { message: e.message }), 'error');
     }
   }
 
@@ -470,7 +538,7 @@ window.FileOps = (function() {
     URL.revokeObjectURL(url);
     ES.state.sourceHtml = html;
     ES.setDirty(false);
-    toast('Exported ' + a.download, 'success');
+    toast(I18N.t('ui.file.exported', { name: a.download }), 'success');
   }
 
   // Write through the FSA handle. If the browser denies writes
@@ -491,7 +559,7 @@ window.FileOps = (function() {
 
       const granted = await handle.requestPermission({ mode: 'readwrite' });
       if (granted !== 'granted') {
-        const err = new Error('Write permission denied — re-grant access via the page-info icon in the address bar');
+        const err = new Error(I18N.t('ui.file.permissionDenied'));
         err.cause = e;
         throw err;
       }
@@ -506,30 +574,96 @@ window.FileOps = (function() {
     return html
       .replace(/<style id="__he_styles__">[\s\S]*?<\/style>/g, '')
       .replace(/\s+contenteditable="[^"]*"/g, '')
-      .replace(/\s+data-he-editing="[^"]*"/g, '');
+      .replace(/\s+data-he-editing="[^"]*"/g, '')
+      .replace(/\s+data-he-preview-asset="[^"]*"/g, '')
+      .replace(/\s+data-he-original-(?:src|srcset|poster|href)="[^"]*"/g, '');
   }
 
   async function newBlank() {
     const blank = `<!DOCTYPE html>
-<html lang="en">
+  <html lang="${I18N.getLang()}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Untitled</title>
+<title>${I18N.t('ui.file.blankTitle')}</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #1a1f2c; line-height: 1.6; }
 h1 { font-size: 32px; }
 </style>
 </head>
 <body>
-<h1>New page</h1>
-<p>Start editing — click anything to select, double-click to edit text, drag blocks from the sidebar.</p>
+<h1>${I18N.t('ui.file.blankHeading')}</h1>
+<p>${I18N.t('ui.file.blankBody')}</p>
 </body>
 </html>`;
     ES.setFile(null, 'untitled.html');
+    if (window.AssetResolver) {
+      window.AssetResolver.revokeAllObjectUrls();
+      window.AssetResolver.setCurrentFileName('untitled.html');
+    }
     ES.state.sourceHtml = blank;
     await window.ModeSwitch.loadIntoInitialMode(blank);
     ES.setDirty(false);
+  }
+
+  async function linkAssetsDirectory() {
+    if (!supportsDirPicker) {
+      toast(I18N.t('ui.file.assetsDirUnsupported'), 'warn');
+      return;
+    }
+    if (!window.AssetResolver) return;
+    try {
+      const dir = await window.showDirectoryPicker();
+      window.AssetResolver.setAssetDirectory(dir, dir.name);
+      toast(I18N.t('ui.file.assetsDirLinked', { name: dir.name }), 'success');
+      lastAssetsWarnKey = '';
+      if (ES.state.mode === 'visual' && ES.state.doc) {
+        window.Canvas.loadHtml(currentHtml());
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      toast(I18N.t('ui.file.assetsDirError', { message: e.message }), 'error');
+    }
+  }
+
+  function notifyAssetsUnresolved(result) {
+    if (!result || result.unresolved <= 0) return;
+    const key = [ES.state.fileName || '', result.unresolved, !!(window.AssetResolver && window.AssetResolver.hasAssetDirectory && window.AssetResolver.hasAssetDirectory())].join('|');
+    if (key === lastAssetsWarnKey) return;
+    lastAssetsWarnKey = key;
+    const hasDir = window.AssetResolver && window.AssetResolver.hasAssetDirectory && window.AssetResolver.hasAssetDirectory();
+    if (!hasDir) {
+      toast(I18N.t('ui.file.assetsDirNeeded', { count: result.unresolved }), 'warn');
+      promptAssetsDirectoryIfNeeded(result.unresolved);
+      return;
+    }
+    toast(I18N.t('ui.file.assetsStillMissing', { count: result.unresolved }), 'warn');
+  }
+
+  async function promptAssetsDirectoryIfNeeded(unresolvedCount) {
+    if (!supportsDirPicker || assetsPromptInFlight) return;
+    const fileKey = ES.state.fileName || '';
+    if (fileKey && fileKey === lastAssetsPromptFile) return;
+
+    assetsPromptInFlight = true;
+    try {
+      const ok = await window.Dialog.confirm({
+        title: I18N.t('ui.file.assetsPromptTitle'),
+        message: I18N.t('ui.file.assetsPromptMsg', { count: unresolvedCount }),
+        confirmLabel: I18N.t('ui.file.assetsPromptConfirm'),
+        cancelLabel: I18N.t('ui.file.cancel'),
+      });
+      if (!ok) {
+        lastAssetsPromptFile = fileKey;
+        return;
+      }
+      await linkAssetsDirectory();
+      lastAssetsPromptFile = fileKey;
+    } catch (_) {
+      // Best-effort prompt only.
+    } finally {
+      assetsPromptInFlight = false;
+    }
   }
 
   function toast(msg, type = '') {
@@ -544,26 +678,27 @@ h1 { font-size: 32px; }
   // refresh button and the focus-based external-change detector.
   async function reloadFromDisk(opts = {}) {
     if (!ES.state.fileHandle) {
-      toast('No linked file — open one with "Open Local File" first', 'warn');
+      toast(I18N.t('ui.file.noLinkedFile'), 'warn');
       return false;
     }
     try {
       const file = await ES.state.fileHandle.getFile();
-      const text = await file.text();
+      const text = await window.EncodingDetector.readFileWithEncoding(file);
       lastKnownMtime = file.lastModified;
+      if (window.AssetResolver) window.AssetResolver.setCurrentFileName(file.name);
 
       if (text === ES.state.sourceHtml) {
-        if (!opts.silent) toast('Already up to date', '');
+        if (!opts.silent) toast(I18N.t('ui.file.upToDate'), '');
         clearExternalChange();
         return false;
       }
 
       if (ES.state.dirty && !opts.force) {
         const ok = await window.Dialog.confirm({
-          title: 'File changed on disk',
-          message: 'You have unsaved changes in the editor. Reload from disk and discard them?',
-          confirmLabel: 'Discard & reload',
-          cancelLabel: 'Keep my changes',
+          title: I18N.t('ui.file.reloadDiscardTitle'),
+          message: I18N.t('ui.file.reloadDiscardMsg'),
+          confirmLabel: I18N.t('ui.file.reloadDiscardConfirm'),
+          cancelLabel: I18N.t('ui.file.keepChanges'),
           danger: true,
         });
         if (!ok) return false;
@@ -577,10 +712,10 @@ h1 { font-size: 32px; }
       }
       ES.setDirty(false);
       clearExternalChange();
-      toast('Reloaded from disk', 'success');
+      toast(I18N.t('ui.file.reloaded'), 'success');
       return true;
     } catch (e) {
-      toast('Reload failed: ' + e.message, 'error');
+      toast(I18N.t('ui.file.reloadFailed', { message: e.message }), 'error');
       return false;
     }
   }
@@ -602,16 +737,16 @@ h1 { font-size: 32px; }
     const btn = document.getElementById('tb-refresh');
     if (btn) {
       btn.classList.add('has-update');
-      btn.title = 'File changed on disk — click to reload';
+      btn.title = I18N.t('ui.file.changedOnDiskBtn');
     }
-    toast('File changed on disk — click ↻ to reload', 'warn');
+    toast(I18N.t('ui.file.changedOnDiskToast'), 'warn');
   }
   function clearExternalChange() {
     externalChangePending = false;
     const btn = document.getElementById('tb-refresh');
     if (btn) {
       btn.classList.remove('has-update');
-      btn.title = 'Refresh from disk — pull in external changes';
+      btn.title = I18N.t('ui.file.refreshDiskBtn');
     }
   }
 
@@ -632,5 +767,20 @@ h1 { font-size: 32px; }
     }
   });
 
-  return { init, openLocalFile, promptImport, importFile, save, exportFile, newBlank, reloadFromDisk, checkExternalChanges, currentHtml, supportsFSA };
+  return {
+    init,
+    openLocalFile,
+    promptImport,
+    importFile,
+    save,
+    saveAs,
+    exportFile,
+    newBlank,
+    reloadFromDisk,
+    checkExternalChanges,
+    currentHtml,
+    supportsFSA,
+    linkAssetsDirectory,
+    notifyAssetsUnresolved,
+  };
 })();

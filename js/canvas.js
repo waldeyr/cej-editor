@@ -84,12 +84,22 @@ window.Canvas = (function() {
       html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Untitled</title></head><body></body></html>';
     }
     iframe.srcdoc = html;
-    iframe.onload = () => {
+    iframe.onload = async () => {
       const doc = iframe.contentDocument;
       injectEditorStyles(doc);
+      await applyPreviewAssets(doc);
       ES.setDoc(doc);
       wireIframeEvents();
     };
+  }
+
+  async function applyPreviewAssets(doc) {
+    if (!window.AssetResolver || typeof window.AssetResolver.applyToDocument !== 'function') return;
+    const result = await window.AssetResolver.applyToDocument(doc);
+    if (!result || result.unresolved <= 0) return;
+    if (window.FileOps && typeof window.FileOps.notifyAssetsUnresolved === 'function') {
+      window.FileOps.notifyAssetsUnresolved(result);
+    }
   }
 
   function injectEditorStyles(doc) {
@@ -99,11 +109,14 @@ window.Canvas = (function() {
     doc.head.appendChild(style);
   }
 
-  function wireIframeEvents() {
+  async function wireIframeEvents() {
     const doc = ES.state.doc;
     if (!doc) return;
     // Re-inject styles if they were lost (e.g., after undo via doc.write)
     if (!doc.getElementById('__he_styles__') && doc.head) injectEditorStyles(doc);
+    try {
+      await applyPreviewAssets(doc);
+    } catch (_) { /* preview asset resolution is best-effort */ }
     const body = doc.body;
     if (!body) return;
 

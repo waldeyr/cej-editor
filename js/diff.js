@@ -3,6 +3,7 @@
 // (ESM CDN, lazy-loaded on first open).
 window.DiffViewer = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   let jsdiff = null;
 
   async function ensureLib() {
@@ -20,23 +21,28 @@ window.DiffViewer = (function() {
 
   async function showAgainstDisk() {
     if (!ES.state.fileHandle) {
-      toast('No linked file — open one with "Open Local File" first', 'warn');
+      toast(I18N.t('ui.diff.noLinkedFile'), 'warn');
       return;
     }
     let diskText;
     try {
       const file = await ES.state.fileHandle.getFile();
-      diskText = await file.text();
+      diskText = await window.EncodingDetector.readFileWithEncoding(file);
     } catch (e) {
-      toast('Could not read file: ' + e.message, 'error');
+      toast(I18N.t('ui.diff.readError', { message: e.message }), 'error');
       return;
     }
     const editorText = currentEditorText();
     if (diskText === editorText) {
-      toast('No differences — editor matches disk', 'success');
+      toast(I18N.t('ui.diff.noDifferences'), 'success');
       return;
     }
-    await renderModal(diskText, editorText, 'on disk', 'editor');
+    await renderModal(
+      diskText,
+      editorText,
+      I18N.getLang() === 'pt-BR' ? 'no disco' : 'on disk',
+      I18N.getLang() === 'pt-BR' ? 'editor' : 'editor'
+    );
   }
 
   // How many lines of context to show on each side of a change when
@@ -62,7 +68,7 @@ window.DiffViewer = (function() {
     const modal = document.createElement('div');
     modal.className = 'diff-modal';
     modal.innerHTML = `
-      <div class="diff-panel" role="dialog" aria-label="Diff viewer">
+      <div class="diff-panel" role="dialog" aria-label="${escapeHtml(I18N.t('ui.diff.diffViewerAria'))}">
         <header class="diff-header">
           <div class="diff-title">
             <span class="diff-label diff-label-old">${escapeHtml(oldLabel)}</span>
@@ -74,16 +80,16 @@ window.DiffViewer = (function() {
             </span>
           </div>
           <div class="diff-actions">
-            <button class="diff-mode-btn active" data-view="unified" title="Unified view"><i data-lucide="rows-3"></i></button>
-            <button class="diff-mode-btn" data-view="split" title="Side-by-side view"><i data-lucide="columns-2"></i></button>
+            <button class="diff-mode-btn active" data-view="unified" title="${escapeHtml(I18N.t('ui.diff.unifiedTitle'))}"><i data-lucide="rows-3"></i></button>
+            <button class="diff-mode-btn" data-view="split" title="${escapeHtml(I18N.t('ui.diff.splitTitle'))}"><i data-lucide="columns-2"></i></button>
             <span class="diff-spacer"></span>
-            <button class="diff-mode-btn diff-collapse-toggle active" id="diff-collapse-toggle" title="Show only changed regions (with ${CONTEXT_LINES} lines of context)"><i data-lucide="unfold-vertical"></i><span>Collapse</span></button>
+            <button class="diff-mode-btn diff-collapse-toggle active" id="diff-collapse-toggle" title="${escapeHtml(I18N.t('ui.diff.collapseTitle', { lines: CONTEXT_LINES }))}"><i data-lucide="unfold-vertical"></i><span>${escapeHtml(I18N.t('ui.diff.collapse'))}</span></button>
             <span class="diff-spacer"></span>
-            <button class="diff-action-btn" id="diff-copy" title="Copy diff to clipboard"><i data-lucide="copy"></i></button>
+            <button class="diff-action-btn" id="diff-copy" title="${escapeHtml(I18N.t('ui.diff.copyTitle'))}"><i data-lucide="copy"></i></button>
             ${opts.hideApplyButtons ? '' : `
-            <button class="diff-action-btn" id="diff-apply-disk" title="Discard editor changes — load disk version"><i data-lucide="download"></i><span>Use disk</span></button>
-            <button class="diff-action-btn diff-action-primary" id="diff-save" title="Save editor → disk"><i data-lucide="save"></i><span>Save to disk</span></button>`}
-            <button class="diff-close" aria-label="Close"><i data-lucide="x"></i></button>
+            <button class="diff-action-btn" id="diff-apply-disk" title="${escapeHtml(I18N.t('ui.diff.useDiskTitle'))}"><i data-lucide="download"></i><span>${escapeHtml(I18N.t('ui.diff.useDisk'))}</span></button>
+            <button class="diff-action-btn diff-action-primary" id="diff-save" title="${escapeHtml(I18N.t('ui.diff.saveDiskTitle'))}"><i data-lucide="save"></i><span>${escapeHtml(I18N.t('ui.diff.saveDisk'))}</span></button>`}
+            <button class="diff-close" aria-label="${escapeHtml(I18N.t('ui.diff.close'))}"><i data-lucide="x"></i></button>
           </div>
         </header>
         <div class="diff-body" data-view="unified"></div>
@@ -118,8 +124,10 @@ window.DiffViewer = (function() {
     collapseBtn.addEventListener('click', () => {
       collapsed = !collapsed;
       collapseBtn.classList.toggle('active', collapsed);
-      collapseBtn.title = collapsed ? 'Click to show every line' : `Click to hide unchanged regions (${CONTEXT_LINES} lines of context)`;
-      collapseBtn.querySelector('span').textContent = collapsed ? 'Collapse' : 'Expand all';
+      collapseBtn.title = collapsed
+        ? I18N.t('ui.diff.collapseToggleShowAll')
+        : I18N.t('ui.diff.collapseToggleHide', { lines: CONTEXT_LINES });
+      collapseBtn.querySelector('span').textContent = collapsed ? I18N.t('ui.diff.collapse') : I18N.t('ui.diff.expandAll');
       rerender();
     });
 
@@ -127,8 +135,8 @@ window.DiffViewer = (function() {
     modal.querySelector('#diff-copy').addEventListener('click', () => {
       const patch = lib.createTwoFilesPatch(oldLabel, newLabel, oldText, newText);
       navigator.clipboard.writeText(patch).then(
-        () => toast('Diff copied to clipboard', 'success'),
-        () => toast('Copy failed', 'error')
+        () => toast(I18N.t('ui.diff.copied'), 'success'),
+        () => toast(I18N.t('ui.diff.copyFailed'), 'error')
       );
     });
 
@@ -136,9 +144,9 @@ window.DiffViewer = (function() {
     const applyBtn = modal.querySelector('#diff-apply-disk');
     if (applyBtn) applyBtn.addEventListener('click', async () => {
       const ok = await window.Dialog.confirm({
-        title: 'Discard editor changes?',
-        message: 'The on-disk version will replace what you have in the editor.',
-        confirmLabel: 'Discard & load disk',
+        title: I18N.t('ui.diff.discardTitle'),
+        message: I18N.t('ui.diff.discardMsg'),
+        confirmLabel: I18N.t('ui.diff.discardConfirm'),
         danger: true,
       });
       if (!ok) return;
@@ -230,10 +238,12 @@ window.DiffViewer = (function() {
     const row = document.createElement('div');
     row.className = 'diff-gap';
     const count = hiddenLines.length;
+    const titleText = I18N.t('ui.diff.showHiddenTitle', { count });
+    const bodyText = count === 1 ? I18N.t('ui.diff.hiddenLine') : I18N.t('ui.diff.hiddenLines', { count });
     row.innerHTML = `
-      <button class="diff-gap-btn" title="Show all ${count} hidden line${count === 1 ? '' : 's'}">
+      <button class="diff-gap-btn" title="${escapeHtml(titleText)}">
         <i data-lucide="chevrons-up-down"></i>
-        <span>${count} unchanged line${count === 1 ? '' : 's'} hidden</span>
+        <span>${escapeHtml(bodyText)}</span>
       </button>
     `;
     row.querySelector('button').addEventListener('click', () => {
@@ -272,10 +282,12 @@ window.DiffViewer = (function() {
         const gap = document.createElement('div');
         gap.className = 'diff-gap diff-gap-full';
         const count = seg.lines.length;
+        const titleText = I18N.t('ui.diff.showHiddenTitle', { count });
+        const bodyText = count === 1 ? I18N.t('ui.diff.hiddenLine') : I18N.t('ui.diff.hiddenLines', { count });
         gap.innerHTML = `
-          <button class="diff-gap-btn" title="Show all ${count} hidden line${count === 1 ? '' : 's'}">
+          <button class="diff-gap-btn" title="${escapeHtml(titleText)}">
             <i data-lucide="chevrons-up-down"></i>
-            <span>${count} unchanged line${count === 1 ? '' : 's'} hidden</span>
+            <span>${escapeHtml(bodyText)}</span>
           </button>
         `;
         gap.querySelector('button').addEventListener('click', () => {

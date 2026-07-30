@@ -176,7 +176,11 @@ window.EditorState = (function() {
           html = (window.Source && window.Source.getContent()) || state.sourceHtml || '';
         } else {
           if (!state.doc) return;
-          html = state.doc.documentElement.outerHTML;
+          if (window.FileOps && typeof window.FileOps.currentHtml === 'function') {
+            html = window.FileOps.currentHtml();
+          } else {
+            html = state.doc.documentElement.outerHTML;
+          }
         }
         if (!html) return;
         localStorage.setItem('html-editor.autosave', html);

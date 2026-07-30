@@ -1,6 +1,7 @@
 // Properties panel (Style, Attributes, HTML tabs)
 window.Properties = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   let styleEl, attrsEl, htmlEl;
 
   function init() {
@@ -11,6 +12,7 @@ window.Properties = (function() {
     ES.on((evt) => {
       if (evt === 'selection-changed' || evt === 'history' || evt === 'doc-replaced') render();
     });
+    window.addEventListener('i18n:changed', render);
     render();
   }
 
@@ -18,11 +20,11 @@ window.Properties = (function() {
     const sel = ES.state.selected;
     if (!sel) {
       styleEl.className = 'props empty';
-      styleEl.innerHTML = 'Select an element to edit its style.';
+      styleEl.innerHTML = I18N.t('ui.props.emptyStyle');
       attrsEl.className = 'props empty';
-      attrsEl.innerHTML = 'Select an element to edit attributes.';
+      attrsEl.innerHTML = I18N.t('ui.props.emptyAttrs');
       htmlEl.className = 'props empty';
-      htmlEl.innerHTML = 'Select an element to edit raw HTML.';
+      htmlEl.innerHTML = I18N.t('ui.props.emptyHtml');
       return;
     }
     styleEl.className = 'props';
@@ -38,53 +40,53 @@ window.Properties = (function() {
     const cs = el.ownerDocument.defaultView.getComputedStyle(el);
     styleEl.innerHTML = '';
 
-    styleEl.appendChild(group('Typography', [
-      selectRow('Font', cs.fontFamily.split(',')[0].replace(/['"]/g, ''), [
+    styleEl.appendChild(group(I18N.t('ui.props.typography'), [
+      selectRow(I18N.t('ui.props.row.font'), cs.fontFamily.split(',')[0].replace(/['"]/g, ''), [
         'inherit','system-ui','-apple-system, sans-serif','Helvetica, Arial, sans-serif',
         'Georgia, serif','Times New Roman, serif','ui-monospace, monospace',
         'Inter, sans-serif','Roboto, sans-serif'
       ], v => setStyle(el, 'font-family', v === 'inherit' ? '' : v)),
-      lengthRow('Size', cs.fontSize, v => setStyle(el, 'font-size', v)),
-      selectRow('Weight', cs.fontWeight, ['300','400','500','600','700','800','900'], v => setStyle(el, 'font-weight', v)),
-      selectRow('Align', cs.textAlign, ['left','center','right','justify'], v => setStyle(el, 'text-align', v)),
-      colorRow('Color', rgbToHex(cs.color), v => setStyle(el, 'color', v)),
-      lengthRow('Line-h', cs.lineHeight === 'normal' ? '' : cs.lineHeight, v => setStyle(el, 'line-height', v)),
-      lengthRow('Tracking', cs.letterSpacing === 'normal' ? '' : cs.letterSpacing, v => setStyle(el, 'letter-spacing', v)),
+      lengthRow(I18N.t('ui.props.row.size'), cs.fontSize, v => setStyle(el, 'font-size', v)),
+      selectRow(I18N.t('ui.props.row.weight'), cs.fontWeight, ['300','400','500','600','700','800','900'], v => setStyle(el, 'font-weight', v)),
+      selectRow(I18N.t('ui.props.row.align'), cs.textAlign, ['left','center','right','justify'], v => setStyle(el, 'text-align', v)),
+      colorRow(I18N.t('ui.props.row.color'), rgbToHex(cs.color), v => setStyle(el, 'color', v)),
+      lengthRow(I18N.t('ui.props.row.lineHeight'), cs.lineHeight === 'normal' ? '' : cs.lineHeight, v => setStyle(el, 'line-height', v)),
+      lengthRow(I18N.t('ui.props.row.tracking'), cs.letterSpacing === 'normal' ? '' : cs.letterSpacing, v => setStyle(el, 'letter-spacing', v)),
     ]));
 
-    styleEl.appendChild(group('Layout', [
-      selectRow('Display', cs.display, ['block','inline','inline-block','flex','inline-flex','grid','inline-grid','none'], v => setStyle(el, 'display', v)),
-      isFlexOrGrid(cs.display) ? selectRow('Direction', cs.flexDirection, ['row','column','row-reverse','column-reverse'], v => setStyle(el, 'flex-direction', v)) : null,
-      isFlexOrGrid(cs.display) ? selectRow('Justify', cs.justifyContent, ['flex-start','center','flex-end','space-between','space-around','space-evenly'], v => setStyle(el, 'justify-content', v)) : null,
-      isFlexOrGrid(cs.display) ? selectRow('Align', cs.alignItems, ['stretch','flex-start','center','flex-end','baseline'], v => setStyle(el, 'align-items', v)) : null,
-      isFlexOrGrid(cs.display) ? lengthRow('Gap', cs.gap === 'normal' ? '' : cs.gap, v => setStyle(el, 'gap', v)) : null,
-      selectRow('Position', cs.position, ['static','relative','absolute','fixed','sticky'], v => setStyle(el, 'position', v)),
-      lengthRow('Width', cs.width, v => setStyle(el, 'width', v)),
-      lengthRow('Height', cs.height, v => setStyle(el, 'height', v)),
-      lengthRow('Max-w', cs.maxWidth === 'none' ? '' : cs.maxWidth, v => setStyle(el, 'max-width', v)),
+    styleEl.appendChild(group(I18N.t('ui.props.layout'), [
+      selectRow(I18N.t('ui.props.row.display'), cs.display, ['block','inline','inline-block','flex','inline-flex','grid','inline-grid','none'], v => setStyle(el, 'display', v)),
+      isFlexOrGrid(cs.display) ? selectRow(I18N.t('ui.props.row.direction'), cs.flexDirection, ['row','column','row-reverse','column-reverse'], v => setStyle(el, 'flex-direction', v)) : null,
+      isFlexOrGrid(cs.display) ? selectRow(I18N.t('ui.props.row.justify'), cs.justifyContent, ['flex-start','center','flex-end','space-between','space-around','space-evenly'], v => setStyle(el, 'justify-content', v)) : null,
+      isFlexOrGrid(cs.display) ? selectRow(I18N.t('ui.props.row.alignItems'), cs.alignItems, ['stretch','flex-start','center','flex-end','baseline'], v => setStyle(el, 'align-items', v)) : null,
+      isFlexOrGrid(cs.display) ? lengthRow(I18N.t('ui.props.row.gap'), cs.gap === 'normal' ? '' : cs.gap, v => setStyle(el, 'gap', v)) : null,
+      selectRow(I18N.t('ui.props.row.position'), cs.position, ['static','relative','absolute','fixed','sticky'], v => setStyle(el, 'position', v)),
+      lengthRow(I18N.t('ui.props.row.width'), cs.width, v => setStyle(el, 'width', v)),
+      lengthRow(I18N.t('ui.props.row.height'), cs.height, v => setStyle(el, 'height', v)),
+      lengthRow(I18N.t('ui.props.row.maxWidth'), cs.maxWidth === 'none' ? '' : cs.maxWidth, v => setStyle(el, 'max-width', v)),
     ].filter(Boolean)));
 
     styleEl.appendChild(spacingGroup(el, cs));
 
-    styleEl.appendChild(group('Background', [
-      colorRow('Color', rgbToHex(cs.backgroundColor), v => setStyle(el, 'background-color', v)),
-      textRow('Image', extractUrl(cs.backgroundImage), v => setStyle(el, 'background-image', v ? `url("${v}")` : '')),
-      selectRow('Size', cs.backgroundSize, ['auto','cover','contain'], v => setStyle(el, 'background-size', v)),
-      selectRow('Position', cs.backgroundPosition, ['left top','center','right top','center bottom'], v => setStyle(el, 'background-position', v)),
+    styleEl.appendChild(group(I18N.t('ui.props.background'), [
+      colorRow(I18N.t('ui.props.row.color'), rgbToHex(cs.backgroundColor), v => setStyle(el, 'background-color', v)),
+      textRow(I18N.t('ui.props.row.image'), extractUrl(cs.backgroundImage), v => setStyle(el, 'background-image', v ? `url("${v}")` : '')),
+      selectRow(I18N.t('ui.props.row.size'), cs.backgroundSize, ['auto','cover','contain'], v => setStyle(el, 'background-size', v)),
+      selectRow(I18N.t('ui.props.row.position'), cs.backgroundPosition, ['left top','center','right top','center bottom'], v => setStyle(el, 'background-position', v)),
     ]));
 
-    styleEl.appendChild(group('Border', [
-      lengthRow('Radius', cs.borderRadius, v => setStyle(el, 'border-radius', v)),
-      lengthRow('Width', cs.borderTopWidth, v => setStyle(el, 'border-width', v)),
-      selectRow('Style', cs.borderTopStyle, ['none','solid','dashed','dotted','double'], v => setStyle(el, 'border-style', v)),
-      colorRow('Color', rgbToHex(cs.borderTopColor), v => setStyle(el, 'border-color', v)),
+    styleEl.appendChild(group(I18N.t('ui.props.border'), [
+      lengthRow(I18N.t('ui.props.row.radius'), cs.borderRadius, v => setStyle(el, 'border-radius', v)),
+      lengthRow(I18N.t('ui.props.row.width'), cs.borderTopWidth, v => setStyle(el, 'border-width', v)),
+      selectRow(I18N.t('ui.props.row.style'), cs.borderTopStyle, ['none','solid','dashed','dotted','double'], v => setStyle(el, 'border-style', v)),
+      colorRow(I18N.t('ui.props.row.color'), rgbToHex(cs.borderTopColor), v => setStyle(el, 'border-color', v)),
     ]));
 
-    styleEl.appendChild(group('Effects', [
-      sliderRow('Opacity', parseFloat(cs.opacity), 0, 1, 0.01, v => setStyle(el, 'opacity', v)),
-      textRow('Shadow', el.style.boxShadow || '', v => setStyle(el, 'box-shadow', v)),
-      textRow('Transform', el.style.transform || '', v => setStyle(el, 'transform', v)),
-      textRow('Cursor', cs.cursor, v => setStyle(el, 'cursor', v)),
+    styleEl.appendChild(group(I18N.t('ui.props.effects'), [
+      sliderRow(I18N.t('ui.props.row.opacity'), parseFloat(cs.opacity), 0, 1, 0.01, v => setStyle(el, 'opacity', v)),
+      textRow(I18N.t('ui.props.row.shadow'), el.style.boxShadow || '', v => setStyle(el, 'box-shadow', v)),
+      textRow(I18N.t('ui.props.row.transform'), el.style.transform || '', v => setStyle(el, 'transform', v)),
+      textRow(I18N.t('ui.props.row.cursor'), cs.cursor, v => setStyle(el, 'cursor', v)),
     ]));
   }
 
@@ -177,7 +179,7 @@ window.Properties = (function() {
     const g = document.createElement('div');
     g.className = 'prop-group';
     const h = document.createElement('h4');
-    h.textContent = 'Spacing';
+    h.textContent = I18N.t('ui.props.spacing');
     g.appendChild(h);
 
     // Margin outer box, padding inner box
@@ -215,16 +217,16 @@ window.Properties = (function() {
     attrsEl.innerHTML = '';
 
     // Tag
-    attrsEl.appendChild(group('Element', [
-      textRow('Tag', el.tagName.toLowerCase(), v => changeTag(el, v)),
-      textRow('ID', el.id || '', v => { if (v) el.id = v; else el.removeAttribute('id'); ES.snapshot('id'); }),
+    attrsEl.appendChild(group(I18N.t('ui.props.element'), [
+      textRow(I18N.t('ui.props.row.tag'), el.tagName.toLowerCase(), v => changeTag(el, v)),
+      textRow(I18N.t('ui.props.row.id'), el.id || '', v => { if (v) el.id = v; else el.removeAttribute('id'); ES.snapshot('id'); }),
     ]));
 
     // Classes
     const classesGroup = document.createElement('div');
     classesGroup.className = 'prop-group';
     const ch = document.createElement('h4');
-    ch.textContent = 'Classes';
+    ch.textContent = I18N.t('ui.props.classes');
     classesGroup.appendChild(ch);
 
     const chipsBox = document.createElement('div');
@@ -241,7 +243,7 @@ window.Properties = (function() {
     });
     const chipInp = document.createElement('input');
     chipInp.className = 'chip-input';
-    chipInp.placeholder = '+ class';
+    chipInp.placeholder = I18N.getLang() === 'pt-BR' ? '+ classe' : '+ class';
     chipInp.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && chipInp.value.trim()) {
         const cls = chipInp.value.trim().replace(/\./g, '');
@@ -259,17 +261,17 @@ window.Properties = (function() {
     const attrsGroup = document.createElement('div');
     attrsGroup.className = 'prop-group';
     const ah = document.createElement('h4');
-    ah.textContent = 'Attributes';
+    ah.textContent = I18N.t('ui.props.attributes');
     const addBtn = document.createElement('button');
     addBtn.className = 'tool-btn';
     addBtn.style.padding = '2px 8px';
-    addBtn.textContent = '+ Add';
+    addBtn.textContent = I18N.t('ui.props.add');
     addBtn.addEventListener('click', async () => {
       const name = await window.Dialog.prompt({
-        title: 'Add attribute',
-        message: 'Name of the HTML attribute (e.g. data-id, aria-label, role).',
-        placeholder: 'attribute name',
-        confirmLabel: 'Add',
+        title: I18N.t('ui.props.addAttrTitle'),
+        message: I18N.t('ui.props.addAttrMsg'),
+        placeholder: I18N.t('ui.props.addAttrPlaceholder'),
+        confirmLabel: I18N.t('ui.props.add'),
       });
       if (name) { el.setAttribute(name, ''); ES.snapshot('attr'); render(); }
     });
@@ -302,16 +304,16 @@ window.Properties = (function() {
     // Common shortcuts
     const tag = el.tagName.toLowerCase();
     if (tag === 'a') {
-      attrsGroup.appendChild(quickAttr(el, 'href', 'Link URL'));
-      attrsGroup.appendChild(quickAttr(el, 'target', 'Target (_blank)'));
+      attrsGroup.appendChild(quickAttr(el, 'href', I18N.t('ui.props.quick.linkUrl')));
+      attrsGroup.appendChild(quickAttr(el, 'target', I18N.t('ui.props.quick.target')));
     }
     if (tag === 'img') {
-      attrsGroup.appendChild(quickAttr(el, 'src', 'Image URL'));
-      attrsGroup.appendChild(quickAttr(el, 'alt', 'Alt text'));
+      attrsGroup.appendChild(quickAttr(el, 'src', I18N.t('ui.props.quick.imageUrl')));
+      attrsGroup.appendChild(quickAttr(el, 'alt', I18N.t('ui.props.quick.altText')));
     }
     if (['input','textarea','select'].includes(tag)) {
-      attrsGroup.appendChild(quickAttr(el, 'placeholder', 'Placeholder'));
-      attrsGroup.appendChild(quickAttr(el, 'name', 'Name'));
+      attrsGroup.appendChild(quickAttr(el, 'placeholder', I18N.t('ui.props.quick.placeholder')));
+      attrsGroup.appendChild(quickAttr(el, 'name', I18N.t('ui.props.quick.name')));
     }
     attrsEl.appendChild(attrsGroup);
   }
@@ -341,7 +343,7 @@ window.Properties = (function() {
     const wrap = document.createElement('div');
     wrap.className = 'prop-group';
     const h = document.createElement('h4');
-    h.textContent = 'Raw HTML (outer)';
+    h.textContent = I18N.t('ui.props.rawOuter');
     wrap.appendChild(h);
     const ta = document.createElement('textarea');
     ta.className = 'html-textarea';
@@ -352,10 +354,10 @@ window.Properties = (function() {
     btnRow.style.marginTop = '8px';
     const apply = document.createElement('button');
     apply.className = 'btn-block';
-    apply.textContent = 'Apply';
+    apply.textContent = I18N.t('ui.props.apply');
     const reset = document.createElement('button');
     reset.className = 'btn-block';
-    reset.textContent = 'Reset';
+    reset.textContent = I18N.t('ui.props.reset');
     apply.addEventListener('click', () => {
       try {
         const tpl = el.ownerDocument.createElement('template');
@@ -367,8 +369,8 @@ window.Properties = (function() {
         ES.select(repl);
       } catch (e) {
         window.Dialog.alert({
-          title: 'Invalid HTML',
-          message: 'The markup couldn\'t be parsed. Check for unbalanced tags or stray characters.',
+          title: I18N.t('ui.props.invalidHtmlTitle'),
+          message: I18N.t('ui.props.invalidHtmlMsg'),
           danger: true,
         });
       }
@@ -383,7 +385,7 @@ window.Properties = (function() {
     const wrap2 = document.createElement('div');
     wrap2.className = 'prop-group';
     const h2 = document.createElement('h4');
-    h2.textContent = 'Inner HTML';
+    h2.textContent = I18N.t('ui.props.innerHtml');
     wrap2.appendChild(h2);
     const ta2 = document.createElement('textarea');
     ta2.className = 'html-textarea';
@@ -394,7 +396,7 @@ window.Properties = (function() {
     btnRow2.style.marginTop = '8px';
     const apply2 = document.createElement('button');
     apply2.className = 'btn-block';
-    apply2.textContent = 'Apply';
+    apply2.textContent = I18N.t('ui.props.apply');
     apply2.addEventListener('click', () => {
       el.innerHTML = ta2.value;
       ES.snapshot('inner html');

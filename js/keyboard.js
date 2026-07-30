@@ -17,6 +17,11 @@ window.Keyboard = (function() {
     }
 
     // Save: cmd+S even if in field
+    if (mod && e.key === 's' && e.shiftKey) {
+      e.preventDefault();
+      window.FileOps.saveAs();
+      return;
+    }
     if (mod && e.key === 's') {
       e.preventDefault();
       window.FileOps.save();

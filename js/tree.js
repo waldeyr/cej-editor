@@ -1,6 +1,7 @@
 // DOM tree panel + breadcrumbs
 window.Tree = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   let treeEl, breadcrumbsEl;
   const collapsed = new WeakSet();
 
@@ -15,11 +16,15 @@ window.Tree = (function() {
         renderBreadcrumbs();
       }
     });
+    window.addEventListener('i18n:changed', () => {
+      render();
+      renderBreadcrumbs();
+    });
   }
 
   function render() {
     const doc = ES.state.doc;
-    if (!doc || !doc.body) { treeEl.innerHTML = '<div class="empty-list">No document</div>'; return; }
+    if (!doc || !doc.body) { treeEl.innerHTML = `<div class="empty-list">${I18N.t('ui.tree.noDocument')}</div>`; return; }
     treeEl.innerHTML = '';
     const root = renderNode(doc.body, 0);
     treeEl.appendChild(root);
@@ -149,7 +154,7 @@ window.Tree = (function() {
     breadcrumbsEl.innerHTML = '';
     const sel = ES.state.selected;
     if (!sel) {
-      breadcrumbsEl.innerHTML = '<span style="color:var(--text-faint);">No selection</span>';
+      breadcrumbsEl.innerHTML = `<span style="color:var(--text-faint);">${I18N.t('ui.tree.noSelection')}</span>`;
       return;
     }
     const chain = [];
@@ -176,10 +181,10 @@ window.Tree = (function() {
 
     const actions = document.createElement('span');
     actions.className = 'crumb-actions';
-    actions.appendChild(makeCrumbBtn('copy', 'Copy HTML', () => copyElementHtml(sel)));
-    actions.appendChild(makeCrumbBtn('list-tree', 'Copy Path', () => copyCssPath(sel)));
+    actions.appendChild(makeCrumbBtn('copy', I18N.t('ui.tree.copyHtml'), () => copyElementHtml(sel)));
+    actions.appendChild(makeCrumbBtn('list-tree', I18N.t('ui.tree.copyPath'), () => copyCssPath(sel)));
     const lineLabel = computeLineLabel(sel);
-    const lineText = lineLabel ? `Line ${lineLabel}` : 'Line';
+    const lineText = lineLabel ? I18N.t('ui.tree.lineWithNumber', { line: lineLabel }) : I18N.t('ui.tree.line');
     actions.appendChild(makeCrumbBtn('hash', lineText, () => copyLineNumbers(sel)));
     breadcrumbsEl.appendChild(actions);
     if (window.lucide && window.lucide.createIcons) {
@@ -216,13 +221,13 @@ window.Tree = (function() {
 
   function copyElementHtml(el) {
     const html = el.outerHTML || '';
-    writeClipboard(html, `Copied ${el.tagName.toLowerCase()} (${html.length} chars)`);
+    writeClipboard(html, I18N.t('ui.tree.copiedTag', { tag: el.tagName.toLowerCase(), size: html.length }));
   }
 
   function copyCssPath(el) {
     const path = buildCssPath(el);
-    if (!path) { toast('Could not build path', 'warn'); return; }
-    writeClipboard(path, `Copied path: ${path}`);
+    if (!path) { toast(I18N.t('ui.tree.copyFailedPath'), 'warn'); return; }
+    writeClipboard(path, I18N.t('ui.tree.copiedPath', { path }));
   }
 
   // Build a CSS selector path from <body> down to the target element.
@@ -262,23 +267,23 @@ window.Tree = (function() {
 
   function copyLineNumbers(el) {
     const source = ES.state.sourceHtml || '';
-    if (!source) { toast('No source available', 'warn'); return; }
+    if (!source) { toast(I18N.t('ui.tree.noSource'), 'warn'); return; }
     const path = ES.pathTo(el);
-    if (!path) { toast('Could not resolve element path', 'warn'); return; }
+    if (!path) { toast(I18N.t('ui.tree.unresolvedPath'), 'warn'); return; }
     const range = locateInSource(source, path);
-    if (!range) { toast('Could not locate element in source', 'warn'); return; }
+    if (!range) { toast(I18N.t('ui.tree.unresolvedSource'), 'warn'); return; }
     const text = range.startLine === range.endLine
       ? String(range.startLine)
       : `${range.startLine}-${range.endLine}`;
-    const noteSuffix = ES.state.dirty ? ' (source may be stale — unsaved edits)' : '';
-    writeClipboard(text, `Copied line ${text}${noteSuffix}`);
+    const noteSuffix = ES.state.dirty ? I18N.t('ui.tree.staleSuffix') : '';
+    writeClipboard(text, I18N.t('ui.tree.copiedLine', { line: text, suffix: noteSuffix }));
   }
 
   function writeClipboard(text, successMsg) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         () => toast(successMsg, 'success'),
-        () => toast('Copy failed — clipboard blocked', 'error')
+        () => toast(I18N.t('ui.tree.copyBlocked'), 'error')
       );
     } else {
       const ta = document.createElement('textarea');
@@ -288,7 +293,7 @@ window.Tree = (function() {
       document.body.appendChild(ta);
       ta.select();
       try { document.execCommand('copy'); toast(successMsg, 'success'); }
-      catch { toast('Copy failed', 'error'); }
+      catch { toast(I18N.t('ui.tree.copyFailed'), 'error'); }
       ta.remove();
     }
   }

@@ -2,6 +2,7 @@
 // and shows the deployed short SHA + build time. Links to the commit on GitHub.
 (function() {
   const REPO = 'mncoleman/html-editor';
+  const I18N = window.I18N;
 
   async function init() {
     try {
@@ -20,9 +21,9 @@
     const text = built ? `${v.short} · ${built}` : v.short;
     const href = `https://github.com/${REPO}/commit/${v.sha || v.short}`;
     const title = [
-      `commit: ${v.sha || v.short}`,
-      v.ref ? `branch: ${v.ref}` : null,
-      v.built_at ? `built: ${v.built_at}` : null,
+      I18N.t('ui.version.commit', { sha: v.sha || v.short }),
+      v.ref ? I18N.t('ui.version.branch', { ref: v.ref }) : null,
+      v.built_at ? I18N.t('ui.version.built', { at: v.built_at }) : null,
     ].filter(Boolean).join('\n');
 
     ['version-chip', 'empty-version-chip'].forEach(id => {
@@ -41,12 +42,12 @@
     if (isNaN(d.getTime())) return '';
     const diff = Date.now() - d.getTime();
     const m = Math.floor(diff / 60000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m}m ago`;
+    if (m < 1) return I18N.t('ui.version.justNow');
+    if (m < 60) return I18N.t('ui.version.minutesAgo', { m });
     const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
+    if (h < 24) return I18N.t('ui.version.hoursAgo', { h });
     const days = Math.floor(h / 24);
-    if (days < 30) return `${days}d ago`;
+    if (days < 30) return I18N.t('ui.version.daysAgo', { d: days });
     return d.toISOString().slice(0, 10);
   }
 

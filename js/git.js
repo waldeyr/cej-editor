@@ -4,6 +4,7 @@
 // the directory handle and relative path are cached on the EditorState.
 window.GitDiff = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   let git = null;        // isomorphic-git module
   // Per-file cache: { fileHandleKey -> { dirHandle, relPath, branch } }
   const cache = new WeakMap();
@@ -17,39 +18,39 @@ window.GitDiff = (function() {
 
   async function showDiff() {
     if (!ES.state.fileHandle) {
-      toast('Open a file first', 'warn');
+      toast(I18N.t('ui.git.openFirst'), 'warn');
       return;
     }
     let info = cache.get(ES.state.fileHandle);
     if (!info) {
       const ok = await window.Dialog.confirm({
-        title: 'Diff vs. git HEAD',
-        message: 'Pick your repo root directory in the next picker. Cached per file for this session — no network upload, all parsing happens in your browser.',
-        confirmLabel: 'Pick directory',
+        title: I18N.t('ui.git.title'),
+        message: I18N.t('ui.git.message'),
+        confirmLabel: I18N.t('ui.git.pickDirectory'),
       });
       if (!ok) return;
       try {
         const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-        toast('Scanning for file in repo…', '');
+        toast(I18N.t('ui.git.scanning'), '');
         const relPath = await findRelativePath(dirHandle, ES.state.fileHandle);
         if (!relPath) {
-          toast('The open file isn\'t inside that directory', 'error');
+          toast(I18N.t('ui.git.fileOutside'), 'error');
           return;
         }
         // Verify .git exists
         try { await dirHandle.getDirectoryHandle('.git'); }
-        catch { toast('No .git directory found — not a git repo root', 'error'); return; }
+        catch { toast(I18N.t('ui.git.noGit'), 'error'); return; }
         info = { dirHandle, relPath };
         cache.set(ES.state.fileHandle, info);
       } catch (e) {
-        if (e.name !== 'AbortError') toast('Could not open directory: ' + e.message, 'error');
+        if (e.name !== 'AbortError') toast(I18N.t('ui.git.openDirError', { message: e.message }), 'error');
         return;
       }
     }
 
     let headText;
     try {
-      toast('Reading HEAD…', '');
+      toast(I18N.t('ui.git.readingHead'), '');
       const lib = await ensureLib();
       const fs = fsaAdapter(info.dirHandle);
       const oid = await lib.resolveRef({ fs, dir: '/', ref: 'HEAD' });
@@ -58,13 +59,13 @@ window.GitDiff = (function() {
       info.branch = await currentBranch(lib, fs);
     } catch (e) {
       console.error(e);
-      toast('Git read failed: ' + (e.message || e), 'error');
+      toast(I18N.t('ui.git.readFailed', { message: e.message || e }), 'error');
       return;
     }
 
     const editorText = currentEditorText();
     if (headText === editorText) {
-      toast('Editor matches HEAD — no diff', 'success');
+      toast(I18N.t('ui.git.matchesHead'), 'success');
       return;
     }
     // Delegate rendering to the disk diff modal, just with different labels
@@ -119,10 +120,8 @@ window.GitDiff = (function() {
     } catch (e) {
       if (e && e.aborted) {
         await window.Dialog.alert({
-          title: 'Couldn\'t locate file in repo',
-          message:
-            `Scanned more than ${WALK_MAX_FILES} files in this directory without finding the open file. ` +
-            'Pick the immediate sub-directory containing the file instead, or move the file into a smaller subtree.',
+          title: I18N.t('ui.git.locateTitle'),
+          message: I18N.t('ui.git.locateMsg', { max: WALK_MAX_FILES }),
           danger: true,
         });
         return null;

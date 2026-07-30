@@ -1,6 +1,7 @@
 // Blocks panel — render and wire the draggable component library + snippets/recent
 window.BlocksPanel = (function() {
   const ES = window.EditorState;
+  const I18N = window.I18N;
   let listEl, searchEl, snippetsEl, recentEl, saveSnippetBtn;
 
   function init() {
@@ -9,6 +10,11 @@ window.BlocksPanel = (function() {
     snippetsEl = document.getElementById('snippets-list');
     recentEl = document.getElementById('recent-list');
     saveSnippetBtn = document.getElementById('save-snippet');
+
+    if (I18N) {
+      searchEl.placeholder = I18N.t('ui.blocks.searchPlaceholder');
+      saveSnippetBtn.textContent = I18N.t('ui.blocks.saveSelection');
+    }
 
     renderBlocks('');
     searchEl.addEventListener('input', () => renderBlocks(searchEl.value));
@@ -21,19 +27,29 @@ window.BlocksPanel = (function() {
       }
     });
 
+    if (I18N) {
+      window.addEventListener('i18n:changed', () => {
+        searchEl.placeholder = I18N.t('ui.blocks.searchPlaceholder');
+        saveSnippetBtn.textContent = I18N.t('ui.blocks.saveSelection');
+        renderBlocks(searchEl.value || '');
+        renderSnippets();
+        renderRecent();
+      });
+    }
+
     saveSnippetBtn.addEventListener('click', async () => {
       const sel = ES.state.selected;
       if (!sel) return;
       const name = await window.Dialog.prompt({
-        title: 'Save selection as snippet',
-        message: 'Give your snippet a name. It\'ll appear in the Assets tab.',
+        title: I18N.t('ui.blocks.saveSnippetTitle'),
+        message: I18N.t('ui.blocks.saveSnippetMsg'),
         defaultValue: sel.tagName.toLowerCase(),
-        placeholder: 'snippet name',
-        confirmLabel: 'Save',
+        placeholder: I18N.t('ui.blocks.saveSnippetPlaceholder'),
+        confirmLabel: I18N.t('ui.blocks.saveLabel'),
       });
       if (!name) return;
       ES.addSnippet(name, sel.outerHTML);
-      toast('Snippet saved', 'success');
+      toast(I18N.t('ui.blocks.snippetSaved'), 'success');
     });
 
     renderSnippets();
@@ -46,29 +62,32 @@ window.BlocksPanel = (function() {
     let lastCat = '';
     for (const b of window.Blocks) {
       const match = !f || b.name.toLowerCase().includes(f) || b.cat.toLowerCase().includes(f);
-      if (!match) continue;
-      if (b.cat !== lastCat) {
+      const shownName = I18N ? I18N.translateBlockName(b.name) : b.name;
+      const shownCat = I18N ? I18N.translateBlockCategory(b.cat) : b.cat;
+      const translatedMatch = shownName.toLowerCase().includes(f) || shownCat.toLowerCase().includes(f);
+      if (f && !match && !translatedMatch) continue;
+      if (shownCat !== lastCat) {
         const h = document.createElement('div');
         h.className = 'block-category';
-        h.textContent = b.cat;
+        h.textContent = shownCat;
         listEl.appendChild(h);
-        lastCat = b.cat;
+        lastCat = shownCat;
       }
-      listEl.appendChild(blockTile(b));
+      listEl.appendChild(blockTile(b, shownName));
     }
     if (window.renderIcons) window.renderIcons();
   }
 
-  function blockTile(b) {
+  function blockTile(b, shownName) {
     const el = document.createElement('div');
     el.className = 'block-item';
     el.draggable = true;
-    el.innerHTML = `<div class="block-icon"><i data-lucide="${b.icon}"></i></div><div class="block-name">${b.name}</div>`;
-    el.title = b.name;
+    el.innerHTML = `<div class="block-icon"><i data-lucide="${b.icon}"></i></div><div class="block-name">${shownName}</div>`;
+    el.title = shownName;
     el.addEventListener('dragstart', (e) => {
-      window.Canvas.setDragData({ type: 'block', html: b.html, name: b.name });
+      window.Canvas.setDragData({ type: 'block', html: b.html, name: shownName });
       e.dataTransfer.effectAllowed = 'copy';
-      e.dataTransfer.setData('text/plain', b.name);
+      e.dataTransfer.setData('text/plain', shownName);
       el.classList.add('dragging');
     });
     el.addEventListener('dragend', () => {
@@ -85,7 +104,7 @@ window.BlocksPanel = (function() {
       const node = tpl.content.firstElementChild;
       if (!node) return;
       target.appendChild(node);
-      ES.snapshot('insert ' + b.name);
+      ES.snapshot('insert ' + shownName);
       ES.select(node);
     });
     return el;
@@ -94,7 +113,7 @@ window.BlocksPanel = (function() {
   function renderSnippets() {
     snippetsEl.innerHTML = '';
     if (!ES.state.snippets.length) {
-      snippetsEl.innerHTML = '<div class="empty-list">No saved snippets yet</div>';
+      snippetsEl.innerHTML = `<div class="empty-list">${I18N.t('ui.assets.noSnippets')}</div>`;
       return;
     }
     for (const s of ES.state.snippets) {
@@ -106,13 +125,13 @@ window.BlocksPanel = (function() {
       name.style.flex = '1';
       const del = document.createElement('button');
       del.textContent = '×';
-      del.title = 'Delete snippet';
+      del.title = I18N.t('ui.blocks.deleteSnippet');
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
         const ok = await window.Dialog.confirm({
-          title: `Delete snippet "${s.name}"?`,
-          message: 'This can\'t be undone.',
-          confirmLabel: 'Delete',
+          title: I18N.t('ui.blocks.deleteSnippetTitle', { name: s.name }),
+          message: I18N.t('ui.blocks.deleteSnippetMsg'),
+          confirmLabel: I18N.t('ui.blocks.delete'),
           danger: true,
         });
         if (ok) ES.removeSnippet(s.id);
@@ -144,7 +163,7 @@ window.BlocksPanel = (function() {
   function renderRecent() {
     recentEl.innerHTML = '';
     if (!ES.state.recent.length) {
-      recentEl.innerHTML = '<div class="empty-list">No recent files</div>';
+      recentEl.innerHTML = `<div class="empty-list">${I18N.t('ui.assets.noRecent')}</div>`;
       return;
     }
     for (const r of ES.state.recent) {

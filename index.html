@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -302,8 +302,11 @@
       <button class="tool-btn icon-only anim-press" id="tb-diff" title="Show diff vs. file on disk" disabled><i data-lucide="git-compare-arrows"></i></button>
       <button class="tool-btn icon-only anim-press" id="tb-git-diff" title="Show diff vs. git HEAD (asks for repo directory)" disabled><i data-lucide="git-branch"></i></button>
       <button class="tool-btn anim-press" id="tb-import" title="Import HTML"><i data-lucide="upload"></i><span>Import</span></button>
+      <button class="tool-btn anim-press" id="tb-assets-dir" title="Link assets folder"><i data-lucide="folder-search"></i><span>Assets folder</span></button>
       <button class="tool-btn anim-press" id="tb-export" title="Export HTML"><i data-lucide="download"></i><span>Export</span></button>
+      <button class="tool-btn anim-press" id="tb-save-as" title="Save as (Ctrl+Shift+S)"><i data-lucide="file-plus"></i><span>Save as</span></button>
       <button class="tool-btn primary anim-press" id="tb-save" title="Save (⌘S)"><i data-lucide="save"></i><span>Save</span></button>
+      <button class="tool-btn lang-toggle" id="tb-lang" title="Trocar idioma para English" aria-label="Trocar idioma para English">EN</button>
       <button class="tool-btn icon-only theme-toggle" id="tb-theme" title="Toggle theme">
         <i data-lucide="sun" class="th-sun"></i>
         <i data-lucide="moon" class="th-moon"></i>
@@ -348,6 +351,12 @@
       </div>
     </aside>
 
+    <div class="sidebar-gutter left-gutter" data-side="left">
+      <button type="button" class="sidebar-toggle" id="left-sidebar-toggle" aria-label="Collapse left sidebar" title="Collapse left sidebar">
+        <i data-lucide="chevron-left"></i>
+      </button>
+    </div>
+
     <!-- Canvas -->
     <section class="canvas-wrap" id="canvas-wrap">
       <div class="canvas-frame" data-device="desktop">
@@ -382,6 +391,12 @@
     <section class="source-wrap" id="source-wrap" hidden>
       <div class="source-pane" id="source-pane"></div>
     </section>
+
+    <div class="sidebar-gutter right-gutter" data-side="right">
+      <button type="button" class="sidebar-toggle" id="right-sidebar-toggle" aria-label="Collapse right sidebar" title="Collapse right sidebar">
+        <i data-lucide="chevron-right"></i>
+      </button>
+    </div>
 
     <!-- Right sidebar (properties) -->
     <aside class="sidebar right-sidebar">
@@ -428,15 +443,18 @@
 <div id="toasts" class="toasts"></div>
 
 <!-- Scripts -->
+<script src="js/i18n.js"></script>
 <script src="js/dialog.js"></script>
 <script src="js/state.js"></script>
 <script src="js/blocks.js"></script>
+<script src="js/asset-resolver.js"></script>
 <script src="js/canvas.js"></script>
 <script src="js/tree.js"></script>
 <script src="js/properties.js"></script>
 <script src="js/blocks-panel.js"></script>
 <script src="js/source.js"></script>
 <script src="js/mode-switch.js"></script>
+<script src="js/encoding-detector.js"></script>
 <script src="js/file.js"></script>
 <script src="js/diff.js"></script>
 <script src="js/git.js"></script>

@@ -2,6 +2,7 @@
 // editor, animated, keyboard-friendly (Enter confirms, Esc cancels).
 // Replaces the ugly native dialogs.
 window.Dialog = (function() {
+  const I18N = window.I18N;
 
   function ensureHost() {
     let host = document.getElementById('dialog-host');
@@ -41,8 +42,8 @@ window.Dialog = (function() {
             <input type="text" class="dialog-input" placeholder="${escapeAttr(opts.placeholder || '')}" />
           </div>` : ''}
         <div class="dialog-actions">
-          ${opts.kind !== 'alert' ? `<button class="dialog-btn dialog-btn-secondary" data-act="cancel">${escapeHtml(opts.cancelLabel || 'Cancel')}</button>` : ''}
-          <button class="dialog-btn dialog-btn-primary${opts.danger ? ' danger' : ''}" data-act="confirm">${escapeHtml(opts.confirmLabel || (opts.kind === 'alert' ? 'OK' : 'Confirm'))}</button>
+          ${opts.kind !== 'alert' ? `<button class="dialog-btn dialog-btn-secondary" data-act="cancel">${escapeHtml(opts.cancelLabel || I18N.t('ui.file.cancel'))}</button>` : ''}
+          <button class="dialog-btn dialog-btn-primary${opts.danger ? ' danger' : ''}" data-act="confirm">${escapeHtml(opts.confirmLabel || (opts.kind === 'alert' ? 'OK' : (I18N.getLang() === 'pt-BR' ? 'Confirmar' : 'Confirm')))}</button>
         </div>
       `;
       if (opts.title) panel.querySelector('.dialog-title').textContent = opts.title;
