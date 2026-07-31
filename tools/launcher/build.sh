@@ -10,6 +10,38 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LAUNCHER="$ROOT/tools/launcher"
 SITE="$LAUNCHER/site"
 
+# Go is the only build dependency, and it isn't needed at all for the normal
+# release path. Say so plainly rather than dying on "go: command not found".
+if ! command -v go > /dev/null 2>&1; then
+  # A manually extracted toolchain is common on machines without Homebrew.
+  for candidate in /usr/local/go/bin /opt/homebrew/opt/go/libexec/bin "$HOME/go/bin" "$HOME/sdk/go/bin"; do
+    if [ -x "$candidate/go" ]; then PATH="$candidate:$PATH"; break; fi
+  done
+fi
+
+if ! command -v go > /dev/null 2>&1; then
+  cat >&2 <<'MSG'
+
+  Go não encontrado — é a única dependência para compilar o executável.
+
+  Você provavelmente não precisa dele. O caminho normal é o GitHub Actions:
+
+      aba Actions -> "Build Windows executable" -> "Run workflow"
+
+  e o CEJ-PAGE.exe fica anexado ao resultado, sem instalar nada.
+
+  Se quiser mesmo compilar aqui, instale o Go 1.24 ou superior:
+
+      brew install go                      # macOS com Homebrew
+      https://go.dev/dl/                   # instalador oficial
+
+  (Versões anteriores à 1.24 geram binários macOS sem LC_UUID, que o
+  dyld recusa a carregar. O alvo Windows não é afetado.)
+
+MSG
+  exit 1
+fi
+
 # Everything the browser needs, and nothing else — no .git, no tooling.
 rm -rf "$SITE"
 mkdir -p "$SITE"
