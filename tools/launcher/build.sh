@@ -16,6 +16,19 @@ mkdir -p "$SITE"
 cp "$ROOT/index.html" "$SITE/"
 cp -R "$ROOT/css" "$ROOT/js" "$ROOT/vendor" "$SITE/"
 
+# The version chip fetches this. Without it every launch logs a 404, and a
+# user reporting a problem has no way to say which build they are running.
+SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+REF="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+cat > "$SITE/version.json" <<JSON
+{
+  "sha": "$SHA",
+  "short": "$(printf '%.7s' "$SHA")",
+  "ref": "$REF",
+  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+
 mkdir -p "$ROOT/dist"
 cd "$LAUNCHER"
 

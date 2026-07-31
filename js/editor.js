@@ -387,11 +387,12 @@
     // The encoding chip is the only place the user can see (and correct)
     // which charset the file will be written in. It matters here because
     // the documents this editor targets are Windows-1252, not UTF-8.
+    // No visibility check: the chip lives in the toolbar, inside #editor,
+    // which is hidden until a document is loaded. Gating it on state here
+    // would also race the load path, where setEncoding() runs before
+    // sourceHtml is assigned.
     function refreshEncodingChip() {
       if (!encodingChip) return;
-      const open = !!(ES.state.doc || ES.state.sourceHtml);
-      encodingChip.hidden = !open;
-      if (!open) return;
       const name = window.Encoding.label(ES.state.encoding, ES.state.declaredCharset);
       encodingChip.textContent = name;
       encodingChip.dataset.legacy = window.Encoding.isLatin1Family(ES.state.encoding) ? 'true' : 'false';
