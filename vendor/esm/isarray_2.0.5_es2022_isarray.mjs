@@ -1,0 +1,3 @@
+/* esm.sh - isarray@2.0.5 */
+var f=Object.create;var i=Object.defineProperty;var l=Object.getOwnPropertyDescriptor;var m=Object.getOwnPropertyNames;var u=Object.getPrototypeOf,j=Object.prototype.hasOwnProperty;var p=(r,t)=>()=>(t||r((t={exports:{}}).exports,t),t.exports);var y=(r,t,a,c)=>{if(t&&typeof t=="object"||typeof t=="function")for(let o of m(t))!j.call(r,o)&&o!==a&&i(r,o,{get:()=>t[o],enumerable:!(c=l(t,o))||c.enumerable});return r};var A=(r,t,a)=>(a=r!=null?f(u(r)):{},y(t||!r||!r.__esModule?i(a,"default",{value:r,enumerable:!0}):a,r));var s=p((x,n)=>{var d={}.toString;n.exports=Array.isArray||function(r){return d.call(r)=="[object Array]"}});var e=A(s()),S=e.default??e;export{S as default};
+//# sourceMappingURL=isarray.mjs.map

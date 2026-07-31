@@ -8,30 +8,21 @@
 <meta name="theme-color" content="#0a0a0a">
 
 <link rel="stylesheet" href="css/editor.css">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-<!-- Importmap for lazy-loaded ESM modules. Pinned versions + SRI on the
-     entry-point URLs so esm.sh can't silently swap content underneath us.
-     (Transitive imports from esm.sh still hit network without SRI; that
-     would require vendoring the full dep tree.) -->
+<script src="vendor/lucide.min.js" defer></script>
+<!-- Importmap for the lazily-loaded ESM modules. Everything is vendored
+     under vendor/ so the editor works with no network at all: on a locked-
+     down corporate machine, and inside the Windows executable, which embeds
+     this whole directory. No SRI needed — these are same-origin files. -->
 <script type="importmap">
 {
   "imports": {
-    "codemirror":                  "https://esm.sh/codemirror@6.0.1",
-    "@codemirror/lang-html":       "https://esm.sh/@codemirror/lang-html@6.4.9",
-    "@codemirror/theme-one-dark":  "https://esm.sh/@codemirror/theme-one-dark@6.1.2",
-    "@codemirror/state":           "https://esm.sh/@codemirror/state@6.4.1",
-    "@codemirror/view":            "https://esm.sh/@codemirror/view@6.26.3",
-    "diff":                        "https://esm.sh/diff@5.2.0",
-    "isomorphic-git":              "https://esm.sh/isomorphic-git@1.27.2?bundle"
-  },
-  "integrity": {
-    "https://esm.sh/codemirror@6.0.1":                 "sha384-YL2izXY6rDPj5rGRQ8rrOQjnj1q2ySpPnWQtiN5oLfIedVh/qsj8KEB61zL0afzp",
-    "https://esm.sh/@codemirror/lang-html@6.4.9":      "sha384-WNPN60/yKDx8LBH1bCO5R7tMvsjBfkg+64M4mCaxXH3HNV4NZufhF22bbThsYVUh",
-    "https://esm.sh/@codemirror/theme-one-dark@6.1.2": "sha384-yVtuYi63vy0cu7FtL7p0eg8sWO0UTayB2JG0+myxZNLNxnTwWaACpHWq81limpbI",
-    "https://esm.sh/@codemirror/state@6.4.1":          "sha384-TI1NDxu7gkE6pcZtsv4jkPNwxVmpgz5Vd8N6EHoEEvi3xiobzkaLSmdCpgg3NsfO",
-    "https://esm.sh/@codemirror/view@6.26.3":          "sha384-H7Mafy3thCoI/VlMWH8fEyOHS+SVQQDtSHPyx2Ay/nPvb6S84rKEibu95Nti3LMj",
-    "https://esm.sh/diff@5.2.0":                       "sha384-vPdKsMM4TALgN7RdcomEDT//QCeuLRGEVF7rmCrUSeZ0tFXFYeuAn9B3bE53NIXW",
-    "https://esm.sh/isomorphic-git@1.27.2?bundle":     "sha384-1mDCEwFlfKV4sHh9dF1KeeqC8ptVonTTJHVhpohfBQj/x46QtrGfuuWgATtCg4KG"
+    "codemirror":                  "./vendor/esm/codemirror_6.0.1_es2022_codemirror.bundle.mjs",
+    "@codemirror/lang-html":       "./vendor/esm/_codemirror_lang-html_6.4.9_es2022_lang-html.bundle.mjs",
+    "@codemirror/theme-one-dark":  "./vendor/esm/_codemirror_theme-one-dark_6.1.2_es2022_theme-one-dark.bundle.mjs",
+    "@codemirror/state":           "./vendor/esm/_codemirror_state_6.4.1_es2022_state.bundle.mjs",
+    "@codemirror/view":            "./vendor/esm/_codemirror_view_6.26.3_es2022_view.bundle.mjs",
+    "diff":                        "./vendor/esm/diff_5.2.0_es2022_diff.bundle.mjs",
+    "isomorphic-git":              "./vendor/esm/isomorphic-git_1.27.2_es2022_isomorphic-git.bundle.mjs"
   }
 }
 </script>

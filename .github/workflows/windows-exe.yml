@@ -1,0 +1,59 @@
+name: Build Windows executable
+
+# Manual, plus automatic on a version tag. The .exe is what non-technical
+# users install, so it should be produced deliberately, not on every push.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build CEJ-PAGE.exe
+        run: |
+          chmod +x tools/launcher/build.sh
+          ./tools/launcher/build.sh
+
+      - name: Confirm the site was embedded
+        # A missing vendor/ directory would still compile and then fail at
+        # runtime on a machine with no network — exactly the case the
+        # executable exists to serve. Catch it here instead.
+        run: |
+          for f in index.html js/encoding.js vendor/lucide.min.js vendor/roboto.css; do
+            test -f "tools/launcher/site/$f" || { echo "missing from bundle: $f"; exit 1; }
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CEJ-PAGE-windows
+          path: dist/CEJ-PAGE.exe
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/CEJ-PAGE.exe
+          body: |
+            ## CEJ-PAGE — executável para Windows
+
+            Baixe o `CEJ-PAGE.exe` abaixo e dê duplo clique. Não precisa
+            instalar nada, nem ter internet.
+
+            Na primeira execução o Windows pode exibir "O Windows protegeu o
+            seu computador", porque o arquivo não tem assinatura digital paga.
+            Clique em **Mais informações** → **Executar assim mesmo**.
+
+            Para encerrar o programa, feche a janela preta.

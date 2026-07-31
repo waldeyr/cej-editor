@@ -4,3 +4,7 @@ node_modules/
 .vscode/
 .idea/
 LAUNCH.md
+
+# Launcher build artifacts (site/ is assembled at build time)
+tools/launcher/site/
+dist/

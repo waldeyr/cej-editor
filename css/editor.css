@@ -1,5 +1,5 @@
 /* ---------- Theme tokens (monochromatic, Roboto) ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@200;400;500;700&display=swap');
+@import url('../vendor/roboto.css');
 
 :root {
   /* Dark (default) */
