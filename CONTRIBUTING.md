@@ -4,17 +4,22 @@ Thanks for your interest. This is a small, focused project — please read this 
 
 ## Setup
 
-It's a static site. No build step, no dependencies.
+It's a static site. No build step, and every runtime dependency is vendored
+under `vendor/`.
 
 ```sh
 git clone https://github.com/waldeyr/cej-page.git
-cd html-editor
+cd cej-page
 python3 -m http.server 8000        # or: npx serve .
 ```
 
 Open `http://localhost:8000`.
 
 > The File System Access API needs a secure context. `localhost` counts as secure, so live-link editing works in local dev.
+
+Don't reintroduce a CDN reference: the editor has to work with the network
+unplugged, and the Windows executable embeds exactly this directory. The
+release workflow fails the build if it finds one.
 
 ## Project layout
 
@@ -28,8 +33,12 @@ js/tree.js              DOM tree panel + breadcrumbs
 js/properties.js        style / attrs / HTML tabs
 js/blocks-panel.js      blocks sidebar + snippets/recents
 js/file.js              File System Access API + import/export
+js/encoding.js          charset detection and byte-exact writing
+js/i18n.js              pt-BR / en strings (pt-BR is the default)
 js/keyboard.js          global shortcuts
 js/editor.js            bootstrap & toolbar wiring
+vendor/                 embedded dependencies (no CDN at runtime)
+tools/launcher/         Go program that produces CEJ-PAGE.exe
 ```
 
 Modules are vanilla JS (no bundler). Each one exports a singleton on `window` (e.g. `window.Canvas`, `window.EditorState`). State changes flow through `EditorState.emit/on`.
@@ -37,6 +46,10 @@ Modules are vanilla JS (no bundler). Each one exports a singleton on `window` (e
 ## Code style
 
 - Vanilla JS, no frameworks. No build step. No npm dependencies.
+- Never write a string through a `FileSystemWritableFileStream` or into a
+  `Blob` destined for disk. Go through `Encoding.encode()` — a raw string is
+  always written as UTF-8, which silently corrupts the Windows-1252 documents
+  this editor exists to edit.
 - Browser baseline: latest Chrome, Edge, Safari, Firefox. File System Access is Chromium-only — guard with `'showOpenFilePicker' in window` and `window.isSecureContext`.
 - Two-space indent, single quotes, semicolons. Match the surrounding style.
 - Keep modules small and focused. Cross-module state goes through `EditorState`.
