@@ -55,9 +55,7 @@
         showEditor();
         await window.ModeSwitch.loadIntoInitialMode(auto.html);
       });
-      const empty = document.querySelector('.empty-inner');
-      const hint = document.querySelector('.empty-drop-hint');
-      hint.parentNode.insertBefore(restore, hint);
+      document.querySelector('.empty-actions').appendChild(restore);
       window.renderIcons();
     }
   });
@@ -373,9 +371,7 @@
             showEditor();
             await window.ModeSwitch.loadIntoInitialMode(autoRestore.html);
           });
-          const empty = document.querySelector('.empty-inner');
-          const hint = document.querySelector('.empty-drop-hint');
-          hint.parentNode.insertBefore(restore, hint);
+          document.querySelector('.empty-actions').appendChild(restore);
           window.renderIcons();
         }
       }

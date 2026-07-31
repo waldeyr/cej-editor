@@ -6,7 +6,7 @@ window.I18N = (function() {
   const STRINGS = {
     'pt-BR': {
       ui: {
-        appName: 'Editor HTML',
+        appName: 'CEJ-PAGE',
         toolbar: {
           open: 'Abrir',
           import: 'Importar',
@@ -243,7 +243,7 @@ window.I18N = (function() {
     },
     en: {
       ui: {
-        appName: 'HTML Editor',
+        appName: 'CEJ-PAGE',
         toolbar: {
           open: 'Open', import: 'Import', export: 'Export', save: 'Save', visual: 'Visual', source: 'Source',
           saveAs: 'Save as',
@@ -444,24 +444,18 @@ window.I18N = (function() {
     const brand = document.querySelector('.brand-text');
     if (brand) brand.textContent = t('ui.appName');
 
-    setHTML('.empty-inner h1', current === 'pt-BR'
-      ? '<strong>CEJ-PAGE</strong>'
-      : '<strong>Interactive HTML Editor</strong> &amp; Renderer');
-    setText('.empty-tagline', current === 'pt-BR'
-      ? 'Um editor visual de HTML gratuito no navegador. Solte um arquivo .html, edite como um designer e salve as mudanças no disco local em tempo real. Sem cadastro. Sem upload. Sem servidor.'
-      : 'A free visual HTML editor that runs in your browser. Drop in any .html file, edit it like a designer, and save changes back to your local disk live. No signup. No upload. No server.');
+    // The product name is the same in every language; the empty screen
+    // carries nothing else but the three ways in.
+    setText('.empty-inner h1', 'CEJ-PAGE');
     setText('#empty-open-local span', current === 'pt-BR' ? 'Abrir arquivo local' : 'Open Local File');
     setText('#empty-open-local small', current === 'pt-BR' ? 'Vínculo ao vivo - salva no disco' : 'Live link - saves to disk');
+    setAttr('#empty-open-local', 'title', current === 'pt-BR'
+      ? 'Editar um arquivo do seu disco, com gravação direta'
+      : 'Edit a file on your disk with live save');
     setText('#empty-import span', current === 'pt-BR' ? 'Importar HTML' : 'Import HTML');
     setText('#empty-import small', current === 'pt-BR' ? 'Seletor somente leitura' : 'Read-only file picker');
     setText('#empty-new span', current === 'pt-BR' ? 'Começar em branco' : 'Start Blank');
     setText('#empty-new small', current === 'pt-BR' ? 'Página vazia' : 'Empty page');
-    setHTML('.empty-drop-hint', current === 'pt-BR'
-      ? '<i data-lucide="mouse-pointer-2" class="hint-icon"></i> ou solte um arquivo .html em qualquer lugar'
-      : '<i data-lucide="mouse-pointer-2" class="hint-icon"></i> or drop an .html file anywhere');
-    setHTML('.empty-shortcuts', current === 'pt-BR'
-      ? '<kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+Z</kbd> desfazer · <kbd>Ctrl+D</kbd> duplicar · <kbd>Delete</kbd> remover · <kbd>Esc</kbd> desselecionar'
-      : '<kbd>Ctrl+S</kbd> save · <kbd>Ctrl+Z</kbd> undo · <kbd>Ctrl+D</kbd> duplicate · <kbd>Delete</kbd> remove · <kbd>Esc</kbd> deselect');
     setText('#browser-warning', t('ui.file.browserWarnFallback'));
 
     const autosave = document.querySelector('.autosave');

@@ -1,7 +1,7 @@
 // Version chip — loads /version.json (written by the Pages deploy workflow)
 // and shows the deployed short SHA + build time. Links to the commit on GitHub.
 (function() {
-  const REPO = 'mncoleman/html-editor';
+  const REPO = 'waldeyr/cej-page';
   const I18N = window.I18N;
 
   async function init() {
@@ -26,7 +26,7 @@
       v.built_at ? I18N.t('ui.version.built', { at: v.built_at }) : null,
     ].filter(Boolean).join('\n');
 
-    ['version-chip', 'empty-version-chip'].forEach(id => {
+    ['version-chip'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.href = href;

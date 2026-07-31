@@ -7,7 +7,7 @@ Thanks for your interest. This is a small, focused project — please read this 
 It's a static site. No build step, no dependencies.
 
 ```sh
-git clone https://github.com/mncoleman/html-editor.git
+git clone https://github.com/waldeyr/cej-page.git
 cd html-editor
 python3 -m http.server 8000        # or: npx serve .
 ```

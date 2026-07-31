@@ -1,79 +1,133 @@
-# HTML Editor
+# CEJ-PAGE
 
-A free, browser-based visual HTML editor. Drop in any `.html` file, edit it visually like Pinegrow or Webflow, and save back to your local disk with live changes.
+Editor visual de HTML que roda no navegador. Abra um arquivo `.html` do seu
+computador, edite clicando e arrastando, e salve de volta no disco — sem
+cadastro, sem upload, sem servidor.
 
-**Live:** https://mncoleman.github.io/html-editor/
+Feito para editar documentos legados em **ISO-8859-1 / Windows-1252**
+(atos normativos publicados pelo Planalto e afins): a codificação do arquivo
+é detectada na abertura e reproduzida byte a byte ao salvar.
 
-## Features
+## Como executar no Windows
 
-- **Live local file editing** — link to a file on your disk and `⌘S` writes the edits straight back (Chrome/Edge/Arc via the File System Access API).
-- **Click-to-select, drag-to-drop** editing of any element on the canvas.
-- **Component library** — 40+ blocks across Typography, Layout, Components, Media, Lists, Forms, Navigation, Tables.
-- **Drag from sidebar into canvas** with precise drop-zone indicators (before / after / inside).
-- **DOM tree** panel with collapse, drag-reorder, and click-to-select.
-- **Properties panel** — visual editing of typography, layout, spacing, background, border, effects.
-- **Class chips, attribute editor, raw outer/inner HTML** editor for every element.
-- **Inline text editing** — double-click any text element.
-- **Undo / redo** with full document snapshots.
-- **Autosave** to localStorage (restore last session on page reload).
-- **Snippets** — save any selection as a reusable block.
-- **Device preview** — desktop / tablet / mobile frames.
-- **Preview mode** — hides editor chrome to see the page as a visitor would.
-- **Dark and light themes.**
+Baixe o `CEJ-PAGE.exe` mais recente em
+[Releases](https://github.com/waldeyr/cej-page/releases) e dê **duplo clique**.
 
-## Keyboard shortcuts
+O programa abre uma janela preta com a mensagem *"CEJ-PAGE está em execução"* e
+o editor aparece no seu navegador. **Para encerrar, feche a janela preta.**
 
-| Shortcut | Action |
+Não precisa instalar nada, não precisa de senha de administrador e não precisa
+de internet — o programa é um arquivo único e funciona offline.
+
+> **Na primeira execução o Windows pode exibir "O Windows protegeu o seu
+> computador".** Isso acontece porque o arquivo não tem assinatura digital paga,
+> não porque haja algo errado com ele. Clique em **Mais informações** e depois em
+> **Executar assim mesmo**.
+
+## Codificação de caracteres
+
+Este é o motivo de o projeto existir, então vale detalhar.
+
+Ao abrir um arquivo, o editor determina a codificação a partir do BOM, da
+`<meta charset>` do próprio documento ou — se não houver declaração — dos bytes.
+Essa codificação passa a ser uma propriedade do documento e é usada em **Salvar**,
+**Salvar como** e **Exportar**. Um decreto em Windows-1252 continua em
+Windows-1252, com as aspas curvas e travessões nos mesmos bytes de origem.
+
+A codificação atual aparece num selo ao lado do nome do arquivo, destacado em
+laranja quando é uma codificação legada. Clicar no selo converte o documento
+entre UTF-8 e ISO-8859-1 — reescrevendo os bytes **e** a `<meta charset>` juntos.
+
+Se você digitar um caractere que a codificação de destino não comporta, ele é
+adaptado automaticamente e um aviso informa o que mudou:
+
+| Digitado | Gravado | Como |
+| --- | --- | --- |
+| `—` `–` `“ ”` `…` `•` | os mesmos caracteres | existem em Windows-1252 |
+| `→` `≤` `✓` | `->` `<=` `OK` | transliteração |
+| 🙂 👍 | `:-)` `(+1)` | transliteração |
+| `ș` `ă` | `s` `a` | remoção de diacrítico |
+| `漢` 🚀 | `&#28450;` `&#128640;` | referência numérica |
+
+## Atalhos de teclado
+
+| Atalho | Ação |
 | --- | --- |
-| `⌘S` / `Ctrl+S` | Save to linked file (or export) |
-| `⌘Z` / `⌘⇧Z` | Undo / redo |
-| `⌘D` | Duplicate selection |
-| `Delete` / `Backspace` | Delete selection |
-| `Esc` | Deselect |
-| `⌘↑` / `⌘↓` | Move selection up / down |
-| `P` | Toggle preview mode |
-| Double-click | Edit text inline |
+| `Ctrl+S` | Salvar no arquivo vinculado (ou exportar) |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Desfazer / refazer |
+| `Ctrl+D` | Duplicar seleção |
+| `Delete` / `Backspace` | Excluir seleção |
+| `Esc` | Desselecionar |
+| `Ctrl+↑` / `Ctrl+↓` | Mover seleção para cima / baixo |
+| `P` | Alternar modo de visualização |
+| Clique duplo | Editar texto no lugar |
 
-## How it works
+Na tela inicial, `A` abre um arquivo local, `B` importa, `C` começa em branco e
+`R` restaura a última sessão.
 
-The user's HTML loads into a sandboxed iframe. The editor reaches in (same-origin) to listen for clicks, attach a `MutationObserver`, and write style/attribute/HTML changes. An overlay layer in the parent document renders the selection outline, hover highlight, and drop indicators.
+## Como funciona
 
-For "live local editing" the editor uses the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API). Once you pick a file, the browser hands the editor a persistent write handle. Saving calls `createWritable()` and writes the current HTML back to disk. No upload, no server, no extension required.
+O HTML do usuário é carregado num iframe de mesma origem. O editor observa
+cliques, acompanha mudanças com um `MutationObserver` e aplica alterações de
+estilo, atributos e marcação. Uma camada de sobreposição no documento pai desenha
+o contorno de seleção, o destaque de hover e os indicadores de arraste.
 
-Safari and Firefox don't support File System Access — they fall back to import / export (file picker in, `.html` download out).
+A gravação em disco usa a
+[File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API):
+ao escolher um arquivo, o navegador entrega ao editor uma referência persistente
+de escrita. Salvar codifica o documento e grava os bytes de volta. Nada é enviado
+para lugar nenhum.
 
-## Local development
+Safari e Firefox não implementam essa API — neles o editor funciona com
+importar / exportar.
 
-It's a static site. Any static server works:
+Ao salvar, o `<head>` do documento é preservado literalmente sempre que não foi
+editado, para que o diff mostre apenas o que você realmente mudou.
+
+## Desenvolvimento
+
+É um site estático, sem etapa de build. Qualquer servidor local serve:
 
 ```sh
 python3 -m http.server 8000
-# or
-npx serve .
+# abra http://localhost:8000
 ```
 
-Then open `http://localhost:8000`.
+`localhost` conta como contexto seguro, então a gravação em disco funciona
+normalmente em desenvolvimento.
 
-## Architecture
+Verificação de sintaxe:
 
-```
-index.html              — editor shell (toolbar + 3-pane workspace + statusbar)
-css/editor.css          — all styling, dark/light tokens
-js/state.js             — global state, undo/redo, autosave, snippets, recents
-js/blocks.js            — component library (block definitions)
-js/canvas.js            — iframe wiring, selection overlay, drag-drop, hover
-js/tree.js              — DOM tree panel + status-bar breadcrumbs
-js/properties.js        — style/attributes/HTML tabs
-js/blocks-panel.js      — blocks sidebar + snippets/recent files
-js/file.js              — File System Access API, import/export
-js/keyboard.js          — global shortcuts
-js/editor.js            — bootstrap, toolbar wiring, empty state
+```sh
+for f in js/*.js; do node --check "$f"; done
 ```
 
-## Contributing
+## Arquitetura
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, project layout, and how to add new blocks / shortcuts / style controls.
+```
+index.html              — casca do editor (barra + 3 painéis + rodapé)
+css/editor.css          — estilos, temas claro/escuro
+js/i18n.js              — textos pt-BR / en (pt-BR é o padrão)
+js/encoding.js          — detecção e gravação de codificação
+js/state.js             — estado global, desfazer/refazer, autosave, snippets
+js/blocks.js            — biblioteca de componentes
+js/canvas.js            — iframe, seleção, arrastar-e-soltar
+js/tree.js              — painel da árvore DOM + breadcrumbs
+js/properties.js        — abas de estilo / atributos / HTML
+js/blocks-panel.js      — barra lateral de blocos e snippets
+js/asset-resolver.js    — resolução de imagens locais no preview
+js/file.js              — abrir, salvar, exportar
+js/diff.js              — comparação com o disco e com o git
+js/git.js               — leitura do HEAD via isomorphic-git
+js/keyboard.js          — atalhos globais
+js/editor.js            — inicialização e ligação da interface
+vendor/                 — bibliotecas embutidas (funcionamento offline)
+tools/launcher/         — programa Go que gera o CEJ-PAGE.exe
+```
 
-## License
+## Licença
 
-[MIT](LICENSE) © 2026 mncoleman
+[MIT](LICENSE).
+
+Derivado de [mncoleman/html-editor](https://github.com/mncoleman/html-editor),
+também sob licença MIT.
