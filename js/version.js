@@ -1,7 +1,7 @@
 // Version chip — loads /version.json (written by the Pages deploy workflow)
 // and shows the deployed short SHA + build time. Links to the commit on GitHub.
 (function() {
-  const REPO = 'waldeyr/cej-page';
+  const REPO = 'waldeyr/cej-editor';
   const I18N = window.I18N;
 
   async function init() {

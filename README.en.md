@@ -54,7 +54,7 @@ file paying for it.
 
 ### Running on Windows (end user)
 
-1. Download `CEJ-PAGE.exe` from [Releases](https://github.com/waldeyr/cej-page/releases).
+1. Download `CEJ-PAGE.exe` from [Releases](https://github.com/waldeyr/cej-editor/releases).
 2. **Double-click** it.
 3. The editor opens in your browser. **To stop it, close the black window.**
 
@@ -68,8 +68,8 @@ No installation, no administrator rights, no internet.
 It's a static site — no build step, nothing to install.
 
 ```sh
-git clone https://github.com/waldeyr/cej-page.git
-cd cej-page
+git clone https://github.com/waldeyr/cej-editor.git
+cd cej-editor
 python3 -m http.server 8000        # or: npx serve .
 ```
 

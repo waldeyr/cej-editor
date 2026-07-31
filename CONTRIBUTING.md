@@ -8,8 +8,8 @@ It's a static site. No build step, and every runtime dependency is vendored
 under `vendor/`.
 
 ```sh
-git clone https://github.com/waldeyr/cej-page.git
-cd cej-page
+git clone https://github.com/waldeyr/cej-editor.git
+cd cej-editor
 python3 -m http.server 8000        # or: npx serve .
 ```
 
