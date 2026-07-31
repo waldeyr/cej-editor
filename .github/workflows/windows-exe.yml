@@ -35,6 +35,26 @@ jobs:
           done
           ls -la dist/
 
+      - name: Every vendored module must have a JS extension
+        # Browsers refuse `import` from a response whose Content-Type isn't a
+        # JavaScript MIME type, and servers derive that from the extension.
+        # An extensionless file here only breaks the lazily-loaded features
+        # (source mode, diff, git), so it survives a casual smoke test.
+        run: |
+          bad=$(find vendor/esm -type f ! -name '*.mjs' ! -name '*.js' || true)
+          if [ -n "$bad" ]; then echo "not served as JavaScript:"; echo "$bad"; exit 1; fi
+          echo "all $(find vendor/esm -type f | wc -l) modules are .mjs/.js"
+
+      - name: No remote references may remain
+        # The whole point of vendoring: the executable must work with the
+        # network unplugged.
+        run: |
+          if grep -rnE 'https?://(unpkg|esm\.sh|fonts\.(googleapis|gstatic))' \
+               tools/launcher/site/index.html tools/launcher/site/css tools/launcher/site/js; then
+            echo "the bundle still reaches a CDN"; exit 1
+          fi
+          echo "bundle is self-contained"
+
       - uses: actions/upload-artifact@v4
         with:
           name: CEJ-PAGE-windows

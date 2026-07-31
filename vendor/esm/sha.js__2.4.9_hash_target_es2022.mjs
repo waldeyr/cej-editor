@@ -1,5 +1,5 @@
 /* esm.sh - sha.js@2.4.12/hash */
-import "./safe-buffer__5.2.1_target_es2022";
-import "./to-buffer__1.2.0_target_es2022";
+import "./safe-buffer__5.2.1_target_es2022.mjs";
+import "./to-buffer__1.2.0_target_es2022.mjs";
 export * from "./sha.js_2.4.12_es2022_hash.mjs";
 export { default } from "./sha.js_2.4.12_es2022_hash.mjs";
