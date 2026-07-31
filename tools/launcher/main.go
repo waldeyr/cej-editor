@@ -14,9 +14,11 @@ package main
 import (
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"runtime"
 	"time"
@@ -58,10 +60,55 @@ func main() {
 		openBrowser(url)
 	}()
 
-	server := &http.Server{Handler: noCache(http.FileServer(http.FS(site)))}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/__fetch", fetchRemote)
+	mux.Handle("/", http.FileServer(http.FS(site)))
+	server := &http.Server{Handler: noCache(mux)}
 	if err := server.Serve(listener); err != nil {
 		fatal("o servidor local parou: %v", err)
 	}
+}
+
+// fetchRemote is intentionally available only through this loopback server.
+// It lets the desktop executable import pages whose servers do not opt into
+// browser CORS, without exposing a public proxy service.
+func fetchRemote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	target, err := url.Parse(r.URL.Query().Get("url"))
+	if err != nil || target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") {
+		http.Error(w, "invalid remote URL", http.StatusBadRequest)
+		return
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("unsupported redirect scheme")
+			}
+			return nil
+		},
+	}
+	resp, err := client.Get(target.String())
+	if err != nil {
+		http.Error(w, "remote fetch failed", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	} else {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+	w.WriteHeader(resp.StatusCode)
+	// HTML documents are small in this workflow; cap the response so this
+	// endpoint cannot be used to consume unbounded memory or disk via a browser.
+	const maxImportSize = 16 << 20
+	_, _ = io.CopyN(w, resp.Body, maxImportSize)
 }
 
 // Bind to loopback only — this must never be reachable from the network.

@@ -126,7 +126,7 @@ window.FileOps = (function() {
     }
 
     try {
-      const response = await fetch(url.href, { redirect: 'follow' });
+      const response = await fetchWithLocalFallback(url.href);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const buffer = await response.arrayBuffer();
       const name = decodeURIComponent(url.pathname.split('/').pop() || 'pagina.html').replace(/[\\/:*?"<>|]/g, '_');
@@ -138,6 +138,26 @@ window.FileOps = (function() {
       console.error(e);
       const corsHint = e instanceof TypeError ? I18N.t('ui.file.importUrlCors') : e.message;
       toast(I18N.t('ui.file.importUrlError', { message: corsHint }), 'error');
+    }
+  }
+
+  async function fetchWithLocalFallback(url) {
+    try {
+      return await fetch(url, { redirect: 'follow' });
+    } catch (directError) {
+      // A static deployment cannot bypass CORS. The Windows launcher exposes
+      // a loopback-only endpoint that can fetch the same URL server-side.
+      // If that endpoint is unavailable (e.g. GitHub Pages), preserve the
+      // original CORS guidance below.
+      if (!/^https?:$/.test(location.protocol)) throw directError;
+      const proxyUrl = `${location.origin}/__fetch?url=${encodeURIComponent(url)}`;
+      try {
+        const response = await fetch(proxyUrl, { redirect: 'follow' });
+        if (response.status === 404) throw directError;
+        return response;
+      } catch (_) {
+        throw directError;
+      }
     }
   }
 
@@ -527,7 +547,10 @@ window.FileOps = (function() {
         toast(I18N.t('ui.file.saveFailed', { message: e.message }), 'error');
       }
     } else {
-      exportFile();
+      // Imported documents have no disk handle yet. Ctrl+S should offer the
+      // same local-file workflow as the visible Save as button; browsers
+      // without File System Access fall back to a download inside saveAs().
+      return saveAs();
     }
   }
 
