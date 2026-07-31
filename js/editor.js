@@ -68,6 +68,9 @@
     document.getElementById('empty-import').addEventListener('click', () => {
       window.FileOps.promptImport();
     });
+    document.getElementById('empty-import-url').addEventListener('click', () => {
+      window.FileOps.promptImportUrl();
+    });
     document.getElementById('empty-new').addEventListener('click', () => {
       window.FileOps.newBlank();
       showEditor();
@@ -159,6 +162,7 @@
     document.getElementById('tb-diff').addEventListener('click', () => window.DiffViewer.showAgainstDisk());
     document.getElementById('tb-git-diff').addEventListener('click', () => window.GitDiff.showDiff());
     document.getElementById('tb-import').addEventListener('click', () => window.FileOps.promptImport());
+    document.getElementById('tb-import-url').addEventListener('click', () => window.FileOps.promptImportUrl());
     document.getElementById('tb-assets-dir').addEventListener('click', () => window.FileOps.linkAssetsDirectory());
     document.getElementById('tb-export').addEventListener('click', () => window.FileOps.exportFile());
     document.getElementById('tb-save-as').addEventListener('click', () => window.FileOps.saveAs());

@@ -48,6 +48,10 @@ comum, sem que o arquivo pague o preço.
   duplo para editar texto no lugar.
 - **Gravação direta no disco** — vínculo persistente com o arquivo via File
   System Access API; `Ctrl+S` grava por cima.
+- **Importação por URL** — baixa uma página HTML acessível por CORS para edição
+  local; use **Exportar** ou **Salvar como** para gravar uma cópia. Sites que
+  bloqueiam leitura cross-origin devem ser baixados manualmente e importados
+  pelo botão **Importar**.
 - **Codificação preservada** — detecção por BOM, `<meta charset>` ou análise dos
   bytes; gravação byte a byte na mesma codificação, com selo na barra e conversão
   UTF-8 ↔ ISO-8859-1 sob demanda.

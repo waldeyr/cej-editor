@@ -104,7 +104,44 @@ window.FileOps = (function() {
     document.getElementById('file-input').click();
   }
 
-  async function importFile(file) {
+  async function promptImportUrl() {
+    const url = await window.Dialog.prompt({
+      title: I18N.t('ui.file.importUrlTitle'),
+      message: I18N.t('ui.file.importUrlMsg'),
+      placeholder: 'https://exemplo.gov.br/pagina.html',
+      confirmLabel: I18N.t('ui.file.importUrlConfirm'),
+    });
+    if (url === null) return;
+    await importUrl(url.trim());
+  }
+
+  async function importUrl(rawUrl) {
+    let url;
+    try {
+      url = new URL(rawUrl);
+      if (!/^https?:$/.test(url.protocol)) throw new Error('URL deve começar com http:// ou https://');
+    } catch (e) {
+      toast(I18N.t('ui.file.importUrlError', { message: e.message }), 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(url.href, { redirect: 'follow' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      const name = decodeURIComponent(url.pathname.split('/').pop() || 'pagina.html').replace(/[\\/:*?"<>|]/g, '_');
+      const file = new File([buffer], name.toLowerCase().endsWith('.html') || name.toLowerCase().endsWith('.htm') ? name : `${name}.html`, {
+        type: response.headers.get('content-type') || 'text/html',
+      });
+      await importFile(file, { sourceUrl: response.url || url.href });
+    } catch (e) {
+      console.error(e);
+      const corsHint = e instanceof TypeError ? I18N.t('ui.file.importUrlCors') : e.message;
+      toast(I18N.t('ui.file.importUrlError', { message: corsHint }), 'error');
+    }
+  }
+
+  async function importFile(file, opts = {}) {
     try {
       const info = await window.Encoding.decode(file);
       const text = info.text;
@@ -118,7 +155,7 @@ window.FileOps = (function() {
       ES.state.sourceHtml = text;
       await window.ModeSwitch.loadIntoInitialMode(text);
       ES.addRecent(file.name);
-      toast(I18N.t('ui.file.imported', { name: file.name }), '');
+      toast(I18N.t(opts.sourceUrl ? 'ui.file.importedUrl' : 'ui.file.imported', { name: file.name }), '');
       ES.setDirty(false);
     } catch (e) {
       toast(I18N.t('ui.file.importError', { message: e.message }), 'error');
@@ -890,6 +927,8 @@ h1 { font-size: 32px; }
     init,
     openLocalFile,
     promptImport,
+    promptImportUrl,
+    importUrl,
     importFile,
     save,
     saveAs,
