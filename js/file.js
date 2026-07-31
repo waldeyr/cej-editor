@@ -471,8 +471,10 @@ window.FileOps = (function() {
         const status = document.getElementById('save-status');
         status.dataset.state = 'saving';
         status.textContent = I18N.t('ui.file.saving');
-        await writeWithPermissionRecovery(ES.state.fileHandle, encodeForWrite(html));
+        const bytes = encodeForWrite(html);
+        await writeWithPermissionRecovery(ES.state.fileHandle, bytes);
         ES.state.sourceHtml = html;
+        ES.state.originalBytes = bytes.slice();
         ES.setDirty(false);
         // Refresh our mtime so the next external check doesn't fire on
         // the write we just performed.
@@ -516,9 +518,11 @@ window.FileOps = (function() {
       status.textContent = I18N.t('ui.file.saving');
       // Note: no ES.setEncoding() here — "save as" deliberately keeps the
       // document's encoding, so a copy of a Latin-1 file is Latin-1 too.
-      await writeWithPermissionRecovery(handle, encodeForWrite(html));
+      const bytes = encodeForWrite(html);
+      await writeWithPermissionRecovery(handle, bytes);
       ES.setFile(handle, handle.name || 'untitled.html');
       ES.state.sourceHtml = html;
+      ES.state.originalBytes = bytes.slice();
       ES.setDirty(false);
       try { const f = await handle.getFile(); lastKnownMtime = f.lastModified; } catch (_) {}
       clearExternalChange();
@@ -538,7 +542,8 @@ window.FileOps = (function() {
     const html = currentHtml();
     if (!html) return;
     const charset = window.Encoding.label(ES.state.encoding, ES.state.declaredCharset);
-    const blob = new Blob([encodeForWrite(html)], { type: `text/html;charset=${charset}` });
+    const bytes = encodeForWrite(html);
+    const blob = new Blob([bytes], { type: `text/html;charset=${charset}` });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -546,6 +551,7 @@ window.FileOps = (function() {
     a.click();
     URL.revokeObjectURL(url);
     ES.state.sourceHtml = html;
+    ES.state.originalBytes = bytes.slice();
     ES.setDirty(false);
     toast(I18N.t('ui.file.exported', { name: a.download }), 'success');
   }
@@ -568,6 +574,15 @@ window.FileOps = (function() {
   // governs — this is what keeps a Windows-1252 decree from being written
   // back as UTF-8 under a <meta charset> that still declares 1252.
   function encodeForWrite(html) {
+    // A clean legacy document must not make a Unicode round trip merely
+    // because the destination is "Save as". Returning the exact bytes read
+    // from disk preserves FrontPage's encoding and source-level details.
+    // Once the text changes, the normal encoder below is used and its result
+    // becomes the new snapshot after writing.
+    if (html === ES.state.sourceHtml && ES.state.originalBytes) {
+      return ES.state.originalBytes.slice();
+    }
+
     const { encoding, hasBom, declaredCharset } = ES.state;
     const result = window.Encoding.encode(html, encoding, hasBom);
 

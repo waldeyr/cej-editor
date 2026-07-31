@@ -38,6 +38,19 @@ jobs:
           EOF
           cat version.json
 
+      - name: Validate static site
+        run: |
+          test -f index.html
+          test -f .nojekyll
+          test -d css
+          test -d js
+          test -d vendor
+          if grep -RniE 'contributing\.md|https?://(unpkg|esm\.sh|fonts\.(googleapis|gstatic))' \
+               index.html css js; then
+            echo "orphaned documentation or remote runtime reference found"
+            exit 1
+          fi
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

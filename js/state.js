@@ -27,6 +27,7 @@ window.EditorState = (function() {
     encoding: 'utf-8',      // canonical TextDecoder label
     declaredCharset: null,  // what the document's own <meta> said, verbatim
     hasBom: false,          // re-emitted on save if the original had one
+    originalBytes: null,    // exact bytes from the last read/write, when known
   };
 
   function emit(event, payload) {
@@ -178,6 +179,7 @@ window.EditorState = (function() {
     state.encoding = (info && info.encoding) || 'utf-8';
     state.declaredCharset = (info && info.declared) || null;
     state.hasBom = !!(info && info.hasBom);
+    state.originalBytes = info && info.bytes ? new Uint8Array(info.bytes) : null;
     emit('encoding-changed', state.encoding);
   }
 

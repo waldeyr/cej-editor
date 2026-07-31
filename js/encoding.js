@@ -277,7 +277,11 @@ window.Encoding = (function() {
       text = new TextDecoder('utf-8').decode(bytes);
     }
 
-    return { text, ...info };
+    // Keep a copy of the original bytes. A legacy FrontPage document can
+    // contain byte sequences which have no distinct Unicode representation.
+    // FileOps uses this only while the document is clean; edited documents
+    // are encoded normally below.
+    return { text, bytes: bytes.slice(), ...info };
   }
 
   // ------------------------------------------------------------- encoding

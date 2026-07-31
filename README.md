@@ -5,19 +5,25 @@
 [![Offline](https://img.shields.io/badge/depend%C3%AAncias%20externas-nenhuma-success)](#tecnologias-e-versões)
 [![Encoding](https://img.shields.io/badge/encoding-ISO--8859--1%20preservado-orange)](#fluxo-decisão-de-codificação)
 
-Editor visual de HTML que roda no navegador, criado para editar documentos
-legados em **ISO-8859-1 / Windows-1252** sem corrompê-los.
+Editor visual de HTML/CSS que roda no navegador, criado para editar documentos
+com diferentes encodings — incluindo **UTF-8, ISO-8859-1 e Windows-1252** — sem
+corrompê-los.
+
+<p>
+  <a href="#sobre-o-projeto">🇧🇷 Português</a>
+  &nbsp;·&nbsp;
+  <a href="#about">🇬🇧 English</a>
+</p>
 
 ---
 
 ## Sobre o projeto
 
-Atos normativos publicados pelo Planalto e sistemas correlatos são páginas HTML
-antigas, quase sempre exportadas do Word e codificadas em Windows-1252. Editá-las
-em ferramentas modernas costuma destruí-las de duas formas: o arquivo é gravado
+Documentos HTML antigos, muitas vezes exportados do Word, podem usar encodings
+que ferramentas modernas não preservam corretamente. O arquivo pode ser gravado
 em UTF-8 enquanto continua declarando `charset=windows-1252` — e todo acento vira
-mojibake — ou o editor reformata o documento inteiro, transformando uma correção
-de uma linha num diff de mil linhas.
+mojibake — ou o editor pode reformatá-lo inteiro, transformando uma correção de
+uma linha num diff de mil linhas.
 
 O CEJ-PAGE existe para editar esses arquivos como se fosse um editor visual
 comum, sem que o arquivo pague o preço.
@@ -392,19 +398,19 @@ correspondente preservado.
 
 <br>
 
-A browser-based visual HTML editor, built to edit legacy **ISO-8859-1 /
-Windows-1252** documents without corrupting them.
+A browser-based visual HTML/CSS editor, built to edit documents using different
+encodings — including **UTF-8, ISO-8859-1 and Windows-1252** — without corrupting
+them.
 
 ---
 
 ## About
 
-Brazilian federal legislation published by the *Planalto* and related systems
-consists of old HTML pages, nearly all exported from Word and encoded in
-Windows-1252. Modern tools tend to destroy them in one of two ways: the file is
-written back as UTF-8 while still declaring `charset=windows-1252` — turning
-every accented character into mojibake — or the editor reformats the whole
-document, turning a one-line correction into a thousand-line diff.
+Legacy HTML documents, often exported from Word, may use encodings that modern
+tools do not preserve correctly. The file may be written back as UTF-8 while
+still declaring `charset=windows-1252` — turning every accented character into
+mojibake — or the editor may reformat the whole document, turning a one-line
+correction into a thousand-line diff.
 
 CEJ-PAGE exists so those files can be edited like any other page, without the
 file paying for it.

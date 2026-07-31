@@ -27,3 +27,11 @@ A gravação em disco usa a File System Access API, que exige um contexto seguro
 com origem real — `file://` não serve. O importmap dos módulos ESM também não
 resolve em `file://`. `http://127.0.0.1` conta como contexto seguro, então tudo
 funciona sem HTTPS nem certificado.
+
+
+## Linux
+
+``wget https://go.dev/dl/go1.24.0.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
+export PATH=/usr/local/go/bin:$PATH``

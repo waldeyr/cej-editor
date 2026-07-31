@@ -5,7 +5,7 @@ name: Build Windows executable
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    tags: ['0.2', 'v*']
 
 permissions:
   contents: write
