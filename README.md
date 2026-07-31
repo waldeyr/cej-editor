@@ -17,6 +17,10 @@ corrompê-los.
 
 ---
 
+## Pré-visualização
+
+![Captura de tela do CEJ-PAGE](screen.png)
+
 ## Sobre o projeto
 
 Documentos HTML antigos, muitas vezes exportados do Word, podem usar encodings
