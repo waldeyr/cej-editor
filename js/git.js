@@ -55,7 +55,10 @@ window.GitDiff = (function() {
       const fs = fsaAdapter(info.dirHandle);
       const oid = await lib.resolveRef({ fs, dir: '/', ref: 'HEAD' });
       const { blob } = await lib.readBlob({ fs, dir: '/', oid, filepath: info.relPath });
-      headText = new TextDecoder().decode(blob);
+      // Decode with the document's own encoding, not UTF-8: a Latin-1 file
+      // committed to the repo would otherwise diff as mojibake against the
+      // correctly-decoded editor text, flagging every accented line.
+      headText = new TextDecoder(window.Encoding.normalize(ES.state.encoding)).decode(blob);
       info.branch = await currentBranch(lib, fs);
     } catch (e) {
       console.error(e);

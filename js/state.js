@@ -20,6 +20,13 @@ window.EditorState = (function() {
     // --- Source-text mode foundation ---
     mode: 'visual',         // 'visual' | 'source'
     sourceHtml: '',         // canonical source string (kept in sync; Source mode edits this directly)
+    // --- Encoding of the open document ---
+    // Detected on open and honoured on every write, so a Windows-1252 file
+    // stays Windows-1252 instead of silently becoming UTF-8 bytes behind a
+    // <meta charset> that still says otherwise.
+    encoding: 'utf-8',      // canonical TextDecoder label
+    declaredCharset: null,  // what the document's own <meta> said, verbatim
+    hasBom: false,          // re-emitted on save if the original had one
   };
 
   function emit(event, payload) {
@@ -165,6 +172,15 @@ window.EditorState = (function() {
     emit('file-changed');
   }
 
+  // Record how the open document is encoded. `info` is the object returned
+  // by Encoding.decode(); passing nothing resets to UTF-8 (new blank doc).
+  function setEncoding(info) {
+    state.encoding = (info && info.encoding) || 'utf-8';
+    state.declaredCharset = (info && info.declared) || null;
+    state.hasBom = !!(info && info.hasBom);
+    emit('encoding-changed', state.encoding);
+  }
+
   // Autosave to localStorage (every 2s after change). Pulls from the
   // canonical source in source mode, from the iframe DOM in visual mode.
   function scheduleAutosave() {
@@ -250,7 +266,7 @@ window.EditorState = (function() {
     state, on, emit,
     snapshot, undo, redo,
     setDoc, select, deselect,
-    setDirty, setFile,
+    setDirty, setFile, setEncoding,
     scheduleAutosave, loadAutosave,
     pathTo, resolvePath,
     loadSnippets, addSnippet, removeSnippet,

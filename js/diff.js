@@ -27,7 +27,7 @@ window.DiffViewer = (function() {
     let diskText;
     try {
       const file = await ES.state.fileHandle.getFile();
-      diskText = await window.EncodingDetector.readFileWithEncoding(file);
+      diskText = (await window.Encoding.decode(file)).text;
     } catch (e) {
       toast(I18N.t('ui.diff.readError', { message: e.message }), 'error');
       return;

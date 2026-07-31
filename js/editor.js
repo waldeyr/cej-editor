@@ -386,8 +386,29 @@
     const fileName = document.getElementById('file-name');
     const saveStatus = document.getElementById('save-status');
     const autosaveTime = document.getElementById('autosave-time');
+    const encodingChip = document.getElementById('encoding-chip');
+
+    // The encoding chip is the only place the user can see (and correct)
+    // which charset the file will be written in. It matters here because
+    // the documents this editor targets are Windows-1252, not UTF-8.
+    function refreshEncodingChip() {
+      if (!encodingChip) return;
+      const open = !!(ES.state.doc || ES.state.sourceHtml);
+      encodingChip.hidden = !open;
+      if (!open) return;
+      const name = window.Encoding.label(ES.state.encoding, ES.state.declaredCharset);
+      encodingChip.textContent = name;
+      encodingChip.dataset.legacy = window.Encoding.isLatin1Family(ES.state.encoding) ? 'true' : 'false';
+      encodingChip.title = I18N.t('ui.encoding.chipHint', { encoding: name });
+    }
+
+    if (encodingChip) {
+      encodingChip.addEventListener('click', () => window.FileOps.changeEncoding());
+      refreshEncodingChip();
+    }
 
     ES.on((evt) => {
+      if (evt === 'encoding-changed' || evt === 'file-changed') refreshEncodingChip();
       if (evt === 'file-changed') {
         fileName.textContent = ES.state.fileHandle
           ? I18N.t('ui.toolbar.fileLinked', { name: ES.state.fileName })

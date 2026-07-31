@@ -161,6 +161,16 @@ window.I18N = (function() {
           blankHeading: 'Nova página',
           blankBody: 'Comece a editar - clique em qualquer elemento para selecionar, clique duplo para editar texto e arraste blocos da barra lateral.',
         },
+        encoding: {
+          chipHint: 'O arquivo será salvo em {encoding}. Clique para alterar.',
+          guessed: 'O arquivo não declara codificação; detectado {encoding} pelos bytes',
+          mismatch: 'Atenção: o arquivo declara ISO-8859-1 mas o conteúdo é UTF-8. Foi lido como UTF-8.',
+          adapted: '{count} caractere(s) adaptado(s) ao {encoding}: {sample}',
+          changeTitle: 'Alterar a codificação do arquivo',
+          changeMsg: 'Converter de {from} para {to}. Os bytes e a meta charset do documento serão reescritos ao salvar.',
+          changeConfirm: 'Converter para {to}',
+          changed: 'Codificação alterada para {encoding} - salve para gravar no disco',
+        },
         diff: {
           noLinkedFile: 'Nenhum arquivo vinculado - abra um com "Abrir arquivo local" antes',
           readError: 'Não foi possível ler o arquivo: {message}',
@@ -299,6 +309,16 @@ window.I18N = (function() {
           assetsPromptConfirm: 'Choose folder',
           blankTitle: 'Untitled', blankHeading: 'New page',
           blankBody: 'Start editing - click anything to select, double-click to edit text, drag blocks from the sidebar.',
+        },
+        encoding: {
+          chipHint: 'The file will be saved as {encoding}. Click to change.',
+          guessed: 'File declares no encoding; detected {encoding} from its bytes',
+          mismatch: 'Warning: the file declares ISO-8859-1 but holds UTF-8. Read as UTF-8.',
+          adapted: '{count} character(s) adapted to {encoding}: {sample}',
+          changeTitle: 'Change the file encoding',
+          changeMsg: 'Convert from {from} to {to}. The document bytes and its meta charset are both rewritten on save.',
+          changeConfirm: 'Convert to {to}',
+          changed: 'Encoding changed to {encoding} - save to write it to disk',
         },
         diff: {
           noLinkedFile: 'No linked file - open one with "Open Local File" first', readError: 'Could not read file: {message}',

@@ -76,12 +76,15 @@ window.FileOps = (function() {
       // dismissed and reopened. Simpler to let the user pick any file.
       const [handle] = await window.showOpenFilePicker({ multiple: false });
       const file = await handle.getFile();
-      const text = await window.EncodingDetector.readFileWithEncoding(file);
+      const info = await window.Encoding.decode(file);
+      const text = info.text;
       if (window.AssetResolver) {
         window.AssetResolver.revokeAllObjectUrls();
         window.AssetResolver.setCurrentFileName(file.name);
       }
       ES.setFile(handle, file.name);
+      ES.setEncoding(info);
+      warnIfEncodingSuspect(info);
       ES.state.sourceHtml = text;
       lastKnownMtime = file.lastModified;
       clearExternalChange();
@@ -103,12 +106,15 @@ window.FileOps = (function() {
 
   async function importFile(file) {
     try {
-      const text = await window.EncodingDetector.readFileWithEncoding(file);
+      const info = await window.Encoding.decode(file);
+      const text = info.text;
       if (window.AssetResolver) {
         window.AssetResolver.revokeAllObjectUrls();
         window.AssetResolver.setCurrentFileName(file.name);
       }
       ES.setFile(null, file.name);
+      ES.setEncoding(info);
+      warnIfEncodingSuspect(info);
       ES.state.sourceHtml = text;
       await window.ModeSwitch.loadIntoInitialMode(text);
       ES.addRecent(file.name);
@@ -465,7 +471,7 @@ window.FileOps = (function() {
         const status = document.getElementById('save-status');
         status.dataset.state = 'saving';
         status.textContent = I18N.t('ui.file.saving');
-        await writeWithPermissionRecovery(ES.state.fileHandle, html);
+        await writeWithPermissionRecovery(ES.state.fileHandle, encodeForWrite(html));
         ES.state.sourceHtml = html;
         ES.setDirty(false);
         // Refresh our mtime so the next external check doesn't fire on
@@ -508,7 +514,9 @@ window.FileOps = (function() {
       const status = document.getElementById('save-status');
       status.dataset.state = 'saving';
       status.textContent = I18N.t('ui.file.saving');
-      await writeWithPermissionRecovery(handle, html);
+      // Note: no ES.setEncoding() here — "save as" deliberately keeps the
+      // document's encoding, so a copy of a Latin-1 file is Latin-1 too.
+      await writeWithPermissionRecovery(handle, encodeForWrite(html));
       ES.setFile(handle, handle.name || 'untitled.html');
       ES.state.sourceHtml = html;
       ES.setDirty(false);
@@ -529,7 +537,8 @@ window.FileOps = (function() {
   function exportFile() {
     const html = currentHtml();
     if (!html) return;
-    const blob = new Blob([html], { type: 'text/html' });
+    const charset = window.Encoding.label(ES.state.encoding, ES.state.declaredCharset);
+    const blob = new Blob([encodeForWrite(html)], { type: `text/html;charset=${charset}` });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -541,14 +550,104 @@ window.FileOps = (function() {
     toast(I18N.t('ui.file.exported', { name: a.download }), 'success');
   }
 
+  // Tell the user when the document's declared charset didn't match its
+  // bytes, or when we had to guess. Informational — the editor already
+  // resolved it; the point is that the <meta> may need fixing.
+  function warnIfEncodingSuspect(info) {
+    if (!info) return;
+    if (info.mismatch === 'declared-latin1-but-utf8') {
+      toast(I18N.t('ui.encoding.mismatch'), 'warn');
+    } else if (info.source === 'sniff') {
+      toast(I18N.t('ui.encoding.guessed', {
+        encoding: window.Encoding.label(info.encoding, info.declared),
+      }), '');
+    }
+  }
+
+  // Serialize to the bytes we actually write. The document's own encoding
+  // governs — this is what keeps a Windows-1252 decree from being written
+  // back as UTF-8 under a <meta charset> that still declares 1252.
+  function encodeForWrite(html) {
+    const { encoding, hasBom, declaredCharset } = ES.state;
+    const result = window.Encoding.encode(html, encoding, hasBom);
+
+    // Characters the target charset can't hold were rewritten (an arrow
+    // became ->, an emoji became :-) ). Say so — the text on disk is no
+    // longer exactly what's on screen.
+    if (result.adapted.length) {
+      const shown = [...new Set(result.adapted.map(a => `${a.from} → ${a.to}`))].slice(0, 5);
+      toast(I18N.t('ui.encoding.adapted', {
+        count: result.adapted.length,
+        encoding: window.Encoding.label(encoding, declaredCharset),
+        sample: shown.join(', '),
+      }), 'warn');
+    }
+    return result.bytes;
+  }
+
+  // Rewrite whichever charset declaration the document uses. Legacy Word
+  // exports declare it via http-equiv, modern files via <meta charset>;
+  // if it has neither, insert one right after <head>.
+  function rewriteMetaCharset(html, charset) {
+    const direct = /(<meta\s[^>]*?\bcharset\s*=\s*["']?)([a-z0-9][a-z0-9._:-]*)/i;
+    if (direct.test(html)) return html.replace(direct, `$1${charset}`);
+
+    const httpEquiv = /(<meta\s[^>]*?\bhttp-equiv\s*=\s*["']?content-type["']?[^>]*?\bcontent\s*=\s*["'][^"']*?charset\s*=\s*)([a-z0-9][a-z0-9._:-]*)/i;
+    if (httpEquiv.test(html)) return html.replace(httpEquiv, `$1${charset}`);
+
+    if (/<head[^>]*>/i.test(html)) {
+      return html.replace(/(<head[^>]*>)/i, `$1\n<meta charset="${charset}">`);
+    }
+    return `<meta charset="${charset}">\n` + html;
+  }
+
+  // Let the user override a wrong guess (a file with no declaration at all),
+  // or deliberately convert a document between UTF-8 and the legacy charset.
+  // Both the bytes and the <meta> move together — the two disagreeing is the
+  // exact failure this whole layer exists to prevent.
+  async function changeEncoding() {
+    if (!ES.state.doc && !ES.state.sourceHtml) return;
+
+    const current = window.Encoding.normalize(ES.state.encoding);
+    const isLegacy = window.Encoding.isLatin1Family(current);
+    const target = isLegacy ? 'utf-8' : 'windows-1252';
+    const targetCharset = isLegacy ? 'UTF-8' : 'ISO-8859-1';
+
+    const ok = await window.Dialog.confirm({
+      title: I18N.t('ui.encoding.changeTitle'),
+      message: I18N.t('ui.encoding.changeMsg', {
+        from: window.Encoding.label(current, ES.state.declaredCharset),
+        to: targetCharset,
+      }),
+      confirmLabel: I18N.t('ui.encoding.changeConfirm', { to: targetCharset }),
+      cancelLabel: I18N.t('ui.file.cancel'),
+    });
+    if (!ok) return;
+
+    const updated = rewriteMetaCharset(currentHtml(), targetCharset);
+    ES.state.sourceHtml = updated;
+    ES.setEncoding({ encoding: target, declared: targetCharset, hasBom: false });
+
+    // Reload so the live DOM's <meta> matches the source; otherwise the
+    // save-time splice would see the head diverge and fall back to a full
+    // re-serialization of the document.
+    await window.ModeSwitch.loadIntoInitialMode(updated);
+    ES.setDirty(true);
+    toast(I18N.t('ui.encoding.changed', { encoding: targetCharset }), 'success');
+  }
+
   // Write through the FSA handle. If the browser denies writes
   // (NotAllowedError / SecurityError — typically because the user
   // revoked permission via the page-info menu mid-session), re-request
   // permission and retry once. Surface a clear error if they deny.
-  async function writeWithPermissionRecovery(handle, html) {
+  //
+  // `bytes` is a Uint8Array, never a string: writing a string through the
+  // File System Access API always encodes it as UTF-8, which is precisely
+  // the bug this layer exists to prevent.
+  async function writeWithPermissionRecovery(handle, bytes) {
     try {
       const writable = await handle.createWritable();
-      await writable.write(html);
+      await writable.write(bytes);
       await writable.close();
       return;
     } catch (e) {
@@ -564,7 +663,7 @@ window.FileOps = (function() {
         throw err;
       }
       const writable = await handle.createWritable();
-      await writable.write(html);
+      await writable.write(bytes);
       await writable.close();
     }
   }
@@ -597,6 +696,9 @@ h1 { font-size: 32px; }
 </body>
 </html>`;
     ES.setFile(null, 'untitled.html');
+    // A brand-new document is UTF-8; it doesn't inherit legacy encoding
+    // from whatever was open before.
+    ES.setEncoding(null);
     if (window.AssetResolver) {
       window.AssetResolver.revokeAllObjectUrls();
       window.AssetResolver.setCurrentFileName('untitled.html');
@@ -683,7 +785,9 @@ h1 { font-size: 32px; }
     }
     try {
       const file = await ES.state.fileHandle.getFile();
-      const text = await window.EncodingDetector.readFileWithEncoding(file);
+      const info = await window.Encoding.decode(file);
+      const text = info.text;
+      ES.setEncoding(info);
       lastKnownMtime = file.lastModified;
       if (window.AssetResolver) window.AssetResolver.setCurrentFileName(file.name);
 
@@ -778,6 +882,7 @@ h1 { font-size: 32px; }
     newBlank,
     reloadFromDisk,
     checkExternalChanges,
+    changeEncoding,
     currentHtml,
     supportsFSA,
     linkAssetsDirectory,

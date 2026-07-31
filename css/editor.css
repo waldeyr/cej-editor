@@ -462,6 +462,30 @@ html[data-theme="dark"] .empty-actions .btn-primary:hover { filter: brightness(0
 .save-status[data-state="saved"] { color: var(--success); }
 .save-status[data-state="error"] { color: var(--danger); }
 
+/* Encoding of the open document. Highlighted when it's a legacy charset,
+   because that's the case where saving wrongly does real damage. */
+.encoding-chip {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.encoding-chip:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.encoding-chip[data-legacy="true"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
 .tool-btn {
   display: inline-flex;
   align-items: center;
