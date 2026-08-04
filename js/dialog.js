@@ -4,6 +4,11 @@
 window.Dialog = (function() {
   const I18N = window.I18N;
 
+  // Open dialogs, oldest first. Only the topmost one reacts to Enter/Escape,
+  // so a prompt opened *from* a dialog (rename inside the bookmark manager)
+  // doesn't close its parent too.
+  const stack = [];
+
   function ensureHost() {
     let host = document.getElementById('dialog-host');
     if (!host) {
@@ -21,7 +26,7 @@ window.Dialog = (function() {
       const overlay = document.createElement('div');
       overlay.className = 'dialog-overlay';
       const panel = document.createElement('div');
-      panel.className = 'dialog-panel' + (opts.danger ? ' danger' : '');
+      panel.className = 'dialog-panel' + (opts.danger ? ' danger' : '') + (opts.wide ? ' wide' : '');
       panel.setAttribute('role', 'dialog');
       panel.setAttribute('aria-modal', 'true');
 
@@ -41,9 +46,10 @@ window.Dialog = (function() {
           <div class="dialog-body">
             <input type="text" class="dialog-input" placeholder="${escapeAttr(opts.placeholder || '')}" />
           </div>` : ''}
+        ${opts.kind === 'custom' ? `<div class="dialog-body dialog-custom"></div>` : ''}
         <div class="dialog-actions">
           ${opts.kind !== 'alert' ? `<button class="dialog-btn dialog-btn-secondary" data-act="cancel">${escapeHtml(opts.cancelLabel || I18N.t('ui.file.cancel'))}</button>` : ''}
-          <button class="dialog-btn dialog-btn-primary${opts.danger ? ' danger' : ''}" data-act="confirm">${escapeHtml(opts.confirmLabel || (opts.kind === 'alert' ? 'OK' : (I18N.getLang() === 'pt-BR' ? 'Confirmar' : 'Confirm')))}</button>
+          ${opts.hideConfirm ? '' : `<button class="dialog-btn dialog-btn-primary${opts.danger ? ' danger' : ''}" data-act="confirm">${escapeHtml(opts.confirmLabel || (opts.kind === 'alert' ? 'OK' : (I18N.getLang() === 'pt-BR' ? 'Confirmar' : 'Confirm')))}</button>`}
         </div>
       `;
       if (opts.title) panel.querySelector('.dialog-title').textContent = opts.title;
@@ -51,31 +57,46 @@ window.Dialog = (function() {
 
       overlay.appendChild(panel);
       host.appendChild(overlay);
-
-      const input = panel.querySelector('.dialog-input');
-      if (input) {
-        input.value = opts.defaultValue || '';
-        setTimeout(() => { input.focus(); input.select(); }, 30);
-      } else {
-        setTimeout(() => panel.querySelector('[data-act="confirm"]').focus(), 30);
-      }
+      stack.push(overlay);
 
       let resolved = false;
       function finish(value) {
         if (resolved) return;
         resolved = true;
         document.removeEventListener('keydown', onKey, true);
+        const i = stack.indexOf(overlay);
+        if (i !== -1) stack.splice(i, 1);
         overlay.classList.add('closing');
         setTimeout(() => overlay.remove(), 140);
         resolve(value);
       }
 
+      const confirmBtn = panel.querySelector('[data-act="confirm"]');
+      const customBody = panel.querySelector('.dialog-custom');
+      if (customBody && typeof opts.build === 'function') {
+        opts.build(customBody, { close: finish, panel });
+      }
+
+      // Only a prompt owns the built-in input. A custom body may style its own
+      // fields with .dialog-input, and those must not be reset to defaultValue.
+      const input = opts.kind === 'prompt' ? panel.querySelector('.dialog-input') : null;
+      if (input) {
+        input.value = opts.defaultValue || '';
+        setTimeout(() => { input.focus(); input.select(); }, 30);
+      } else {
+        const first = (customBody && customBody.querySelector('input, button, [tabindex]')) || confirmBtn;
+        if (first) setTimeout(() => first.focus(), 30);
+      }
+
       function onKey(e) {
+        if (stack[stack.length - 1] !== overlay) return; // only the topmost dialog reacts
         if (e.key === 'Escape') {
           e.preventDefault();
           finish(opts.kind === 'prompt' ? null : false);
         } else if (e.key === 'Enter' && !e.shiftKey) {
-          // Enter from input or anywhere in dialog confirms
+          // Enter from input or anywhere in dialog confirms — except inside a
+          // custom body, where Enter belongs to whatever the body built.
+          if (e.target.closest('.dialog-custom')) return;
           if (e.target.closest('.dialog-panel')) {
             e.preventDefault();
             doConfirm();
@@ -97,7 +118,7 @@ window.Dialog = (function() {
         finish(opts.kind === 'prompt' ? null : false);
       }
 
-      panel.querySelector('[data-act="confirm"]').addEventListener('click', doConfirm);
+      if (confirmBtn) confirmBtn.addEventListener('click', doConfirm);
       const cancelBtn = panel.querySelector('[data-act="cancel"]');
       if (cancelBtn) cancelBtn.addEventListener('click', doCancel);
       overlay.addEventListener('click', (e) => {
@@ -115,5 +136,9 @@ window.Dialog = (function() {
     alert(opts)   { return open({ ...(typeof opts === 'string' ? { message: opts } : opts), kind: 'alert' }); },
     confirm(opts) { return open({ ...(typeof opts === 'string' ? { message: opts } : opts), kind: 'confirm' }); },
     prompt(opts)  { return open({ ...(typeof opts === 'string' ? { message: opts } : opts), kind: 'prompt' }); },
+    // Same chrome, but the body is built by the caller:
+    //   Dialog.custom({ title, message, build(bodyEl, { close, panel }) })
+    // Resolves true on confirm, false on cancel/Esc/backdrop.
+    custom(opts)  { return open({ ...opts, kind: 'custom' }); },
   };
 })();

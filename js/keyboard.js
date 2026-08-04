@@ -47,7 +47,28 @@ window.Keyboard = (function() {
       return;
     }
 
+    // Insert link, and paste-from-Word. Both are act-authoring shortcuts and
+    // are mirrored in canvas.js, because iframe keydowns never reach here —
+    // whichever frame has focus, the same key must do the same thing.
+    if (mod && (e.key === 'k' || e.key === 'K') && window.LinkTool) {
+      if (inField) return;
+      e.preventDefault();
+      window.LinkTool.open();
+      return;
+    }
+    if (mod && e.shiftKey && (e.key === 'v' || e.key === 'V') && window.PasteWord) {
+      if (inField) return;
+      e.preventDefault();
+      window.PasteWord.openColdPaste();
+      return;
+    }
+
     if (inField) return;
+
+    // Act formatting roles (Ctrl+Alt+1..9, F4 palette). Ctrl+1..9 is not
+    // available: browsers reserve it for tab switching and the keydown never
+    // reaches the page.
+    if (window.ActShortcuts && window.ActShortcuts.handle(e)) return;
 
     // Duplicate
     if (mod && e.key === 'd') {
@@ -55,8 +76,12 @@ window.Keyboard = (function() {
       window.Canvas.duplicateSelected();
       return;
     }
-    // Delete
-    if ((e.key === 'Delete' || e.key === 'Backspace') && ES.state.selected) {
+    // Delete. Also fires with only a text range selected in the canvas — the
+    // focus can be in the parent chrome (e.g. the DOM tree panel) while the
+    // canvas still holds a selection. Keydowns *inside* the iframe never reach
+    // this handler; canvas.js has its own listener for those.
+    if ((e.key === 'Delete' || e.key === 'Backspace')
+        && (ES.state.selected || (window.Canvas.hasTextSelection && window.Canvas.hasTextSelection()))) {
       e.preventDefault();
       window.Canvas.deleteSelected();
       return;

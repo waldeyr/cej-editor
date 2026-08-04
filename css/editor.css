@@ -32,6 +32,7 @@
   --sidebar-r-w: 320px;
   --sidebar-gutter-w: 12px;
   --toolbar-h: 48px;
+  --act-bar-h: 42px;
   --statusbar-h: 26px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: 'Roboto', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -364,9 +365,11 @@ html[data-theme="dark"] .empty-actions .btn-primary:hover { filter: brightness(0
 }
 
 /* ---------- Editor layout ---------- */
+/* Row 2 is `auto` so the act bar collapses to nothing when hidden (source
+   mode, preview) instead of leaving a gap. */
 .editor {
   display: grid;
-  grid-template-rows: var(--toolbar-h) 1fr var(--statusbar-h);
+  grid-template-rows: var(--toolbar-h) auto 1fr var(--statusbar-h);
   height: 100vh;
 }
 
@@ -385,7 +388,24 @@ html[data-theme="dark"] .empty-actions .btn-primary:hover { filter: brightness(0
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
+/* On a 1366px desktop the three groups don't all fit — more so in pt-BR,
+   where the labels are longer. The file identity (left) and the file actions
+   (right) must never be cut off, so the editing group in the middle is the
+   one that scrolls. Before this, the theme toggle fell off the screen. */
+.toolbar-left, .toolbar-right { flex: 0 0 auto; }
+.toolbar-center {
+  flex: 0 1 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.toolbar-center::-webkit-scrollbar { height: 4px; }
+.toolbar-center::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+.toolbar-center > * { flex: 0 0 auto; }
 .brand {
   display: inline-flex;
   align-items: center;
@@ -510,8 +530,33 @@ html[data-theme="dark"] .empty-actions .btn-primary:hover { filter: brightness(0
   background: var(--border);
   margin: 0 4px;
 }
+/* FrontPage-style dropdown of the styles the open document already defines. */
+.toolbar-select {
+  max-width: 190px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+}
+.toolbar-select:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.toolbar-select:focus { border-color: var(--accent); }
+.toolbar-select:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 1500px) { .toolbar-select { max-width: 120px; } }
 .device-toggle { display: flex; gap: 2px; }
 .device-btn { padding: 6px 8px; }
+
+/* The file group carries six text labels. On a 1366px government desktop —
+   and more so in pt-BR, where the words are longer — they don't fit next to
+   the centre group. Drop to icons, keeping the label on the primary Save. */
+@media (max-width: 1500px) {
+  .toolbar-right .tool-btn:not(.primary) span { display: none; }
+  .toolbar-right .tool-btn:not(.primary):not(.lang-toggle) { padding: 6px 8px; }
+}
 
 /* ---------- Workspace ---------- */
 .workspace {
@@ -658,6 +703,254 @@ body.is-resizing-sidebars .sidebar-gutter {
 .tab-panel.active { display: block; }
 .tab-panel.active.flex { display: flex; flex-direction: column; }
 
+/* ---------- Act formatting bar ---------- */
+/* Deliberately its own row rather than more buttons in .toolbar-center, which
+   already scrolls horizontally at 1366px in pt-BR. */
+.act-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--act-bar-h);
+  padding: 0 12px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+body[data-mode="source"] .act-bar,
+.editor.preview-mode .act-bar { display: none; }
+
+.act-bar-roles {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 3px 0;
+}
+.act-chip-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex: none;
+}
+.act-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 4px 9px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.act-chip:hover { background: var(--bg-hover); color: var(--text); }
+.act-chip.active {
+  background: var(--selection-soft);
+  border-color: var(--selection);
+  color: var(--text);
+  font-weight: 600;
+}
+/* "Close but not the same" — the recipe nearly matches. Dashed, so it never
+   reads as a confirmed state. */
+.act-chip.near {
+  border-style: dashed;
+  border-color: var(--warn);
+  color: var(--text);
+}
+
+/* Miniature of what the role looks like. Rendering the real recipe at 24px
+   (Arial 10pt on white) is a grey smudge; abstract bars read instantly. */
+.act-chip-preview {
+  width: 15px;
+  height: 12px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--bg-3);
+  position: relative;
+  overflow: hidden;
+}
+.act-chip-preview::before,
+.act-chip-preview::after {
+  content: "";
+  position: absolute;
+  left: 2px; right: 2px;
+  height: 1.5px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.act-chip-preview::before { top: 3px; }
+.act-chip-preview::after { top: 7px; }
+.act-chip-preview[data-preview="corpo-indent"]::before { left: 6px; }
+.act-chip-preview[data-preview="centro-azul"]::before { left: 4px; right: 4px; background: #4a6bd8; }
+.act-chip-preview[data-preview="centro-azul"]::after { left: 5px; right: 5px; background: #4a6bd8; }
+.act-chip-preview[data-preview="ementa"]::before { left: 7px; background: #a33; }
+.act-chip-preview[data-preview="ementa"]::after { left: 7px; background: #a33; }
+.act-chip-preview[data-preview="citacao"]::before { left: 5px; right: 4px; }
+.act-chip-preview[data-preview="citacao"]::after { left: 5px; right: 4px; }
+.act-chip-preview[data-preview="fecho-italico"]::before { transform: skewX(-14deg); }
+.act-chip-preview[data-preview="fecho-italico"]::after { transform: skewX(-14deg); }
+.act-chip-preview[data-preview="dou"]::before { background: #e33; }
+.act-chip-preview[data-preview="dou"]::after { display: none; }
+.act-chip-preview[data-preview="anexo"]::before { left: 4px; right: 4px; height: 2.5px; }
+.act-chip-preview[data-preview="anexo"]::after { left: 3px; right: 3px; top: 8px; }
+
+/* What the caret is in, in words. */
+.act-bar-now {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--bg-3);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.act-bar-now:empty { display: none; }
+.act-bar-now.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.act-bar-now.near { color: var(--text); }
+
+.act-bar-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; flex: none; }
+@media (max-width: 1400px) {
+  .act-bar-tools .tool-btn span { display: none; }
+}
+
+/* ---------- Act structure panel ---------- */
+.act-outline { display: flex; flex-direction: column; gap: 1px; }
+.outline-warn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.outline-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.outline-row:hover { background: var(--bg-hover); color: var(--text); }
+.outline-row.current { background: var(--selection-soft); color: var(--text); }
+.outline-row.lvl-1 { padding-left: 6px; }
+.outline-row.lvl-2 { padding-left: 18px; }
+.outline-row.lvl-3 { padding-left: 30px; }
+.outline-row.lvl-4 { padding-left: 42px; }
+.outline-label { font-weight: 600; color: var(--text); white-space: nowrap; }
+.outline-row.kind-epigrafe .outline-label,
+.outline-row.kind-ementa .outline-label { font-weight: 500; color: var(--text-dim); }
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.outline-flag { font-size: 10px; white-space: nowrap; }
+.outline-flag.has { color: var(--text-faint); font-family: var(--mono); }
+.outline-flag.missing { color: var(--warn); }
+.outline-empty, .link-empty, .check-why {
+  padding: 10px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.link-empty.ok { color: var(--success); }
+
+/* ---------- "Este trecho" panel ---------- */
+.piece-group { margin-bottom: 14px; }
+.piece-identity { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.piece-format { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+.piece-format.warn { color: var(--warn); }
+.piece-format.near { color: var(--text-dim); }
+.piece-diffs { margin-top: 5px; }
+.piece-diffs summary { cursor: pointer; font-size: 11px; color: var(--text-faint); }
+.piece-diff { font-family: var(--mono); font-size: 10px; color: var(--text-faint); padding-left: 10px; }
+.piece-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 5px;
+  text-align: left;
+}
+.piece-btn.piece-suggest { border-color: var(--success); color: var(--success); }
+.piece-note { font-size: 11px; color: var(--text-faint); line-height: 1.5; }
+.piece-text {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  max-height: 140px;
+  overflow: auto;
+  margin-bottom: 4px;
+}
+.piece-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.piece-link-text { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.piece-link-desc { grid-column: 1; color: var(--text-faint); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+.piece-link-desc.broken { color: var(--danger); }
+.piece-link-edit, .piece-small {
+  grid-row: 1 / span 2;
+  padding: 2px 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.piece-link-edit:hover, .piece-small:hover { background: var(--bg-hover); color: var(--text); }
+.piece-anchor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.piece-small { grid-row: auto; }
+.piece-anchor-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-3);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+/* Nested tab strip inside the "Avançado" tab. */
+.sub-tabs { margin-bottom: 8px; }
+
 /* ---------- Blocks panel ---------- */
 .search-input {
   width: 100%;
@@ -671,11 +964,42 @@ body.is-resizing-sidebars .sidebar-gutter {
   outline: none;
 }
 .search-input:focus { border-color: var(--accent); }
+/* Groups broke the old single grid: the list is now a column of collapsible
+   groups, each holding its own two-column grid. */
 .blocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.block-group { display: flex; flex-direction: column; }
+.block-group-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  cursor: pointer;
+}
+.block-group-head:hover { color: var(--accent); }
+.block-group-head i { width: 13px; height: 13px; transition: transform 0.15s; }
+.block-group-head[aria-expanded="true"] i { transform: rotate(90deg); }
+.blocks-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  padding: 8px 0 12px;
 }
+.block-item.block-piece { border-color: var(--border-strong); }
 .block-category {
   grid-column: 1 / -1;
   font-size: 10px;
@@ -712,6 +1036,24 @@ body.is-resizing-sidebars .sidebar-gutter {
 .block-item .block-icon { font-size: 20px; line-height: 1; }
 .block-item .block-name { font-weight: 500; }
 .block-item.dragging { opacity: 0.5; }
+
+/* Action tiles (Bookmark, Page title) run a command instead of being dragged
+   into the canvas — the dashed border says "this one is different". */
+.block-item.block-action {
+  cursor: pointer;
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+.block-item.block-action:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.block-item.block-action .block-icon { color: var(--accent); }
+.block-item.block-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* ---------- DOM tree ---------- */
 .dom-tree { font-family: var(--mono); font-size: 11.5px; }
@@ -795,6 +1137,16 @@ body.is-resizing-sidebars .sidebar-gutter {
 .prop-row input:focus,
 .prop-row select:focus,
 .prop-row textarea:focus { border-color: var(--accent); }
+/* Legacy Word/FrontPage class names are long ("apple-converted-space",
+   "MsoHyperlinkFollowed"); the 80px label column would clip them. */
+.prop-row.prop-row-full {
+  display: block;
+  margin-top: 8px;
+}
+.prop-row.prop-row-full label {
+  display: block;
+  margin-bottom: 4px;
+}
 .prop-row input[type="color"] {
   padding: 2px;
   height: 26px;
@@ -1436,6 +1788,89 @@ body.is-resizing-sidebars .sidebar-gutter {
   color: white;
 }
 
+/* ---------- Custom dialog body (bookmark manager) ---------- */
+.dialog-panel.wide { width: min(560px, 100%); }
+.dialog-custom { max-height: 46vh; overflow: auto; }
+.dialog-custom .bookmark-field { display: block; }
+.dialog-custom .bookmark-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.dialog-custom .bookmark-scope {
+  margin: 8px 0 14px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.dialog-custom .bookmark-list-head {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.bookmark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.bookmark-row:hover { background: var(--bg-3); }
+.bookmark-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.bookmark-chip {
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+}
+.bookmark-actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.bookmark-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.bookmark-actions button:hover { background: var(--bg); color: var(--text); }
+.bookmark-actions button [data-lucide],
+.bookmark-actions button .lucide { width: 13px; height: 13px; }
+.bookmark-actions button[data-act="remove"]:hover { color: var(--danger); }
+.bookmark-empty {
+  padding: 8px 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 /* ---------- Diff modal ---------- */
 .diff-modal {
   position: fixed;
@@ -1681,3 +2116,267 @@ html[data-theme="light"] .diff-body .diff-line.removed { color: #b91c1c !importa
   border: 2px solid var(--bg-2);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ---------- Paste-from-Word dialog ---------- */
+.paste-cold {
+  min-height: 130px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  outline: none;
+}
+.paste-cold:focus { border-color: var(--accent); }
+.paste-opts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.paste-opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.paste-opt:hover { background: var(--bg-hover); }
+.paste-opt input { grid-row: 1 / span 2; margin-top: 2px; }
+.paste-opt-t { font-size: 13px; color: var(--text); font-weight: 500; }
+.paste-opt-d { font-size: 11px; color: var(--text-faint); line-height: 1.45; }
+.paste-opt.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.paste-opt.warn .paste-opt-d { color: var(--warn); }
+.paste-preview-head, .link-section-head, .check-head {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 12px 0 5px;
+}
+.paste-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 150px;
+  overflow: auto;
+}
+.paste-preview-row {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 9px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.paste-preview-row:last-child { border-bottom: none; }
+.paste-preview-tag { color: var(--accent); font-weight: 600; }
+.paste-preview-text { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paste-remember { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+
+/* ---------- Link dialog ---------- */
+.link-field { display: block; margin-bottom: 6px; }
+.link-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+/* The address, read back in Portuguese — nobody should proofread a
+   percent-encoded fragment by eye. */
+.link-readout {
+  min-height: 18px;
+  font-size: 12px;
+  padding: 3px 0 6px;
+  color: var(--text-faint);
+}
+.link-readout.known { color: var(--success); }
+.link-readout.unknown { color: var(--warn); }
+.link-sections { display: flex; flex-direction: column; }
+.link-section-list { max-height: 190px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.link-row {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr;
+  gap: 1px 10px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.link-row:last-child { border-bottom: none; }
+.link-row:hover { background: var(--bg-hover); }
+.link-row-main { font-weight: 600; white-space: nowrap; }
+.link-row-mid { color: var(--text-dim); font-size: 11px; }
+.link-row-sub {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-remove {
+  margin-top: 14px;
+  padding: 7px 12px;
+  background: transparent;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.link-remove:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.link-audit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.link-audit-text { color: var(--text); }
+.link-audit-href {
+  grid-column: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-audit-go, .check-go, .check-fix {
+  grid-row: 1 / span 2;
+  align-self: center;
+  padding: 3px 9px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.link-audit-go:hover, .check-go:hover, .check-fix:hover { background: var(--bg-hover); color: var(--text); }
+.check-fix { border-color: var(--success); color: var(--success); }
+.check-fix:disabled { opacity: 0.5; cursor: default; }
+.link-section.sev-erro .link-section-head { color: var(--danger); }
+.link-section.sev-aviso .link-section-head { color: var(--warn); }
+
+/* ---------- Final check dialog ---------- */
+.check-group { margin-bottom: 16px; }
+.check-head { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+.check-sev {
+  padding: 1px 7px;
+  border-radius: 100px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.check-group.sev-erro .check-sev { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+.check-group.sev-aviso .check-sev { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.check-group.sev-dica .check-sev { background: var(--bg-3); color: var(--text-faint); }
+.check-title { color: var(--text); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.check-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.check-text { color: var(--text-dim); }
+.check-clean { padding: 20px; text-align: center; color: var(--success); font-size: 14px; }
+
+/* ---------- Template dialog ---------- */
+.tpl-opts { display: flex; flex-direction: column; gap: 5px; }
+.tpl-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.tpl-opt:hover { background: var(--bg-hover); }
+
+/* ---------- Marks menu ---------- */
+.marks-menu {
+  position: absolute;
+  z-index: 60;
+  min-width: 230px;
+  padding: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.marks-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.marks-item:hover { background: var(--bg-hover); }
+.marks-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.marks-note {
+  padding: 7px 9px 4px;
+  font-size: 10px;
+  color: var(--text-faint);
+  line-height: 1.45;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+/* Count of blocking findings from the final check. Computed once when a
+   document loads, not per keystroke — the check is a full sweep. */
+#act-bar-check { position: relative; }
+#act-bar-check.has-errors { color: var(--danger); }
+#act-bar-check.has-errors::after {
+  content: attr(data-count);
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 14px;
+  padding: 0 3px;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 100px;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+
+/* A toast that carries an action — used by the post-save check nudge. */
+.toast-action { display: flex; align-items: center; gap: 10px; }
+.toast-action button {
+  padding: 3px 9px;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toast-action button:hover { background: rgba(255, 255, 255, 0.12); }

@@ -213,6 +213,62 @@ window.Properties = (function() {
   }
 
   // ---- Attributes tab ----
+  // ---- Document style selector ----
+  // The scan itself lives in page-tools.js so the toolbar dropdown and this
+  // panel offer exactly the same list.
+
+  function styleSelector(el) {
+    const doc = el.ownerDocument;
+    const all = window.PageTools.documentClasses(doc);
+    if (!all.size) return null;
+
+    const tag = el.tagName.toLowerCase();
+    const own = new Set(el.classList);
+    const forThisTag = [], forAny = [], forOther = [];
+    for (const [name, tags] of all) {
+      if (own.has(name)) continue; // already applied
+      if (tags.has(tag)) forThisTag.push(name);
+      else if (tags.has('')) forAny.push(name);
+      else forOther.push(name);
+    }
+    const cmp = (a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' });
+    forThisTag.sort(cmp); forAny.sort(cmp); forOther.sort(cmp);
+    if (!forThisTag.length && !forAny.length && !forOther.length) return null;
+
+    const sel = document.createElement('select');
+    const head = document.createElement('option');
+    head.value = '';
+    head.textContent = I18N.t('ui.props.stylePickerHint', { count: all.size });
+    sel.appendChild(head);
+
+    const addGroup = (label, names) => {
+      if (!names.length) return;
+      const g = document.createElement('optgroup');
+      g.label = label;
+      names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n;
+        o.textContent = n;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    };
+    addGroup(I18N.t('ui.props.styleForTag', { tag }), forThisTag);
+    addGroup(I18N.t('ui.props.styleForAny'), forAny);
+    addGroup(I18N.t('ui.props.styleForOther'), forOther);
+
+    sel.addEventListener('change', () => {
+      const cls = sel.value;
+      if (!cls) return;
+      el.classList.add(cls);
+      ES.snapshot('class');
+      render();
+    });
+    const r = row(I18N.t('ui.props.stylePicker'), sel);
+    r.classList.add('prop-row-full');
+    return r;
+  }
+
   function renderAttrs(el) {
     attrsEl.innerHTML = '';
 
@@ -255,6 +311,14 @@ window.Properties = (function() {
     });
     chipsBox.appendChild(chipInp);
     classesGroup.appendChild(chipsBox);
+
+    // Pick from the styles the document already defines. Pages exported from
+    // Word/FrontPage carry a big <style> block (span.Hiperlink, .font5,
+    // table.MsoNormalTable, …); without this the user has to know the class
+    // names by heart, like FrontPage's style dropdown did for them.
+    const picker = styleSelector(el);
+    if (picker) classesGroup.appendChild(picker);
+
     attrsEl.appendChild(classesGroup);
 
     // Generic attribute editor

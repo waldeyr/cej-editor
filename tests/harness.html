@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>CEJ-PAGE — harness de verificação</title>
+</head>
+<body>
+<h1>Harness</h1>
+<pre id="out">a executar…</pre>
+<iframe id="canvas" sandbox="allow-same-origin" style="width:900px;height:400px"></iframe>
+
+<!-- The real modules, in the real load order. Nothing is stubbed except the
+     bits of editor chrome that need a DOM node to write into. -->
+<script src="../js/i18n.js"></script>
+<script src="../js/traces.js"></script>
+<script src="../js/dialog.js"></script>
+<script src="../js/state.js"></script>
+<script src="../js/act-format.js"></script>
+<script src="../js/page-tools.js"></script>
+<script src="../js/paste-word.js"></script>
+<script src="../js/link-tool.js"></script>
+<script>
+const lines = [];
+let pass = 0, fail = 0;
+function log(s) { lines.push(s); }
+function check(name, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  ok ? pass++ : fail++;
+  log((ok ? '  ok   ' : 'FALHA  ') + name + (ok ? '  = ' + JSON.stringify(got)
+      : '\n         obtido:   ' + JSON.stringify(got) + '\n         esperado: ' + JSON.stringify(want)));
+}
+function flush(status) {
+  document.getElementById('out').textContent =
+    lines.join('\n') + '\n\n' + pass + ' ok, ' + fail + ' falhas';
+  document.title = status || (fail ? 'FALHOU' : 'PASSOU');
+  console.log(lines.join('\n'));
+  console.log('RESULTADO ' + pass + ' ok, ' + fail + ' falhas');
+  console.log('FIM');
+}
+
+// Minimal Canvas surface the real modules reach into. Everything else —
+// PageTools, PasteWord, LinkTool — is the production code, not a stub.
+window.Canvas = { getTextRange: () => null, commitTextEdit: () => false };
+
+const ES = window.EditorState;
+const AF = window.ActFormat;
+
+fetch('d12990.html')
+  .then(r => r.arrayBuffer())
+  .then(buf => {
+    // The file is windows-1252; decoding it as UTF-8 would mangle every
+    // accented character and the § the anchor grammar depends on.
+    const text = new TextDecoder('windows-1252').decode(buf);
+    const frame = document.getElementById('canvas');
+    frame.srcdoc = text;
+    return new Promise(res => { frame.onload = () => res(frame.contentDocument); });
+  })
+  .then(doc => {
+    ES.setDoc(doc);
+    run(doc);
+    flush();
+  })
+  .catch(e => { log('ERRO: ' + (e && e.stack || e)); flush('ERRO'); });
+
+function run(doc) {
+  log('=== documento ===');
+  const allP = doc.querySelectorAll('p');
+  log('  parágrafos no documento: ' + allP.length);
+  log('  tabelas: ' + doc.querySelectorAll('table').length);
+  log('  âncoras <a name>: ' + doc.querySelectorAll('a[name]').length);
+
+  log('');
+  log('=== outline() — a estrutura do ato ===');
+  const t0 = performance.now();
+  const rows = AF.outline(doc);
+  const ms = (performance.now() - t0).toFixed(0);
+  log('  varredura: ' + ms + ' ms, ' + rows.length + ' linhas');
+  const byKind = {};
+  rows.forEach(r => { byKind[r.kind] = (byKind[r.kind] || 0) + 1; });
+  log('  por tipo: ' + JSON.stringify(byKind));
+
+  // The act has exactly 4 articles and 23 annexes. If the sweep descended into
+  // the annex tables these numbers would be in the thousands.
+  check('artigos no outline', byKind.artigo || 0, 4);
+  check('anexos no outline', byKind.anexo || 0, 23);
+  check('outline não afoga nas tabelas (< 100 linhas)', rows.length < 100, true);
+
+  log('');
+  log('  primeiras linhas:');
+  rows.slice(0, 8).forEach(r => log('    [' + r.level + '] ' + r.kind.padEnd(14) +
+    (r.anchor ? '#' + r.anchor : '(sem âncora)').padEnd(14) + ' ' + r.text.slice(0, 58)));
+
+  check('todo artigo tem âncora', rows.filter(r => r.kind === 'artigo' && !r.hasAnchor).length, 0);
+
+  log('');
+  log('=== matchFormat() sobre os parágrafos reais ===');
+  const t1 = performance.now();
+  const tally = {};
+  allP.forEach(p => {
+    const m = AF.matchFormat(p);
+    const k = (m.roleId || 'nenhum') + ':' + (m.confidence || '-');
+    tally[k] = (tally[k] || 0) + 1;
+  });
+  log('  ' + allP.length + ' parágrafos em ' + (performance.now() - t1).toFixed(0) + ' ms');
+  Object.entries(tally).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => log('    ' + String(v).padStart(5) + '  ' + k));
+
+  // The overwhelming majority of paragraphs in a real act are annex table
+  // cells and must be reported as "no recognised role" without erroring.
+  const nenhum = Object.entries(tally).filter(([k]) => k.startsWith('nenhum')).reduce((a, [, v]) => a + v, 0);
+  check('a maioria dos parágrafos não tem papel (são anexo)', nenhum > allP.length * 0.8, true);
+
+  // No paragraph inside an annex table may be read as a device of the act.
+  const dentroTabela = Array.from(allP).filter(p => p.closest('table'));
+  const falsosPositivos = dentroTabela.filter(p => {
+    const m = AF.matchFormat(p);
+    return m.roleId && m.roleId !== 'anexoTitulo';
+  });
+  log('  parágrafos dentro de tabela: ' + dentroTabela.length +
+      ', reconhecidos como dispositivo: ' + falsosPositivos.length);
+  check('nenhum falso positivo dentro das tabelas de anexo', falsosPositivos.length, 0);
+
+  log('');
+  log('=== os 7 parágrafos com a receita exata de corpo ===');
+  const corpoExato = Array.from(allP).filter(p => {
+    const m = AF.matchFormat(p);
+    return m.roleId === 'corpo' && m.confidence === 'exata';
+  });
+  log('  encontrados: ' + corpoExato.length);
+  corpoExato.slice(0, 8).forEach(p => {
+    const i = AF.inspect(p);
+    log('    ' + (i.dispositivo ? i.dispositivo.label : '(sem dispositivo)').padEnd(16) +
+        ' âncora=' + String(i.ancora && i.ancora.name).padEnd(10) +
+        ' acordo=' + i.agreement + '  ' + AF.normText(p.textContent).slice(0, 46));
+  });
+  check('há parágrafos de corpo reconhecidos', corpoExato.length >= 7, true);
+
+  log('');
+  log('=== inspect() nos dois eixos ===');
+  const art1 = doc.querySelector('a[name="art1"]');
+  const bloco = art1 && art1.closest('p');
+  if (bloco) {
+    const i = AF.inspect(bloco);
+    check('art. 1 — formato', i.formato.roleId, 'corpo');
+    check('art. 1 — confiança', i.formato.confidence, 'exata');
+    check('art. 1 — dispositivo', i.dispositivo && i.dispositivo.kind, 'artigo');
+    check('art. 1 — rótulo', i.dispositivo && i.dispositivo.label, 'Art. 1º');
+    check('art. 1 — âncora', i.ancora && i.ancora.name, 'art1');
+    check('art. 1 — acordo', i.agreement, 'ok');
+  } else { fail++; log('FALHA  não achei o art. 1'); }
+
+  log('');
+  log('=== applyRole() preserva texto, links e âncora ===');
+  const alvo = doc.querySelector('a[name="art3"]').closest('p');
+  const antesTexto = AF.normText(alvo.textContent);
+  const antesLinks = alvo.querySelectorAll('a[href]').length;
+  AF.applyRole('corpo', alvo, { batch: true });
+  const depois = doc.querySelector('a[name="art3"]').closest('p');
+  check('texto preservado', AF.normText(depois.textContent), antesTexto);
+  check('links preservados', depois.querySelectorAll('a[href]').length, antesLinks);
+  check('âncora preservada', !!depois.querySelector('a[name="art3"]'), true);
+  check('recebeu a receita exata', AF.matchFormat(depois).confidence, 'exata');
+  log('  markup resultante:');
+  log('    ' + depois.outerHTML.slice(0, 200).replace(/\n/g, ' '));
+
+  log('');
+  log('=== applyRole() recusa destruir estrutura ===');
+  const comTabela = doc.querySelector('table').closest('div') || doc.querySelector('blockquote');
+  const htmlAntes = comTabela.innerHTML.length;
+  AF.applyRole('corpo', comTabela, { batch: true, force: true });
+  check('conteúdo com tabela intacto', comTabela.innerHTML.length, htmlAntes);
+
+  log('');
+  log('=== applyRole() limpa marcação do Word sem perder o texto ===');
+  const sujo = doc.createElement('p');
+  sujo.className = 'MsoNormal';
+  sujo.setAttribute('style', 'mso-pagination:widow-orphan;margin-bottom:.0001pt');
+  sujo.setAttribute('bgcolor', '#ffffff');
+  sujo.innerHTML = '<span style="mso-fareast-font-family:Calibri;font-weight:bold">Art. 9º</span>' +
+    '<span lang="PT-BR" style="font-size:10.0pt">  Fica <span style="font-style:italic">revogado</span> o ' +
+    '<a href="https://www.planalto.gov.br/x.htm#art1" class="lixo" target="_blank">art. 1º</a>.</span>';
+  doc.body.appendChild(sujo);
+  const textoAntes = AF.normText(sujo.textContent);
+  AF.applyRole('artigo', sujo, { batch: true, force: true, noText: true });
+  const limpo = doc.body.lastElementChild;
+  check('texto integral preservado', AF.normText(limpo.textContent), textoAntes);
+  check('negrito preservado', !!limpo.querySelector('b'), true);
+  check('itálico preservado', !!limpo.querySelector('i'), true);
+  check('link preservado', limpo.querySelectorAll('a[href]').length, 1);
+  check('link perdeu class/target', limpo.querySelector('a[href]').hasAttribute('class')
+        || limpo.querySelector('a[href]').hasAttribute('target'), false);
+  check('bgcolor removido', limpo.hasAttribute('bgcolor'), false);
+  check('sem mso- remanescente', /mso-/i.test(limpo.outerHTML), false);
+  check('recebeu a receita de corpo', AF.matchFormat(limpo).confidence, 'exata');
+  log('  ' + limpo.outerHTML.slice(0, 260));
+
+  log('');
+  log('=== links: encode/decode do § ===');
+  const PT = window.PageTools;
+  check('§ codificado no href', PT.encodeFragment('art3§1'), 'art3%C2%A71');
+  check('§ decodificado de volta', PT.decodeFragment('art3%C2%A71'), 'art3§1');
+  check('sanitizeAnchorName preserva §', PT.sanitizeAnchorName('art3§1'), 'art3§1');
+  check('sanitizeAnchorName tira acento', PT.sanitizeAnchorName('Disposições finais'), 'Disposicoes-finais');
+}
+</script>
+</body>
+</html>

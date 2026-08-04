@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>shot</title>
+<style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0;display:block}</style>
+</head>
+<body>
+<iframe id="app" src="../index.html"></iframe>
+<script>
+// Drive the real editor: load the real act, select an article, and leave the
+// UI in the state a user would actually see.
+const f = document.getElementById('app');
+f.onload = () => {
+  const w = f.contentWindow, d = w.document;
+  fetch('d12990.html').then(r => r.arrayBuffer()).then(buf => {
+    const text = new TextDecoder('windows-1252').decode(buf);
+    w.EditorState.setFile(null, 'd12990.html');
+    w.EditorState.setEncoding({ encoding: 'windows-1252', declaredCharset: 'windows-1252', hasBom: false });
+    d.getElementById('empty-state').hidden = true;
+    d.getElementById('editor').hidden = false;
+    return w.ModeSwitch.loadIntoInitialMode(text);
+  }).then(() => new Promise(r => setTimeout(r, 2500))).then(() => {
+    // The act references ./d12990_files/Brastra.gif; without a directory
+    // handle the asset resolver asks for one. Dismiss it for the shot.
+    const cancel = d.querySelector('.dialog-btn-cancel, .dialog-actions button');
+    if (cancel) cancel.click();
+    const doc = w.EditorState.state.doc;
+    const art = doc.querySelector('a[name="art3"]').closest('p');
+    art.scrollIntoView({ block: 'center' });
+    w.EditorState.select(art);
+    w.EditorState.emit('caret-changed');
+    setTimeout(() => { document.title = 'PRONTO'; }, 900);
+  });
+};
+</script>
+</body>
+</html>

@@ -5,7 +5,10 @@ name: Build Windows executable
 on:
   workflow_dispatch:
   push:
-    tags: ['0.2', '0.3', '0.4', 'v*']
+    # A glob, not a hand-kept list: every release used to need this file edited
+    # first, and a forgotten entry means the tag builds nothing.
+    # Matches 0.5, 1.0, v0.5, v1.0-rc1.
+    tags: ['[0-9]*', 'v[0-9]*']
 
 permissions:
   contents: write
@@ -20,10 +23,32 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Build CEJ-PAGE.exe
+      - name: Work out the version
+        id: ver
+        # A user with two downloads in their Downloads folder has to be able to
+        # tell them apart, and a bug report has to name a build. On a tag that
+        # is the tag itself; on a manual run there is no version, so the short
+        # SHA stands in rather than producing a second file called v.exe.
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${REF#v}"            # 'v0.5' and '0.5' both give '0.5'
+            NAME="cej-page-v${VERSION}"
+          else
+            VERSION="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+            NAME="cej-page-${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME}"       >> "$GITHUB_OUTPUT"
+          echo "exe=dist/${NAME}.exe" >> "$GITHUB_OUTPUT"
+          echo "building ${NAME}.exe"
+
+      - name: Build the executable
         run: |
           chmod +x tools/launcher/build.sh
           ./tools/launcher/build.sh
+          mv dist/CEJ-PAGE.exe "${{ steps.ver.outputs.exe }}"
+          ls -la dist/
 
       - name: Confirm the site was embedded
         # A missing vendor/ directory would still compile and then fail at
@@ -57,20 +82,20 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CEJ-PAGE-windows
-          path: dist/CEJ-PAGE.exe
+          name: ${{ steps.ver.outputs.name }}
+          path: ${{ steps.ver.outputs.exe }}
           if-no-files-found: error
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/CEJ-PAGE.exe
+          files: ${{ steps.ver.outputs.exe }}
           body: |
-            ## CEJ-PAGE — executável para Windows
+            ## CEJ-PAGE ${{ steps.ver.outputs.version }} — executável para Windows
 
-            Baixe o `CEJ-PAGE.exe` abaixo e dê duplo clique. Não precisa
-            instalar nada, nem ter internet.
+            Baixe o `${{ steps.ver.outputs.name }}.exe` abaixo e dê duplo
+            clique. Não precisa instalar nada, nem ter internet.
 
             Na primeira execução o Windows pode exibir "O Windows protegeu o
             seu computador", porque o arquivo não tem assinatura digital paga.

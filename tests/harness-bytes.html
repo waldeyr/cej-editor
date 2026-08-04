@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>CEJ-PAGE — preservação de bytes</title>
+</head>
+<body>
+<h1>Preservação de bytes</h1>
+<pre id="out">a executar…</pre>
+<iframe id="canvas" sandbox="allow-same-origin" style="width:900px;height:300px"></iframe>
+
+<script src="../js/i18n.js"></script>
+<script src="../js/traces.js"></script>
+<script src="../js/dialog.js"></script>
+<script src="../js/state.js"></script>
+<script src="../js/act-format.js"></script>
+<script src="../js/asset-resolver.js"></script>
+<script src="../js/page-tools.js"></script>
+<script src="../js/encoding.js"></script>
+<script>
+const lines = []; let pass = 0, fail = 0;
+function log(s) { lines.push(s); }
+function check(name, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  ok ? pass++ : fail++;
+  log((ok ? '  ok   ' : 'FALHA  ') + name + (ok ? '  = ' + JSON.stringify(got)
+    : '\n         obtido:   ' + JSON.stringify(got) + '\n         esperado: ' + JSON.stringify(want)));
+}
+function flush() {
+  document.getElementById('out').textContent = lines.join('\n') + '\n\n' + pass + ' ok, ' + fail + ' falhas';
+  console.log('FIM');
+}
+window.Canvas = { getTextRange: () => null, commitTextEdit: () => false, updateAnchorMarkers(){} };
+window.Source = null;
+window.ModeSwitch = { setMode(){}, };
+
+const ES = window.EditorState;
+let SOURCE = '';
+
+fetch('d12990.html').then(r => r.arrayBuffer()).then(buf => {
+  SOURCE = new TextDecoder('windows-1252').decode(buf);
+  const f = document.getElementById('canvas');
+  f.srcdoc = SOURCE;
+  return new Promise(res => { f.onload = () => res(f.contentDocument); });
+}).then(doc => {
+  ES.setDoc(doc);
+  ES.state.sourceHtml = SOURCE;
+  ES.state.mode = 'visual';
+  ES.state.encoding = 'windows-1252';
+  run(doc);
+  flush();
+}).catch(e => { log('ERRO: ' + (e && e.stack || e)); flush(); });
+</script>
+<script src="../js/file.js"></script>
+<script>
+function run(doc) {
+  const FO = window.FileOps;
+
+  log('=== fonte original ===');
+  log('  caracteres: ' + SOURCE.length);
+
+  log('');
+  log('=== abrir e salvar SEM editar ===');
+  ES.setDirty(false);
+  const limpo = FO.currentHtml();
+  check('idêntico byte a byte', limpo === SOURCE, true);
+  if (limpo !== SOURCE) log('  diferença de tamanho: ' + (limpo.length - SOURCE.length));
+
+  log('');
+  log('=== editar UM parágrafo e salvar ===');
+  const art3 = doc.querySelector('a[name="art3"]').closest('p');
+  window.ActFormat.applyRole('corpo', art3, { batch: true, force: true });
+  ES.setDirty(true);
+  const editado = FO.currentHtml();
+  const d = diffRegion(SOURCE, editado);
+  log('  prefixo idêntico: ' + d.prefix + ' caracteres');
+  log('  sufixo idêntico:  ' + d.suffix + ' caracteres');
+  log('  região reescrita: ' + d.changedOld + ' -> ' + d.changedNew + ' caracteres');
+  // The whole point of spliceEditIntoSource: only the touched paragraph may
+  // be rewritten. Anything in the tens of thousands means the splice failed
+  // and the entire 3.4 MB file would land in the diff.
+  check('região reescrita é pequena (< 3000 car.)', d.changedOld < 3000 && d.changedNew < 3000, true);
+  check('99,9% do arquivo intocado', (d.prefix + d.suffix) > SOURCE.length * 0.999, true);
+
+  log('');
+  log('=== nenhum rastro do editor sobrevive ===');
+  // Simulate what the editor leaves behind while working.
+  const st = doc.createElement('style'); st.id = '__he_marks__';
+  st.textContent = 'a[name]:empty::after{content:"x"}'; doc.head.appendChild(st);
+  const p = doc.querySelector('p');
+  p.setAttribute('contenteditable', 'true');
+  p.setAttribute('data-he-editing', 'true');
+  p.setAttribute('data-he-algo-novo', 'x');   // a marker invented later
+  ES.setDirty(true);
+  const saida = FO.currentHtml();
+  check('sem __he_marks__', /__he_marks__/.test(saida), false);
+  check('sem __he_styles__', /__he_styles__/.test(saida), false);
+  check('sem contenteditable', /contenteditable/.test(saida), false);
+  check('sem data-he-editing', /data-he-editing/.test(saida), false);
+  check('marcador novo também removido', /data-he-algo-novo/.test(saida), false);
+
+  log('');
+  log('=== âncora com § não colide ===');
+  const nome = window.PageTools.sanitizeAnchorName('art3§1');
+  check('art3§1 preservado', nome, 'art3§1');
+  check('não vira art31', nome === 'art31', false);
+  check('href codificado', window.PageTools.encodeFragment(nome), 'art3%C2%A71');
+}
+
+// Longest common prefix/suffix — the same shape the splice itself works in.
+function diffRegion(a, b) {
+  let i = 0;
+  const max = Math.min(a.length, b.length);
+  while (i < max && a[i] === b[i]) i++;
+  let j = 0;
+  while (j < max - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  return { prefix: i, suffix: j, changedOld: a.length - i - j, changedNew: b.length - i - j };
+}
+</script>
+</body>
+</html>

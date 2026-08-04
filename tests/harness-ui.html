@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>CEJ-PAGE — verificação da interface</title>
+</head>
+<body>
+<pre id="out" style="position:fixed;inset:auto 0 0 0;max-height:45vh;overflow:auto;background:#111;color:#ddd;font:11px/1.4 monospace;z-index:99999;padding:8px;margin:0"></pre>
+<iframe id="app" src="../index.html" style="width:1600px;height:900px;border:0"></iframe>
+<script>
+const lines = []; let pass = 0, fail = 0;
+function log(s) { lines.push(s); }
+function check(name, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  ok ? pass++ : fail++;
+  log((ok ? '  ok   ' : 'FALHA  ') + name + (ok ? '' : '\n         obtido:   ' + JSON.stringify(got) +
+      '\n         esperado: ' + JSON.stringify(want)));
+}
+function flush() {
+  document.getElementById('out').textContent = lines.join('\n') + '\n\n' + pass + ' ok, ' + fail + ' falhas';
+  console.log('FIM');
+}
+
+const frame = document.getElementById('app');
+const errors = [];
+frame.onload = () => {
+  const w = frame.contentWindow;
+  w.addEventListener('error', (e) => errors.push(e.message + ' @ ' + e.filename + ':' + e.lineno));
+  w.console.error = (...a) => errors.push('console.error: ' + a.join(' '));
+  // Give DOMContentLoaded wiring and the lucide rAF a chance to run.
+  setTimeout(() => { try { run(w); } catch (e) { fail++; log('ERRO: ' + (e.stack || e)); } flush(); }, 1200);
+};
+
+function run(w) {
+  const d = w.document;
+
+  log('=== módulos carregados ===');
+  ['EditorTraces','ActFormat','PasteWord','LinkTool','ActCheck','ActBar','OutlinePanel',
+   'PiecePanel','ActTemplate','ActShortcuts','PageTools','Canvas','BlocksPanel'].forEach(n => {
+    check('window.' + n, typeof w[n], 'object');
+  });
+
+  log('');
+  log('=== erros de carga ===');
+  check('nenhum erro de JavaScript', errors, []);
+  if (errors.length) errors.forEach(e => log('    ' + e));
+
+  log('');
+  log('=== a barra do ato foi montada ===');
+  const chips = d.querySelectorAll('#act-bar-roles .act-chip');
+  log('  chips: ' + chips.length);
+  check('há chips de papel', chips.length >= 14, true);
+  const rotulos = Array.from(chips).map(c => c.querySelector('.act-chip-label').textContent);
+  log('  ' + rotulos.join(' · '));
+  check('rótulos em português, não em CSS', rotulos.includes('Artigo') && rotulos.includes('Ementa'), true);
+  check('nenhum rótulo vazio', rotulos.filter(x => !x.trim()).length, 0);
+  check('o antigo seletor de classes sumiu', d.getElementById('tb-style'), null);
+
+  log('');
+  log('=== abas ===');
+  const leftTabs = Array.from(d.querySelectorAll('.left-sidebar > .sidebar-tabs .tab')).map(t => t.textContent);
+  const rightTabs = Array.from(d.querySelectorAll('.right-sidebar > .sidebar-tabs .tab')).map(t => t.textContent);
+  log('  esquerda: ' + leftTabs.join(' | '));
+  log('  direita:  ' + rightTabs.join(' | '));
+  check('Estrutura é a primeira aba da esquerda', leftTabs[0], 'Estrutura');
+  check('Árvore continua existindo', leftTabs.includes('Árvore'), true);
+  check('"Este trecho" é a aba padrão da direita', rightTabs[0], 'Este trecho');
+  check('os painéis antigos continuam presentes',
+    !!(d.getElementById('props-attrs') && d.getElementById('props-style') && d.getElementById('props-html')), true);
+
+  log('');
+  log('=== abas aninhadas não se atropelam ===');
+  // Click "Avançado", then "Estilo" inside it; the outer tab must stay active.
+  d.querySelector('.right-sidebar > .sidebar-tabs .tab[data-tab="advanced"]').click();
+  d.querySelector('.right-sidebar .sub-tabs .tab[data-tab="style"]').click();
+  check('a aba externa Avançado segue ativa',
+    d.querySelector('.right-sidebar > .sidebar-tabs .tab[data-tab="advanced"]').classList.contains('active'), true);
+  check('o painel Avançado segue visível',
+    d.querySelector('.right-sidebar > .tab-panel[data-panel="advanced"]').classList.contains('active'), true);
+  check('a aba interna Estilo ficou ativa',
+    d.querySelector('.right-sidebar .sub-tabs .tab[data-tab="style"]').classList.contains('active'), true);
+  check('o painel interno Estilo ficou visível',
+    d.querySelector('.right-sidebar [data-panel="advanced"] > .tab-panel[data-panel="style"]').classList.contains('active'), true);
+
+  log('');
+  log('=== peças do ato no painel de blocos ===');
+  d.querySelector('.left-sidebar .tab[data-tab="blocks"]').click();
+  const groups = Array.from(d.querySelectorAll('.block-group'));
+  log('  grupos: ' + groups.map(g => g.querySelector('.block-group-head span').textContent).join(' | '));
+  check('dois grupos', groups.length, 2);
+  const atoGroup = groups.find(g => g.dataset.group === 'ato');
+  const advGroup = groups.find(g => g.dataset.group === 'avancado');
+  check('"Peças do ato" está aberto', atoGroup.querySelector('.blocks-grid').hidden, false);
+  check('"Avançado" começa fechado', advGroup.querySelector('.blocks-grid').hidden, true);
+  const pecas = Array.from(atoGroup.querySelectorAll('.block-name')).map(x => x.textContent);
+  log('  peças: ' + pecas.join(' · '));
+  check('as peças estão em português', pecas.includes('Artigo') && pecas.includes('Ementa'), true);
+  // "Link" is the word used in Portuguese too; these are the genuinely
+  // untranslated English names that used to leak through.
+  check('sem nomes em inglês nas peças do ato',
+    pecas.filter(p => /^(Bookmark|Page title|Blockquote|Divider)$/.test(p)), []);
+
+  log('');
+  log('=== ordinais na convenção de redação ===');
+  const AF = w.ActFormat;
+  [['Art. 9º  x', 'Art. 9º'], ['Art. 10.  x', 'Art. 10'], ['Art. 11.  x', 'Art. 11'],
+   ['§ 1º  x', '§ 1º'], ['§ 17.  x', '§ 17']].forEach(([txt, want]) => {
+    check('rótulo de ' + JSON.stringify(txt.slice(0, 9)), AF.dispositivoLabel(AF.detectDispositivo(txt)), want);
+  });
+
+  log('');
+  log('=== busca alcança grupos fechados ===');
+  const search = d.getElementById('blocks-search');
+  search.value = 'YouTube';
+  search.dispatchEvent(new w.Event('input'));
+  const achados = Array.from(d.querySelectorAll('.block-name')).map(x => x.textContent);
+  log('  encontrados: ' + achados.join(', '));
+  check('acha um bloco que está dentro de Avançado', achados.includes('YouTube'), true);
+  check('e ele está visível', d.querySelector('.block-group[data-group="avancado"] .blocks-grid').hidden, false);
+  search.value = '';
+  search.dispatchEvent(new w.Event('input'));
+
+  log('');
+  log('=== textos com variáveis não perdem o valor ===');
+  // I18N.format() blanks every {k} when no vars are passed, so a module that
+  // interpolates AFTER calling I18N.t silently produces "Formatado como ,".
+  // These assertions pin that down.
+  const vartests = [
+    ['ui.act.apply.done', { role: 'Artigo' }, /Artigo/],
+    ['ui.act.apply.doneMany', { count: 3, role: 'Inciso' }, /3.*Inciso/],
+    ['ui.piece.exact', { role: 'Corpo do ato' }, /Corpo do ato/],
+    ['ui.piece.near', { role: 'Artigo', n: 2 }, /Artigo.*2|2.*Artigo/],
+    ['ui.piece.chars', { n: 412 }, /412/],
+    ['ui.outline.missingAnchors', { n: 4 }, /4/],
+    ['ui.paste.subtitle', { count: 12 }, /12/],
+    ['ui.check.found', { n: 7 }, /7/],
+    ['ui.template.gutCorpo', { n: 5 }, /5/],
+  ];
+  vartests.forEach(([key, vars, re]) => {
+    const s = w.I18N.t(key, vars, '');
+    check('variável em ' + key, re.test(s), true);
+    if (!re.test(s)) log('         obtido: ' + JSON.stringify(s));
+  });
+
+  log('');
+  log('=== vocabulário: âncora, nunca "indicador" ===');
+  // The project settled on "âncora" — the HTML term — instead of FrontPage's
+  // "Indicador". A single leftover would make the UI read as two products.
+  const vocab = ['ui.anchor.title', 'ui.anchor.create', 'ui.anchor.nameLabel',
+    'ui.anchor.listTitle', 'ui.anchor.renameTitle', 'ui.anchor.removeTitle',
+    'ui.piece.addAnchor', 'ui.piece.anchor', 'ui.piece.noAnchor',
+    'ui.outline.noAnchorShort', 'ui.act.now.noAnchor', 'ui.check.noAnchor',
+    'ui.marks.anchors', 'ui.act.pieces.ancora', 'ui.link.sectionAnchors'];
+  const leaks = [];
+  vocab.forEach((k) => {
+    const s = w.I18N.t(k, { n: 1, name: 'x', id: 'x', s: 'x', count: 1, total: 1, shown: 1 }, '__MISS__');
+    if (s === '__MISS__') leaks.push(k + ' (chave ausente)');
+    else if (/indicador/i.test(s)) leaks.push(k + ' = ' + JSON.stringify(s));
+  });
+  check('nenhuma chave diz "indicador"', leaks, []);
+  log('  âncora: ' + JSON.stringify(w.I18N.t('ui.anchor.title')));
+  log('  peça:   ' + JSON.stringify(w.I18N.t('ui.act.pieces.ancora')));
+  log('  marcas: ' + JSON.stringify(w.I18N.t('ui.marks.anchors')));
+
+  log('');
+  log('=== leitura de endereços do portal ===');
+  const casos = [
+    ['https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2026/decreto/d12846.htm#art11-2f', /Decreto n. 12.846.*art. 11.*inciso II.*al.nea f/],
+    ['https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2019/lei/l13848.htm#art3%C2%A71', /Lei n. 13.848.*art. 3.*1/],
+    ['https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp179.htm', /Lei Complementar n. 179/],
+    ['https://exemplo.com/pagina.html', null],
+  ];
+  casos.forEach(([url, re]) => {
+    const r = w.LinkTool.describeUrl(url);
+    const txt = r ? r.text : null;
+    log('    ' + url.slice(-52).padEnd(52) + ' -> ' + (txt || '(fora do portal)'));
+    check('leitura de ' + url.slice(-26), re ? re.test(txt || '') : txt === null, true);
+  });
+
+  log('');
+  log('=== marcas de revisão ===');
+  const marks = w.Canvas.getMarks();
+  log('  ' + JSON.stringify(marks));
+  check('âncoras continuam ligados por padrão', marks.anchors, true);
+  check('as quatro marcas existem', Object.keys(marks).sort(), ['anchors','links','papeis','paragrafos']);
+  d.getElementById('tb-anchors').click();
+  const menu = d.querySelector('.marks-menu');
+  check('o menu de marcas abre', !!menu, true);
+  if (menu) {
+    log('  itens: ' + Array.from(menu.querySelectorAll('.marks-item span:last-child')).map(x => x.textContent).join(' | '));
+    check('quatro marcas no menu', menu.querySelectorAll('.marks-item').length, 4);
+  }
+
+  log('');
+  log('=== limpeza da colagem do Word ===');
+  const wordHtml = '<!--[if gte mso 9]><xml><w:WordDocument/></xml><![endif]-->' +
+    '<p class="MsoNormal" style="mso-pagination:widow-orphan"><o:p></o:p>' +
+    '<span style="font-weight:bold">Art. 7º</span><span>  Fica instituído o programa.</span></p>' +
+    '<p class="MsoNormal">II - segunda providência;</p>' +
+    '<p class="MsoNormal"><span style="mso-fareast-font-family:Calibri">b) alínea qualquer;</span></p>' +
+    '<p class="MsoNormal">&nbsp;</p>';
+  const paras = w.PasteWord.clean(wordHtml, { wordMarks: 0, images: 0, links: 0, adapted: [] });
+  log('  parágrafos: ' + paras.length);
+  paras.forEach(p => log('    [' + p.role + '] ' + p.text.slice(0, 52)));
+  check('parágrafo vazio descartado', paras.length, 3);
+  check('artigo reconhecido', paras[0].role, 'artigo');
+  check('inciso reconhecido', paras[1].role, 'inciso');
+  check('alínea reconhecida', paras[2].role, 'alinea');
+  const todoHtml = paras.map(p => p.html).join('');
+  check('sem mso-', /mso-/i.test(todoHtml), false);
+  check('sem <o:p>', /o:p/i.test(todoHtml), false);
+  check('sem class=', /class=/i.test(todoHtml), false);
+  check('sem style=', /style=/i.test(todoHtml), false);
+  check('negrito preservado', /<b>/.test(todoHtml), true);
+  log('  html limpo do 1º: ' + paras[0].html);
+
+  log('');
+  log('=== a colagem preserva o que é convenção e remove o que é lixo ===');
+  const conv = w.PasteWord.clean(
+    '<p>Art. 8º  Fica ​instituído­ o “programa” — conforme﻿ o § 2º.</p>',
+    { wordMarks: 0, images: 0, links: 0, adapted: [] });
+  const t0 = conv[0].html;
+  log('  ' + JSON.stringify(t0));
+  // innerHTML serializes U+00A0 as the &nbsp; entity — which is exactly the
+  // spelling the published acts use (`Art. 1º &nbsp;`). Accept either form.
+  check('espaço não separável mantido (convenção do "Art. N")',
+    /\u00a0/.test(t0) || /&nbsp;/.test(t0), true);
+  check('aspas curvas mantidas', /“.*”/.test(t0), true);
+  check('travessão mantido', /—/.test(t0), true);
+  check('§ mantido', /§/.test(t0), true);
+  check('largura-zero removido', /​/.test(t0), false);
+  check('hífen suave removido', /­/.test(t0), false);
+  check('BOM removido', /﻿/.test(t0), false);
+
+  log('');
+  log('=== "só o texto" descarta mesmo a formatação ===');
+  // The option is labelled "Text only, no formatting"; keeping bold or links
+  // would not match what it promises.
+  const src = '<p><b>Art. 9º</b>  Veja o <a href="https://x.gov.br/a.htm">art. 1º</a>.</p>';
+  const cleaned = w.PasteWord.clean(src, { wordMarks: 0, images: 0, links: 0, adapted: [] });
+  check('no modo "ato" o negrito sobrevive', /<b>/.test(cleaned[0].html), true);
+  check('no modo "ato" o link sobrevive', /<a /.test(cleaned[0].html), true);
+  log('  texto puro: ' + JSON.stringify(cleaned[0].text));
+}
+</script>
+</body>
+</html>

@@ -36,11 +36,17 @@
     <div class="empty-logo"><i data-lucide="code-2"></i></div>
     <h1>CEJ-PAGE</h1>
     <div class="empty-actions">
-      <button class="btn btn-primary" id="empty-open-local" title="Edit a file on your disk with live save">
+      <button class="btn btn-primary" id="empty-open-local" title="Ctrl+S grava por cima do próprio arquivo">
         <kbd class="btn-shortcut">A</kbd>
         <i data-lucide="folder-open" class="icon"></i>
-        <span>Open Local File</span>
-        <small>Live link — saves to disk</small>
+        <span>Abrir e editar</span>
+        <small>Ctrl+S grava no próprio arquivo</small>
+      </button>
+      <button class="btn" id="empty-from-act" title="Começar a partir de um ato já publicado no portal">
+        <kbd class="btn-shortcut">N</kbd>
+        <i data-lucide="file-plus-2" class="icon"></i>
+        <span>Novo ato a partir de um ato existente</span>
+        <small>Abre um ato do portal e mantém a estrutura</small>
       </button>
       <button class="btn" id="empty-import-url">
         <i data-lucide="globe" class="icon"></i>
@@ -53,11 +59,11 @@
         <span>Start Blank</span>
         <small>Empty page</small>
       </button>
-      <button class="btn" id="empty-import">
+      <button class="btn" id="empty-import" title="Abre sem vínculo com o arquivo; salvar vai perguntar onde">
         <kbd class="btn-shortcut">B</kbd>
         <i data-lucide="upload" class="icon"></i>
-        <span>Import HTML</span>
-        <small>Edit and save as a local file</small>
+        <span>Abrir uma cópia</span>
+        <small>Sem vínculo — salvar pergunta onde</small>
       </button>
     </div>
     <div class="browser-warning" id="browser-warning" hidden>
@@ -115,21 +121,26 @@
         <button class="tool-btn icon-only device-btn" data-device="mobile" title="Mobile"><i data-lucide="smartphone"></i></button>
       </div>
       <span class="divider"></span>
+      <button class="tool-btn icon-only anim-press active" id="tb-anchors" title="Show where the page's bookmarks are (editor only — never saved)"><i data-lucide="bookmark"></i></button>
+      <span class="divider"></span>
       <button class="tool-btn icon-only anim-blink" id="tb-preview" title="Toggle preview mode (P) — hides editor chrome. Scripts don't run inside the editor; use the external preview button for that."><i data-lucide="eye"></i></button>
       <button class="tool-btn icon-only anim-press" id="tb-external-preview" title="Open current document in a new tab (scripts run)"><i data-lucide="external-link"></i></button>
     </div>
 
     <div class="toolbar-right">
-      <button class="tool-btn anim-press" id="tb-open" title="Open local file"><i data-lucide="folder-open"></i><span>Open</span></button>
+      <button class="tool-btn anim-press" id="tb-open" title="Ctrl+S grava no próprio arquivo"><i data-lucide="folder-open"></i><span>Open</span></button>
+      <button class="tool-btn anim-press" id="tb-import" title="Abre sem vínculo com o arquivo"><i data-lucide="upload"></i><span>Import</span></button>
+      <button class="tool-btn anim-press" id="tb-import-url" title="Import HTML from URL"><i data-lucide="globe"></i><span>Import URL</span></button>
+      <span class="divider"></span>
+      <button class="tool-btn primary anim-press" id="tb-save" title="Save (⌘S)"><i data-lucide="save"></i><span>Save</span></button>
+      <button class="tool-btn anim-press" id="tb-save-as" title="Save as (Ctrl+Shift+S)"><i data-lucide="file-plus"></i><span>Save as</span></button>
+      <button class="tool-btn anim-press" id="tb-export" title="Export HTML"><i data-lucide="download"></i><span>Export</span></button>
+      <button class="tool-btn icon-only anim-press" id="tb-assets-dir" title="Link assets folder"><i data-lucide="folder-search"></i></button>
+      <span class="divider"></span>
       <button class="tool-btn icon-only anim-press" id="tb-refresh" title="Refresh from disk — pull in external changes" disabled><i data-lucide="refresh-cw"></i></button>
       <button class="tool-btn icon-only anim-press" id="tb-diff" title="Show diff vs. file on disk" disabled><i data-lucide="git-compare-arrows"></i></button>
       <button class="tool-btn icon-only anim-press" id="tb-git-diff" title="Show diff vs. git HEAD (asks for repo directory)" disabled><i data-lucide="git-branch"></i></button>
-      <button class="tool-btn anim-press" id="tb-import" title="Import HTML"><i data-lucide="upload"></i><span>Import</span></button>
-      <button class="tool-btn anim-press" id="tb-import-url" title="Import HTML from URL"><i data-lucide="globe"></i><span>URL</span></button>
-      <button class="tool-btn anim-press" id="tb-assets-dir" title="Link assets folder"><i data-lucide="folder-search"></i><span>Assets folder</span></button>
-      <button class="tool-btn anim-press" id="tb-export" title="Export HTML"><i data-lucide="download"></i><span>Export</span></button>
-      <button class="tool-btn anim-press" id="tb-save-as" title="Save as (Ctrl+Shift+S)"><i data-lucide="file-plus"></i><span>Save as</span></button>
-      <button class="tool-btn primary anim-press" id="tb-save" title="Save (⌘S)"><i data-lucide="save"></i><span>Save</span></button>
+      <span class="divider"></span>
       <button class="tool-btn lang-toggle" id="tb-lang" title="Trocar idioma para English" aria-label="Trocar idioma para English">EN</button>
       <button class="tool-btn icon-only theme-toggle" id="tb-theme" title="Toggle theme">
         <i data-lucide="sun" class="th-sun"></i>
@@ -138,19 +149,45 @@
     </div>
   </header>
 
+  <!-- Act formatting bar. The vocabulary of a normative act, not of CSS.
+       Hidden in source mode and in preview (see editor.css). -->
+  <div id="act-bar" class="act-bar" role="toolbar" aria-label="Formatação do ato">
+    <div class="act-bar-roles" id="act-bar-roles"></div>
+    <span class="act-bar-now" id="act-bar-now"></span>
+    <div class="act-bar-tools">
+      <button class="tool-btn anim-press" id="act-bar-paste" title="Colar texto copiado do Word (Ctrl+Shift+V)">
+        <i data-lucide="clipboard-paste"></i><span>Colar do Word</span>
+      </button>
+      <button class="tool-btn anim-press" id="act-bar-link" title="Transformar o texto selecionado em link (Ctrl+K)">
+        <i data-lucide="link"></i><span>Link</span>
+      </button>
+      <span class="divider"></span>
+      <button class="tool-btn icon-only anim-press" id="act-bar-links" title="Conferir os links da página"><i data-lucide="link-2"></i></button>
+      <button class="tool-btn icon-only anim-press" id="act-bar-check" title="Conferência final do ato"><i data-lucide="list-checks"></i></button>
+    </div>
+  </div>
+
   <!-- Body: 3-pane -->
   <main class="workspace">
 
     <!-- Left sidebar -->
     <aside class="sidebar left-sidebar">
       <nav class="sidebar-tabs">
-        <button class="tab active" data-tab="blocks">Blocks</button>
-        <button class="tab" data-tab="tree">Tree</button>
-        <button class="tab" data-tab="assets">Assets</button>
+        <button class="tab active" data-tab="outline">Estrutura</button>
+        <button class="tab" data-tab="blocks">Peças</button>
+        <button class="tab" data-tab="tree">Árvore</button>
+        <button class="tab" data-tab="assets">Arquivos</button>
       </nav>
 
+      <!-- Act structure: the document as a legislation person reads it.
+           The DOM tree tab stays — it is the escape hatch for a page the
+           act recognizer doesn't understand. -->
+      <div class="tab-panel active" data-panel="outline">
+        <div id="act-outline" class="act-outline"></div>
+      </div>
+
       <!-- Blocks tab -->
-      <div class="tab-panel active" data-panel="blocks">
+      <div class="tab-panel" data-panel="blocks">
         <input type="search" id="blocks-search" class="search-input" placeholder="Search blocks…">
         <div id="blocks-list" class="blocks-list"></div>
       </div>
@@ -225,19 +262,32 @@
     <!-- Right sidebar (properties) -->
     <aside class="sidebar right-sidebar">
       <nav class="sidebar-tabs">
-        <button class="tab active" data-tab="style">Style</button>
-        <button class="tab" data-tab="attrs">Attributes</button>
-        <button class="tab" data-tab="html">HTML</button>
+        <button class="tab active" data-tab="piece">Este trecho</button>
+        <button class="tab" data-tab="advanced">Avançado</button>
       </nav>
 
-      <div class="tab-panel active" data-panel="style">
-        <div id="props-style" class="props"></div>
+      <!-- Plain-language view of whatever the caret is in. -->
+      <div class="tab-panel active" data-panel="piece">
+        <div id="piece-panel" class="props"></div>
       </div>
-      <div class="tab-panel" data-panel="attrs">
-        <div id="props-attrs" class="props"></div>
-      </div>
-      <div class="tab-panel" data-panel="html">
-        <div id="props-html" class="props"></div>
+
+      <!-- The original property editors, untouched — same ids, so
+           Properties.init() needs no change. -->
+      <div class="tab-panel" data-panel="advanced">
+        <nav class="sidebar-tabs sub-tabs">
+          <button class="tab active" data-tab="attrs">Atributos</button>
+          <button class="tab" data-tab="style">Estilo</button>
+          <button class="tab" data-tab="html">HTML</button>
+        </nav>
+        <div class="tab-panel active" data-panel="attrs">
+          <div id="props-attrs" class="props"></div>
+        </div>
+        <div class="tab-panel" data-panel="style">
+          <div id="props-style" class="props"></div>
+        </div>
+        <div class="tab-panel" data-panel="html">
+          <div id="props-html" class="props"></div>
+        </div>
       </div>
     </aside>
   </main>
@@ -268,18 +318,28 @@
 
 <!-- Scripts -->
 <script src="js/i18n.js"></script>
+<script src="js/traces.js"></script>
 <script src="js/dialog.js"></script>
 <script src="js/state.js"></script>
+<script src="js/act-format.js"></script>
 <script src="js/blocks.js"></script>
 <script src="js/asset-resolver.js"></script>
 <script src="js/canvas.js"></script>
+<script src="js/page-tools.js"></script>
+<script src="js/paste-word.js"></script>
+<script src="js/link-tool.js"></script>
+<script src="js/act-check.js"></script>
 <script src="js/tree.js"></script>
+<script src="js/outline-panel.js"></script>
 <script src="js/properties.js"></script>
+<script src="js/piece-panel.js"></script>
 <script src="js/blocks-panel.js"></script>
+<script src="js/act-bar.js"></script>
 <script src="js/source.js"></script>
 <script src="js/mode-switch.js"></script>
 <script src="js/encoding.js"></script>
 <script src="js/file.js"></script>
+<script src="js/act-template.js"></script>
 <script src="js/diff.js"></script>
 <script src="js/git.js"></script>
 <script src="js/keyboard.js"></script>

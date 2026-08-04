@@ -54,10 +54,7 @@ window.ModeSwitch = (function() {
   }
 
   function stripTraces(html) {
-    return html
-      .replace(/<style id="__he_styles__">[\s\S]*?<\/style>/g, '')
-      .replace(/\s+contenteditable="[^"]*"/g, '')
-      .replace(/\s+data-he-editing="[^"]*"/g, '');
+    return window.EditorTraces.strip(html);
   }
 
   return { pickInitialMode, loadIntoInitialMode, setMode };

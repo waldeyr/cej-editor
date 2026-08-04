@@ -6,6 +6,7 @@ window.Canvas = (function() {
   let isPreview = false;
   let dragData = null; // { type: 'block'|'move', payload, ghostEl? }
   let iframeMutationObserver = null; // disconnected before re-attach on doc-replaced
+  let iframeListeners = null;        // AbortController for the iframe's listeners
 
   // Inject styles into the iframe so editor selection works
   const IFRAME_STYLES = `
@@ -39,10 +40,12 @@ window.Canvas = (function() {
     // Listen to selection / doc state
     ES.on((evt, payload) => {
       if (evt === 'selection-changed') updateOverlay();
+      if (evt === 'history') updateAnchorMarkers(); // a new bookmark must show up
       if (evt === 'doc-replaced' || evt === 'doc-changed') {
         // After doc replacement we need to re-wire events
         wireIframeEvents();
         updateOverlay();
+        updateAnchorMarkers();
       }
     });
 
@@ -90,6 +93,7 @@ window.Canvas = (function() {
       await applyPreviewAssets(doc);
       ES.setDoc(doc);
       wireIframeEvents();
+      updateAnchorMarkers();
     };
   }
 
@@ -109,6 +113,137 @@ window.Canvas = (function() {
     doc.head.appendChild(style);
   }
 
+  // ---- Anchor markers ----
+  // Show the user where the page's bookmarks are — FrontPage drew a little
+  // flag at each one. Everything here is a stylesheet injected into the
+  // iframe: no attribute is ever written to the user's document, so nothing
+  // can leak into the saved file and nothing marks the document dirty.
+  const ANCHOR_STYLE_ID = '__he_marks__';
+  const ANCHOR_PREF_KEY = 'html-editor.showAnchors';
+  const MARKS_KEY = 'html-editor.marks';
+
+  // Which revision marks are on. Everything here is a CSS rule in one injected
+  // stylesheet: no attribute is written to the user's document, nothing marks
+  // it dirty, and nothing can leak into the saved file.
+  const MARK_DEFAULTS = { anchors: true, paragrafos: false, papeis: false, links: true };
+  let marks = loadMarks();
+
+  function loadMarks() {
+    let out = Object.assign({}, MARK_DEFAULTS);
+    try {
+      const raw = localStorage.getItem(MARKS_KEY);
+      if (raw) return Object.assign(out, JSON.parse(raw));
+      // Migrate the older single anchors-on/off preference once.
+      const legacy = localStorage.getItem(ANCHOR_PREF_KEY);
+      if (legacy !== null) out.anchors = legacy !== '0';
+    } catch (_) {}
+    return out;
+  }
+  function saveMarks() {
+    try { localStorage.setItem(MARKS_KEY, JSON.stringify(marks)); } catch (_) {}
+  }
+  function getMarks() { return Object.assign({}, marks); }
+  function setMark(key, on) {
+    marks[key] = !!on;
+    saveMarks();
+    updateAnchorMarkers();
+  }
+
+
+  function cssStr(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+  // True for our injected <style> elements and the text nodes inside them.
+  const isEditorNode = window.EditorTraces.isEditorNode;
+
+  function updateAnchorMarkers() {
+    const doc = ES.state.doc;
+    if (!doc || !doc.head) return;
+    let style = doc.getElementById(ANCHOR_STYLE_ID);
+
+    const anyMark = marks.anchors || marks.paragrafos || marks.papeis || marks.links;
+    if (!anyMark || isPreview) {
+      if (style) style.remove();
+      return;
+    }
+    if (!style) {
+      style = doc.createElement('style');
+      style.id = ANCHOR_STYLE_ID;
+      doc.head.appendChild(style);
+    }
+
+    const rules = [];
+
+    if (marks.anchors) {
+      // Anything an in-page link can target: classic <a name> bookmarks and
+      // every element carrying an id — the same set the bookmark manager lists.
+      const idSelectors = [];
+      doc.querySelectorAll('[id]').forEach((el) => {
+        if (!el.id || window.EditorTraces.isEditorId(el.id)) return;
+        if (el.matches('a[name]')) return; // covered by the a[name] rules below
+        idSelectors.push(`[id="${cssStr(el.id)}"]`);
+      });
+
+      // `outline` is used deliberately: unlike a border it takes no space, so
+      // the canvas keeps showing the page's real layout. An *empty* <a name>
+      // has no box to outline, so that one gets a visible badge instead — which
+      // is the whole point, since it is invisible in the page otherwise.
+      rules.push(
+        'a[name]:empty::after {' +
+          ' content: "\\2693"; font-size: 10px; line-height: 1; opacity: 0.9;' +
+          ' color: #b45309; background: #fef3c7; border: 1px solid #f59e0b;' +
+          ' border-radius: 3px; padding: 0 2px; vertical-align: super;' +
+          ' font-family: sans-serif; font-weight: normal; }',
+        'a[name]:not(:empty) { outline: 1px dashed rgba(245,158,11,0.95); outline-offset: 1px; }');
+      if (idSelectors.length) {
+        rules.push(idSelectors.join(',\n') +
+          ' { outline: 1px dashed rgba(245,158,11,0.55); outline-offset: 1px; }');
+      }
+    }
+
+    if (marks.paragrafos) {
+      // Pilcrow at the end of each paragraph — FrontPage's "show formatting
+      // marks". Excluded inside tables, or the annexes fill with them.
+      rules.push(
+        'p:not(td p):not(th p)::after {' +
+          ' content: "\\00B6"; color: rgba(59,130,246,0.55); font-size: 0.85em;' +
+          ' font-family: sans-serif; margin-left: 2px; }');
+    }
+
+    if (marks.links) {
+      rules.push(
+        'a[href] { background: rgba(59,130,246,0.10); }',
+        'a[href^="#"]::after { content: "\\2317"; font-size: 9px; vertical-align: super;' +
+          ' color: #2563eb; margin-left: 1px; font-family: sans-serif; }',
+        'a[href^="http"]:not([href*="planalto.gov.br"])::after {' +
+          ' content: "\\2197"; font-size: 9px; vertical-align: super;' +
+          ' color: #7c3aed; margin-left: 1px; font-family: sans-serif; }');
+    }
+
+    if (marks.papeis) {
+      // A colour rail in the margin, keyed off attribute substrings. This is
+      // what makes the feature free: no DOM walk, no attribute written, and
+      // box-shadow takes no layout space, so the page keeps its real geometry.
+      // (A textual badge per paragraph would need position:relative on the
+      // user's <p> or an overlay recomputed on every scroll across 6800
+      // paragraphs — the role NAME lives in the structure panel instead.)
+      rules.push(
+        'p[style*="text-indent: 38px"], p[style*="text-indent:38px"] { box-shadow: -6px 0 0 -3px #3b82f6; }',
+        'p[style*="margin-right: 0cm"], p[style*="margin-right:0cm"] { box-shadow: -6px 0 0 -3px #64748b; }',
+        'p:has(> span[style*="#800000"]) { box-shadow: -6px 0 0 -3px #800000; }',
+        'p:has(font[color="#FF0000"]) { box-shadow: -6px 0 0 -3px #ef4444; }',
+        'p:has(font[color="#000080"]) { box-shadow: -6px 0 0 -3px #000080; }',
+        'p:has(> span[style*="italic"]) { box-shadow: -6px 0 0 -3px #a855f7; }');
+    }
+
+    const next = rules.join('\n');
+    if (style.textContent !== next) style.textContent = next;
+  }
+
+  // Kept because the toolbar button, the README and keyboard.js all still
+  // speak of "anchors"; it is now one mark among four.
+  function setShowAnchors(on) { setMark('anchors', on); }
+  function getShowAnchors() { return marks.anchors; }
+
   async function wireIframeEvents() {
     const doc = ES.state.doc;
     if (!doc) return;
@@ -119,6 +254,15 @@ window.Canvas = (function() {
     } catch (_) { /* preview asset resolution is best-effort */ }
     const body = doc.body;
     if (!body) return;
+
+    // Drop the previous document's listeners before installing this set.
+    // This function runs both from loadHtml() and from the doc-replaced /
+    // doc-changed handler, so without this the same document accumulates
+    // duplicate listeners and every handler fires twice — harmless for
+    // "select this element", destructive for Delete.
+    if (iframeListeners) { try { iframeListeners.abort(); } catch (_) {} }
+    iframeListeners = new AbortController();
+    const signal = iframeListeners.signal;
 
     // Click to select. Also intercepts ALL link clicks defensively, in both
     // edit and preview mode, so the iframe content can't escape to the
@@ -139,13 +283,13 @@ window.Canvas = (function() {
       if (target && target.nodeType === 1 && target !== doc.documentElement && target !== body.parentNode) {
         ES.select(target);
       }
-    }, true);
+    }, { capture: true, signal });
 
     // Also catch any other navigation attempts (form submit, etc.)
     body.addEventListener('submit', (e) => {
       e.preventDefault();
       e.stopPropagation();
-    }, true);
+    }, { capture: true, signal });
 
     // Double click to edit text. If the target is already in an editable
     // context, let the browser handle native word-selection — don't intercept.
@@ -157,7 +301,7 @@ window.Canvas = (function() {
       e.preventDefault();
       e.stopPropagation();
       enterTextEdit(target, e);
-    }, true);
+    }, { capture: true, signal });
 
     // Hover highlight.
     // - Skip if same target as last move (no need to redraw)
@@ -183,23 +327,68 @@ window.Canvas = (function() {
       } else {
         hideHoverBox();
       }
-    });
-    body.addEventListener('mouseleave', () => { hideHoverBox(); lastHoverTarget = null; });
+    }, { signal });
+    body.addEventListener('mouseleave', () => { hideHoverBox(); lastHoverTarget = null; }, { signal });
 
     // Internal drag-drop: drag elements to reorder
     body.addEventListener('mousedown', (e) => {
       if (isPreview) return;
       if (!e.altKey && !e.shiftKey) return; // require modifier to start drag inside canvas
-    });
+    }, { signal });
 
-    // Escape inside the iframe should also exit preview. Iframe keydowns
-    // don't bubble up to the parent document, so the global handler in
-    // keyboard.js never fires when focus is inside the canvas.
+    // Iframe keydowns don't bubble up to the parent document, so the global
+    // handler in keyboard.js never fires when focus is inside the canvas.
+    // Everything that must work while the user is clicking around the page
+    // has to be handled here — and re-registered on every doc-replaced,
+    // because undo rewrites the document via doc.write() and wipes listeners.
     doc.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && window.__heExitPreview) {
         if (window.__heExitPreview()) e.preventDefault();
+        return;
       }
-    }, true);
+      if (isPreview) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      const active = doc.activeElement;
+      const inEdit = !!(active && active.isContentEditable);
+
+      // Undo/redo. Without this the editor's own history is unreachable from
+      // inside the canvas — which is where the user actually is.
+      if (mod && /^[zyZY]$/.test(e.key)) {
+        // While a text-edit session is open the browser's native undo owns the
+        // caret, and ES.undo() would doc.write() the whole document out from
+        // under it mid-sentence. Let the native one run; the session's own
+        // snapshot is taken on blur.
+        if (inEdit) return;
+        e.preventDefault();
+        if (e.key === 'y' || e.key === 'Y' || e.shiftKey) ES.redo(); else ES.undo();
+        return;
+      }
+
+      // Insert link — same shortcut as every word processor.
+      if (mod && (e.key === 'k' || e.key === 'K')) {
+        if (window.LinkTool) { e.preventDefault(); window.LinkTool.open(); }
+        return;
+      }
+      // Paste from Word, explicit form: works even with nothing in edit mode,
+      // where the browser fires no paste event at all.
+      if (mod && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        if (window.PasteWord) { e.preventDefault(); window.PasteWord.openColdPaste(); }
+        return;
+      }
+      if (window.ActShortcuts && window.ActShortcuts.handle(e)) return;
+
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      // Inside a form field or a contenteditable element the browser's own
+      // editing behaviour is the right one — never hijack it.
+      if (active && (inEdit
+          || active.tagName === 'INPUT'
+          || active.tagName === 'TEXTAREA'
+          || active.tagName === 'SELECT')) return;
+      if (!getTextRange() && !ES.state.selected) return;
+      e.preventDefault(); // also stops legacy Backspace-navigates-back
+      deleteSelected();
+    }, { capture: true, signal });
 
     // Scroll: re-sync the selection overlay, and CLEAR the hover box
     // (otherwise it sits stale at the old position while the underlying
@@ -209,7 +398,42 @@ window.Canvas = (function() {
       updateOverlay();
       hideHoverBox();
       lastHoverTarget = null;
-    }, true);
+    }, { capture: true, signal });
+
+    // Where is the caret? The act formatting bar, the "Este trecho" panel and
+    // the marks legend all need "which block is the user in", and the answer
+    // changes on plain clicks and arrow keys that emit no other event.
+    // `selectionchange` fires on the *document*, never on body — hence `doc`.
+    // Coalesced into one rAF, or a drag-select would emit per mousemove.
+    let caretPending = false;
+    doc.addEventListener('selectionchange', () => {
+      if (caretPending || isPreview) return;
+      caretPending = true;
+      requestAnimationFrame(() => {
+        caretPending = false;
+        ES.emit('caret-changed');
+      });
+    }, { signal });
+
+    // Paste. Capture phase so we run before contenteditable's default, which
+    // would otherwise drop Word's markup straight into the document.
+    doc.addEventListener('paste', (e) => {
+      if (isPreview || !window.PasteWord) return;
+      window.PasteWord.onPaste(e);
+    }, { capture: true, signal });
+
+    // Typing granularity. enterTextEdit only snapshots on blur, so rewriting a
+    // whole paragraph used to be a single undo step. Gated on document size:
+    // a snapshot is the entire outerHTML, and on a 3 MB act each one is ~7 MB
+    // against an 8 MB history budget (state.js) — there, blur-only is the only
+    // affordable granularity and the status bar says so.
+    let typingTimer = null;
+    doc.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!el || !el.isContentEditable || !snapshotsAreCheap()) return;
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(() => ES.snapshot('digitar'), 1200);
+    }, { signal });
 
     // dragover/drop inside iframe for blocks coming from sidebar
     doc.addEventListener('dragover', (e) => {
@@ -217,13 +441,13 @@ window.Canvas = (function() {
       e.preventDefault();
       const rect = iframe.getBoundingClientRect();
       updateDropTarget(rect.left + e.clientX, rect.top + e.clientY);
-    });
+    }, { signal });
     doc.addEventListener('drop', (e) => {
       if (!dragData) return;
       e.preventDefault();
       const rect = iframe.getBoundingClientRect();
       handleDrop(rect.left + e.clientX, rect.top + e.clientY);
-    });
+    }, { signal });
 
     // Track any DOM mutations for autosave (excluding our editor-style
     // injections). The observer can fire many times per frame for big
@@ -238,9 +462,10 @@ window.Canvas = (function() {
     }
     let moPending = false;
     iframeMutationObserver = new MutationObserver((mutations) => {
-      const meaningful = mutations.some(m =>
-        !(m.target && m.target.id === '__he_styles__')
-      );
+      // Our own injected stylesheets mutate as the user works (anchor markers
+      // are rebuilt on every snapshot); those must never look like a document
+      // edit, or every bookmark would trigger an autosave of editor chrome.
+      const meaningful = mutations.some(m => !isEditorNode(m.target));
       if (!meaningful || moPending) return;
       moPending = true;
       requestAnimationFrame(() => {
@@ -273,19 +498,57 @@ window.Canvas = (function() {
     // they'd otherwise resolve against about:srcdoc which is meaningless.
   }
 
+  // A snapshot is the whole documentElement.outerHTML. On a real consolidated
+  // act that is megabytes per entry against an 8 MB history budget, so the
+  // extra convenience snapshots (per-keystroke undo) are only taken when the
+  // document is small enough for them to actually fit in the history.
+  const CHEAP_SNAPSHOT_BYTES = 500 * 1024;
+  function snapshotsAreCheap() {
+    const top = ES.state.undoStack[ES.state.undoStack.length - 1];
+    if (top && typeof top.bytes === 'number') return top.bytes < CHEAP_SNAPSHOT_BYTES;
+    const doc = ES.state.doc;
+    if (!doc || !doc.body) return true;
+    return doc.body.innerHTML.length < CHEAP_SNAPSHOT_BYTES;
+  }
+  function historyIsLimited() { return !snapshotsAreCheap(); }
+
+  // The element currently open for text editing, if any. Tracked at module
+  // level so a tool can close the session deterministically instead of hoping
+  // for a blur that may never come (a click on a toolbar button in the parent
+  // frame does not always blur the iframe's active element).
+  let editingEl = null;
+
+  // Close any open text-edit session and record it in the history. Every tool
+  // that mutates the document must call this first: mutating around an open
+  // contenteditable produces a state the user cannot undo back out of.
+  function commitTextEdit() {
+    const el = editingEl;
+    if (!el) return false;
+    editingEl = null;
+    el.removeAttribute('contenteditable');
+    delete el.dataset.heEditing;
+    try { el.blur(); } catch (_) {}
+    ES.snapshot('editar texto');
+    return true;
+  }
+
   function enterTextEdit(el, mouseEvent) {
     if (!hasTextContentOnly(el)) {
       ES.select(el);
       return;
     }
+    if (editingEl && editingEl !== el) commitTextEdit();
+    editingEl = el;
     el.setAttribute('contenteditable', 'true');
     el.dataset.heEditing = 'true';
     el.focus();
     const onBlur = () => {
+      el.removeEventListener('blur', onBlur);
+      if (editingEl !== el) return; // already committed by commitTextEdit()
+      editingEl = null;
       el.removeAttribute('contenteditable');
       delete el.dataset.heEditing;
-      ES.snapshot('edit text');
-      el.removeEventListener('blur', onBlur);
+      ES.snapshot('editar texto');
     };
     el.addEventListener('blur', onBlur);
 
@@ -441,10 +704,12 @@ window.Canvas = (function() {
   }
 
   function handleToolbarAction(action) {
+    // Delete comes first: with only a text range selected there may be no
+    // element selection at all, and the guard below would swallow the action.
+    if (action === 'delete') { deleteSelected(); return; }
     const sel = ES.state.selected;
     if (!sel) return;
-    if (action === 'delete') deleteSelected();
-    else if (action === 'duplicate') duplicateSelected();
+    if (action === 'duplicate') duplicateSelected();
     else if (action === 'parent') {
       if (sel.parentElement && sel.parentElement !== ES.state.doc.documentElement) ES.select(sel.parentElement);
     }
@@ -540,7 +805,83 @@ window.Canvas = (function() {
     return null;
   }
 
+  // ---- Text-range delete ----
+  // FrontPage habit: drag-select some text, press Delete (or hit the trash
+  // button) and only that text goes away. Without this, Delete always removed
+  // the whole selected element, which felt destructive to people migrating.
+
+  // The live text selection inside the canvas, or null when there isn't a
+  // usable one. `preventDefault()` on the capture-phase click handler above
+  // does NOT collapse a drag-selection, so the range survives the click that
+  // also selects the element under the cursor.
+  function getTextRange() {
+    const doc = ES.state.doc;
+    if (!doc || isPreview) return null;
+    const view = doc.defaultView;
+    if (!view) return null;
+    const sel = view.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    if (range.collapsed || !String(sel).length) return null;
+    // Keep the deletion inside <body>. A stray document-level selection
+    // (Ctrl+A can produce one) would otherwise let deleteContents() take out
+    // <head>, <title> and our injected <style id="__he_styles__">.
+    const cac = range.commonAncestorContainer;
+    if (!doc.body || (cac !== doc.body && !doc.body.contains(cac))) return null;
+    // Inside a contenteditable element the browser's native editing wins.
+    const cacEl = cac.nodeType === 1 ? cac : cac.parentElement;
+    if (cacEl && cacEl.isContentEditable) return null;
+    return range;
+  }
+
+  // Nearest ancestor that isn't an inline element — the "paragraph" the text
+  // lives in. Stops at <body>.
+  function blockAncestor(node) {
+    const doc = ES.state.doc;
+    let el = node && node.nodeType === 1 ? node : (node && node.parentElement);
+    while (el && el !== doc.body) {
+      const tag = el.tagName.toLowerCase();
+      if (!INLINE_TAGS.has(tag)) return el;
+      el = el.parentElement;
+    }
+    return el || null;
+  }
+
+  const NEVER_MERGE = 'table, thead, tbody, tfoot, tr, td, th, caption, colgroup, col';
+
+  function deleteTextRange(range) {
+    const doc = ES.state.doc;
+    const startBlock = blockAncestor(range.startContainer);
+    const endBlock = blockAncestor(range.endContainer);
+
+    range.deleteContents();
+
+    // Nodes fully inside the range are already gone; only the two partially
+    // covered boundary blocks survive. Merge them the way a browser would —
+    // but only when it's unambiguously safe. Anything else keeps both blocks
+    // (possibly empty), which is visible, harmless and undoable.
+    if (startBlock && endBlock && startBlock !== endBlock
+        && startBlock.isConnected && endBlock.isConnected
+        && startBlock.parentNode === endBlock.parentNode
+        && startBlock !== doc.body && endBlock !== doc.body
+        && !startBlock.matches(NEVER_MERGE) && !endBlock.matches(NEVER_MERGE)) {
+      while (endBlock.firstChild) startBlock.appendChild(endBlock.firstChild);
+      endBlock.remove();
+    }
+
+    // Firefox can be left holding a range that points at removed nodes.
+    try { doc.defaultView.getSelection().removeAllRanges(); } catch (_) {}
+
+    ES.snapshot('delete text');
+    if (startBlock && startBlock.isConnected && startBlock !== doc.body) ES.select(startBlock);
+    else ES.deselect();
+    updateOverlay();
+  }
+
   function deleteSelected() {
+    // A text selection always wins over the element selection.
+    const range = getTextRange();
+    if (range) { deleteTextRange(range); return; }
     const sel = ES.state.selected;
     if (!sel || !sel.parentElement) return;
     if (sel === ES.state.doc.body || sel === ES.state.doc.documentElement) return;
@@ -708,6 +1049,7 @@ window.Canvas = (function() {
     } else {
       updateOverlay();
     }
+    updateAnchorMarkers(); // markers are editor chrome — hide them in preview
   }
 
   function setDevice(d) {
@@ -719,5 +1061,21 @@ window.Canvas = (function() {
     init, loadHtml, setDragData, clearDragData, getDragData, updateOverlay,
     deleteSelected, duplicateSelected, moveSelected, setPreview, setDevice,
     insertElement,
+    // The live text selection inside the canvas (a Range) or null. Used by
+    // keyboard.js and page-tools.js.
+    getTextRange,
+    hasTextSelection: () => getTextRange(),
+    updateAnchorMarkers, setShowAnchors, getShowAnchors,
+    // Revision marks: anchors (as before), paragraph pilcrows, link
+    // highlighting and the role colour rail. All CSS-only, all stripped.
+    getMarks, setMark,
+    updateMarks: updateAnchorMarkers,
+    // Close an open text-edit session before mutating the document. Every
+    // tool that writes to the canvas must call this first.
+    commitTextEdit,
+    isEditing: () => !!editingEl,
+    // True when the document is large enough that whole-document snapshots
+    // don't fit the history budget — the status bar tells the user.
+    historyIsLimited,
   };
 })();

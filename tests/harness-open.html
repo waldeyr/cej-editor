@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>CEJ-PAGE — abrir vs. copiar</title>
+</head>
+<body>
+<pre id="out" style="position:fixed;inset:auto 0 0 0;max-height:50vh;overflow:auto;background:#111;color:#ddd;font:11px/1.4 monospace;z-index:99999;padding:8px;margin:0"></pre>
+<iframe id="app" src="../index.html" style="width:1400px;height:800px;border:0"></iframe>
+<script>
+const lines = []; let pass = 0, fail = 0;
+function log(s) { lines.push(s); }
+function check(name, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  ok ? pass++ : fail++;
+  log((ok ? '  ok   ' : 'FALHA  ') + name + (ok ? '' :
+    '\n         obtido:   ' + JSON.stringify(got) + '\n         esperado: ' + JSON.stringify(want)));
+}
+function flush() {
+  document.getElementById('out').textContent = lines.join('\n') + '\n\n' + pass + ' ok, ' + fail + ' falhas';
+  console.log('FIM');
+}
+
+const frame = document.getElementById('app');
+frame.onload = () => setTimeout(() => {
+  try { run(frame.contentWindow); } catch (e) { fail++; log('ERRO: ' + (e.stack || e)); }
+  flush();
+}, 1200);
+
+function run(w) {
+  const d = w.document;
+
+  log('=== os botões dizem a consequência, não o mecanismo ===');
+  const openBtn = d.getElementById('empty-open-local');
+  const copyBtn = d.getElementById('empty-import');
+  const openLabel = openBtn.querySelector('span').textContent;
+  const copyLabel = copyBtn.querySelector('span').textContent;
+  const openHint = openBtn.querySelector('small').textContent;
+  const copyHint = copyBtn.querySelector('small').textContent;
+  log('  [' + openLabel + ']  ' + openHint);
+  log('  [' + copyLabel + ']  ' + copyHint);
+  check('rótulo de abrir', openLabel, 'Abrir e editar');
+  check('rótulo de cópia', copyLabel, 'Abrir uma cópia');
+  // The whole point of the rename: the difference is Ctrl+S, so say so.
+  check('a dica de abrir fala em Ctrl+S', /Ctrl\+S/.test(openHint), true);
+  check('a dica da cópia avisa que não há vínculo', /sem v[íi]nculo/i.test(copyHint), true);
+  check('sem "Importar HTML" na tela inicial', /Importar HTML/.test(copyLabel + copyHint), false);
+
+  log('');
+  log('=== em inglês também ===');
+  w.I18N.setLang('en');
+  log('  [' + openBtn.querySelector('span').textContent + ']  ' + openBtn.querySelector('small').textContent);
+  log('  [' + copyBtn.querySelector('span').textContent + ']  ' + copyBtn.querySelector('small').textContent);
+  check('rótulo de abrir (en)', openBtn.querySelector('span').textContent, 'Open and edit');
+  check('rótulo de cópia (en)', copyBtn.querySelector('span').textContent, 'Open a copy');
+  w.I18N.setLang('pt-BR');
+  check('volta ao português', openBtn.querySelector('span').textContent, 'Abrir e editar');
+
+  log('');
+  log('=== arrastar pede o handle de verdade ===');
+  // Chrome resolves a dropped file to a real FileSystemFileHandle. Simulate a
+  // drop and assert the editor asked for it, rather than settling for the
+  // detached File the old code used.
+  let askedForHandle = false;
+  const fakeHandle = {
+    kind: 'file',
+    getFile: async () => new File(
+      ['<html><head><title>t</title></head><body><p>ok</p></body></html>'],
+      'arrastado.html', { type: 'text/html' }),
+  };
+  const file = new File(['<html><body><p>ok</p></body></html>'], 'arrastado.html', { type: 'text/html' });
+  const ev = new w.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'dataTransfer', {
+    value: {
+      files: [file],
+      types: ['Files'],
+      items: [{
+        kind: 'file',
+        getAsFileSystemHandle: async () => { askedForHandle = true; return fakeHandle; },
+      }],
+    },
+  });
+  d.dispatchEvent(ev);
+
+  setTimeout(() => {
+    check('o editor pediu o handle ao soltar o arquivo', askedForHandle, true);
+    check('o documento ficou vinculado ao arquivo', !!w.EditorState.state.fileHandle, true);
+    check('o nome veio do arquivo arrastado', w.EditorState.state.fileName, 'arrastado.html');
+    // With a handle, the disk-dependent buttons must come alive.
+    check('"Recarregar do disco" habilitado', d.getElementById('tb-refresh').disabled, false);
+    check('"Comparar com o disco" habilitado', d.getElementById('tb-diff').disabled, false);
+
+    log('');
+    log('=== sem handle (navegador sem suporte) ainda abre, como cópia ===');
+    const ev2 = new w.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev2, 'dataTransfer', {
+      value: { files: [file], types: ['Files'], items: [{ kind: 'file' }] },
+    });
+    d.dispatchEvent(ev2);
+    setTimeout(() => {
+      check('abriu mesmo assim', w.EditorState.state.fileName, 'arrastado.html');
+      check('mas sem vínculo', w.EditorState.state.fileHandle, null);
+      check('e os botões de disco voltam a desabilitar', d.getElementById('tb-refresh').disabled, true);
+      flush();
+    }, 700);
+  }, 900);
+}
+</script>
+</body>
+</html>

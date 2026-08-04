@@ -44,10 +44,72 @@ comum, sem que o arquivo pague o preço.
 
 ### Funcionalidades
 
+#### Para quem redige atos normativos
+
+Estes recursos falam o vocabulário do ato, não o do CSS. Todo texto que o editor
+escreve sai **na mesma marcação dos atos já publicados**, byte a byte — um
+parágrafo criado aqui é indistinguível dos que o Word produziu em 2003.
+
+- **Barra de formatação do ato** — uma faixa de fichas logo abaixo da barra
+  superior: Epígrafe, Ementa, Preâmbulo, Corpo, Artigo, Parágrafo, Inciso,
+  Alínea, Citação de outro ato, Data e local, Assinaturas, Nota do DOU, Título
+  de anexo. Selecione um trecho e clique — o editor aplica a receita de
+  formatação correspondente e, no caso do artigo, numera e cria a âncora.
+  Atalho `Ctrl+Alt+1..9`.
+  A ficha do trecho em que o cursor está acende sozinha, e um selo ao lado diz
+  o que ele é ("Art. 3º") e o que falta ("sem âncora").
+- **Colar do Word** (`Ctrl+Shift+V`, ou colar direto no texto) — o texto vem do
+  Word cheio de `mso-`, `<o:p>`, `class="Mso…"` e comentários condicionais.
+  O editor reduz tudo a parágrafos limpos, reconhece "Art. 5º", "§ 2º",
+  "III -", "c)" e aplica a formatação de cada um. Negrito, itálico e links são
+  preservados; o resto é descartado. O relatório diz exatamente o que aconteceu.
+- **Link para outro ato** (`Ctrl+K`) — selecione o texto, cole o endereço, e o
+  editor lê o endereço de volta em português: *"Decreto nº 12.846, de 2026 —
+  art. 11, inciso II, alínea f"*. Também lista os dispositivos e as âncoras
+  desta página para escolher como destino, e guarda os endereços recentes.
+- **Conferir links** — aponta links para âncoras inexistentes, links para o
+  próprio ato pelo endereço completo (que quebram em silêncio quando um
+  âncora é renomeada), `http://` e endereços vazios.
+- **Estrutura do ato** — a primeira aba da barra esquerda mostra o documento como
+  quem redige o lê: Epígrafe, Ementa, Art. 1º, § 1º, Anexo I. Clicar salta até
+  lá. Artigos sem âncora aparecem marcados.
+- **Este trecho** — a aba padrão da barra direita, em português comum: o que é o
+  trecho, se a formatação está no padrão, os links que ele contém, a âncora,
+  e botões grandes para as ações. As abas técnicas (Atributos, Estilo, HTML)
+  continuam ali, uma aba adiante, em **Avançado**.
+- **Conferência final do ato** — artigos sem âncora, links quebrados, falta da
+  nota do DOU, título da página igual ao nome do arquivo, resíduos do Word,
+  caracteres fora da codificação. É um relatório: corrige só item a item, e
+  apenas quando a correção é inequívoca.
+- **Novo ato a partir de um ato existente** — cole o endereço de um ato do
+  portal; o editor abre, oferece apagar o corpo e os anexos, e mantém o
+  cabeçalho, o preâmbulo e as assinaturas como modelo.
+- **Marcas de revisão** — âncoras, links, fim de parágrafo (¶) e uma faixa
+  colorida na margem indicando o papel de cada parágrafo. Tudo é CSS injetado no
+  editor: não desloca o layout e **nunca** vai para o arquivo salvo.
+
+#### Edição geral
+
 - **Edição visual** — clicar para selecionar, arrastar para reordenar, clique
-  duplo para editar texto no lugar.
+  duplo para editar texto no lugar. Selecionar texto e apertar `Delete` (ou o
+  botão de lixeira) apaga só o trecho selecionado, como no FrontPage.
+- **Âncoras** — o que o FrontPage chamava de "Indicador": marca um trecho para
+  que um link aponte direto para ele (`pagina.html#nome-da-ancora`), com um
+  gerenciador que lista, localiza, renomeia e remove as âncoras da página.
+  Renomear atualiza os links internos que apontavam para ele.
+- **Título da página** — define o `<head><title>` sem precisar entrar no modo
+  código.
+- **Marca visual das âncoras** — mostra no canvas onde estão as âncoras da
+  página, inclusive as invisíveis (`<a name>` vazio). É desenhada com `outline`,
+  então não desloca o layout, e existe só no editor: nunca vai para o arquivo
+  salvo. Fica no menu **Marcas**, junto das demais marcas de revisão.
+- **Estilos do documento** — em **Avançado → Atributos**, a lista das classes
+  que o próprio arquivo já define no `<style>` (`span.Hiperlink`, `.font5`,
+  `table.MsoNormalTable`…), agrupadas pela tag a que pertencem. Serve para
+  páginas comuns; para atos normativos, use a barra de formatação do ato.
 - **Gravação direta no disco** — vínculo persistente com o arquivo via File
-  System Access API; `Ctrl+S` grava por cima.
+  System Access API; `Ctrl+S` grava por cima. Em navegadores sem essa API
+  (Firefox), **Salvar como** pergunta o nome antes de baixar.
 - **Importação por URL** — baixa uma página HTML acessível por CORS para edição
   local; use **Exportar** ou **Salvar como** para gravar uma cópia. Sites que
   bloqueiam leitura cross-origin devem ser baixados manualmente e importados
@@ -56,7 +118,9 @@ comum, sem que o arquivo pague o preço.
   bytes; gravação byte a byte na mesma codificação, com selo na barra e conversão
   UTF-8 ↔ ISO-8859-1 sob demanda.
 - **Modo código** — CodeMirror 6 com realce de HTML, para controle fino.
-- **Biblioteca de 45 blocos** em 9 categorias, arrastáveis para o documento.
+- **Painel de peças** — as peças do ato (que escrevem a marcação padrão) num
+  grupo aberto, e a biblioteca de blocos web genéricos num grupo **Avançado**
+  recolhido. A busca alcança os dois.
 - **Árvore DOM** navegável, com arrastar para reordenar.
 - **Painel de propriedades** — tipografia, layout, espaçamento, fundo, borda,
   efeitos, classes, atributos e HTML bruto.
@@ -71,7 +135,8 @@ comum, sem que o arquivo pague o preço.
 
 ### Usar no Windows (usuário final)
 
-1. Baixe o `CEJ-PAGE.exe` em [Releases](https://github.com/waldeyr/cej-editor/releases).
+1. Baixe o `cej-page-vX.Y.exe` mais recente em [Releases](https://github.com/waldeyr/cej-editor/releases)
+   — o nome traz a versão, para você saber qual build está rodando.
 2. Dê **duplo clique**.
 3. O editor abre no navegador. **Para encerrar, feche a janela preta.**
 
@@ -165,7 +230,8 @@ graph TB
         direction LR
         TREE["tree.js<br/>árvore DOM"]
         PROPS["properties.js<br/>estilo, atributos, HTML"]
-        PANEL["blocks-panel.js<br/>+ blocks.js (45 blocos)"]
+        PANEL["blocks-panel.js<br/>+ blocks.js (47 blocos)"]
+        PGTOOLS["page-tools.js<br/>âncoras, título"]
     end
 
     subgraph io["Entrada e saída"]
@@ -193,6 +259,8 @@ graph TB
     CANVAS --> IFRAME
     ASSETS --> IFRAME
     ui --> CANVAS
+    PGTOOLS --> IFRAME
+    PGTOOLS --> STATE
 
     STATE --> FILE
     FILE --> ENC
@@ -222,7 +290,7 @@ sequenceDiagram
     participant C as canvas.js
     participant D as Disco
 
-    U->>F: Abrir arquivo local
+    U->>F: Abrir e editar
     F->>D: showOpenFilePicker()
     D-->>F: FileSystemFileHandle
     F->>E: decode(file)
@@ -288,10 +356,23 @@ flowchart TD
 
 | Funcionalidade | Regra de funcionamento |
 | --- | --- |
-| Abrir arquivo local | Vínculo persistente via File System Access API. Exige Chrome, Edge ou outro navegador Chromium em contexto seguro. |
-| Importar HTML | Alternativa somente leitura para Safari e Firefox; salvar vira download. |
+| Abrir e editar | Vínculo persistente com o arquivo via File System Access API: `Ctrl+S` grava por cima dele, e os botões de recarregar/comparar ficam disponíveis. Exige Chrome, Edge ou outro navegador Chromium em contexto seguro; nos demais, cai sozinho em *Abrir uma cópia*. |
+| Abrir uma cópia | Abre o conteúdo **sem vínculo** com o arquivo: `Ctrl+S` pergunta onde gravar, e recarregar/comparar ficam desabilitados. É o caminho do Safari e do Firefox, e o da importação por URL. |
+| Arrastar um arquivo para a janela | Equivale a *Abrir e editar*: o Chrome resolve o item arrastado num handle real (`DataTransferItem.getAsFileSystemHandle()`), então o vínculo com o disco é mantido. Onde a API não existe, abre como cópia. |
 | Salvar (`Ctrl+S`) | Grava na codificação do documento. Antes de escrever compara o mtime do disco; se outro processo alterou o arquivo, pede confirmação. |
-| Salvar como | **Mantém** a codificação do documento — a cópia de um arquivo Latin-1 também é Latin-1. |
+| Salvar como | **Mantém** a codificação do documento — a cópia de um arquivo Latin-1 também é Latin-1. Sempre pergunta onde/como salvar: janela nativa no Chrome/Edge; nos demais (Firefox), um diálogo pedindo o nome, seguido do download. Cancelar não baixa nada. |
+| Salvar como no Firefox | O Firefox não permite que a página abra a janela "Salvar em" do Windows. Para escolher a pasta a cada salvamento, ligue uma vez em *Menu ≡ → Configurações → Geral → Downloads → "Sempre perguntar onde salvar arquivos"*. O editor mostra esse aviso uma única vez. |
+| Âncora | Com texto selecionado, envolve o trecho em `<a name="x">` — só `name`, como fazem os atos publicados (as 1.219 âncoras da Lei 8.112 consolidada não têm `id`). Com um elemento selecionado, insere a marca como primeiro filho dele. Seleção que atravessa mais de um bloco insere só uma marca vazia, para não colocar blocos dentro de um link. O nome segue a gramática do portal — acentos removidos, espaços viram `-`, **o `§` é preservado** (`art3§1`) e o nome é tornado único. Nos links o `§` sai percent-encoded (`#art3%C2%A71`). |
+| Remover âncora | Nunca apaga conteúdo: uma marca `<a name>` sem `href` é desembrulhada preservando o texto; nos demais casos só o atributo é removido. |
+| Título da página | Grava em `<head><title>` com `textContent`, então `&` e `<` são escapados. Cria `<title>` (e `<head>`) se não existirem. |
+| Marcas de revisão | Uma única folha de estilo injetada no iframe (`__he_marks__`), removida na gravação junto com as demais marcas do editor. Nenhum atributo é escrito no documento, então nenhuma marca suja o arquivo nem aciona o autosave. Âncoras: `<a name>` vazio ganha selo ⚓, os demais contorno tracejado. Links ganham fundo e um sinal de interno/externo. Parágrafos ganham ¶ (fora de tabelas). Papéis do ato ganham faixa colorida na margem via `box-shadow`, que não ocupa espaço de layout. |
+| Formatação do ato | Cada papel (Epígrafe, Ementa, Artigo, Inciso…) é uma receita declarativa em `js/act-format.js` — a mesma marcação em linha dos atos publicados. Nenhum outro arquivo do projeto contém a literal `10.0pt`; trocar o padrão de publicação é editar um arquivo só. |
+| Reconhecimento do papel | Comparação normalizada, não textual: as duas grafias que convivem no corpus (`font-family: Arial,sans-serif` e `font-family:&quot;Arial&quot;,sans-serif`) contam como iguais; `mso-*` é ignorado e `0cm`/`.0001pt`/`0px` valem `0`. Contradição em `text-align` ou `text-indent` desqualifica — sem isso, os 2.328 parágrafos alinhados à direita dos anexos seriam lidos como dispositivos do ato. |
+| Varredura da estrutura | Rejeita subárvores `<table>`: os anexos guardam 6.640 dos 6.798 parágrafos do ato de exemplo, e entrar neles afogaria os 4 artigos. Nenhum parágrafo dentro de tabela é lido como dispositivo. |
+| Colar do Word | O HTML da área de transferência é lido **sincronamente** (o `clipboardData` morre ao fim do handler) e analisado com `DOMParser`, que é inerte por especificação. Todos os atributos são descartados exceto `href`/`name`; sobrevivem negrito, itálico, sobrescrito, subscrito e links `http(s)`/`mailto`/`#`. Caracteres invisíveis (largura zero, hífen suave, BOM) são removidos; aspas curvas, travessões e o espaço não separável são mantidos, porque são a convenção. |
+| Conferência final | Somente leitura, exceto correções de item único e inequívocas (`http:`→`https:`, auto-absoluto→fragmento). Um botão "corrigir tudo" seria um normalizador do documento inteiro, que é justamente o que a garantia de bytes proíbe. |
+| Novo ato a partir do portal | Depois de esvaziar, o `sourceHtml` é refeito e o vínculo com o arquivo é solto. Sem isso, todo salvamento seguinte pediria ao encaixe que alinhasse um corpo esvaziado contra o original de 3,4 MB, e reescreveria o arquivo inteiro. |
+| Estilos do documento | Lidos do CSSOM (`document.styleSheets`), inclusive dentro de `@media`. Folhas do editor e folhas cross-origin são ignoradas. A classe é extraída do último composto do seletor, então `div.Section1 span.texto8` conta como estilo de `span`. |
 | Novo documento em branco | Sempre UTF-8; não herda a codificação do arquivo anterior. |
 | Detecção de codificação | Precedência: BOM → `<meta charset>` → análise dos bytes com `TextDecoder` estrito. Sem declaração e sem UTF-8 válido, assume Windows-1252. |
 | Gravação | Sempre `Uint8Array`. Gravar uma string pela File System Access API produz UTF-8 por especificação — é a origem do bug que o projeto corrige. |
@@ -299,7 +380,7 @@ flowchart TD
 | Aspas curvas, travessões, reticências | **Não** são transliterados: existem nativamente no Windows-1252 e são gravados com o mesmo byte de origem. |
 | Conversão pelo selo | Move os bytes e a `<meta charset>` juntos, e marca o documento como alterado. |
 | Preservação do `<head>` | Se a serialização do documento não diverge do original, a fonte é devolvida literalmente. Divergindo, apenas o trecho alterado é encaixado no original. |
-| Modo Visual | Pode normalizar a formatação da marcação ao salvar, quando há edição. |
+| Modo Visual | Pode normalizar a formatação da marcação ao salvar, quando há edição. Formatar um parágrafo pela barra do ato reescreve só aquele parágrafo: medido no ato de 3,4 MB, 79 caracteres de 3.437.674. |
 | Modo Código | CodeMirror; o conteúdo é gravado exatamente como está no buffer. |
 | Desfazer/refazer | Snapshots do documento inteiro, limitados a 50 entradas ou ~8 MB. |
 | Autosave | `localStorage`, 2 s após a última alteração. Oferecido como "Restaurar última sessão" na tela inicial. |
@@ -310,20 +391,40 @@ flowchart TD
 | Idioma | pt-BR por padrão; alternável para inglês, preferência persistida. |
 | Privacidade | Nenhuma requisição de rede em tempo de execução. Nenhum arquivo sai da máquina. |
 
+### Vindo do Microsoft FrontPage
+
+Equivalências para quem está migrando:
+
+| No FrontPage | No CEJ-PAGE |
+| --- | --- |
+| Selecionar texto + `Delete` | Igual — apaga só o trecho selecionado |
+| Colar texto do Word | `Ctrl+Shift+V`, ou colar direto no texto: o editor limpa a marcação do Word e formata cada parágrafo |
+| Inserir → Âncora | Peças → **Ferramentas** → **Âncora**, ou o botão *Criar âncora* na aba **Este trecho** |
+| Inserir → Hiperlink | `Ctrl+K`, ou o botão **Link** na barra do ato |
+| Arquivo → Propriedades da página → Título | Peças → **Ferramentas** → **Título da página** |
+| Formatar → Estilo (lista de estilos) | **Barra do ato**: as fichas Epígrafe, Ementa, Artigo, Inciso… |
+| Formatar → Fonte / Parágrafo | Aba **Avançado** → **Estilo**, no painel da direita |
+| Exibir → Marcas de formatação | Botão de marcador na barra superior: âncoras, ¶, links, papéis |
+| Exibir → HTML | Botão **Código**, na barra superior à esquerda |
+| Tabela → Inserir linha/coluna | Botões que aparecem na barra flutuante ao selecionar uma célula |
+
 ### Atalhos de teclado
 
 | Atalho | Ação |
 | --- | --- |
-| `Ctrl+S` | Salvar no arquivo vinculado (ou exportar) |
+| `Ctrl+S` | Salvar no arquivo vinculado; sem vínculo, pergunta o nome e baixa |
 | `Ctrl+Shift+S` | Salvar como |
+| `Ctrl+K` | Transformar o texto selecionado em link |
+| `Ctrl+Shift+V` | Colar texto do Word, limpo e formatado |
+| `Ctrl+Alt+1`…`9` | Aplicar o papel do ato correspondente à ficha (Epígrafe, Ementa, Artigo…). `Ctrl+1..9` não serve: o navegador o reserva para trocar de aba |
 | `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Desfazer / refazer |
 | `Ctrl+D` | Duplicar seleção |
-| `Delete` / `Backspace` | Excluir seleção |
+| `Delete` / `Backspace` | Excluir o texto selecionado; sem seleção de texto, exclui o elemento. Funciona também com o cursor dentro da área de edição |
 | `Ctrl+↑` / `Ctrl+↓` | Mover seleção para cima / baixo |
 | `Esc` | Sair da pré-visualização, ou desselecionar |
 | `P` | Alternar pré-visualização |
 | Clique duplo | Editar texto no lugar |
-| `A` `B` `C` `R` | Na tela inicial: abrir, importar, começar em branco, restaurar |
+| `A` `B` `C` `N` `R` | Na tela inicial: abrir, importar, começar em branco, novo ato a partir de um ato existente, restaurar |
 
 ### Tecnologias e versões
 
@@ -357,8 +458,9 @@ css/editor.css          estilos, temas claro e escuro
 js/i18n.js              textos pt-BR / en (pt-BR é o padrão)
 js/encoding.js          detecção de codificação e gravação byte a byte
 js/state.js             estado global, desfazer/refazer, autosave, snippets
-js/blocks.js            biblioteca de 45 componentes
-js/canvas.js            iframe, seleção, arrastar e soltar
+js/blocks.js            biblioteca de 47 componentes + blocos-ação
+js/canvas.js            iframe, seleção, exclusão de texto, arrastar e soltar
+js/page-tools.js        âncoras e título da página
 js/tree.js              painel da árvore DOM e breadcrumbs
 js/properties.js        abas de estilo, atributos e HTML
 js/blocks-panel.js      barra lateral de blocos e snippets
@@ -435,15 +537,78 @@ file paying for it.
 
 ### Features
 
+#### For people drafting normative acts
+
+These speak the vocabulary of the act, not of CSS. Every piece of text the
+editor writes comes out **in the same markup the published acts already use**,
+byte for byte — a paragraph created here is indistinguishable from the ones
+Word produced in 2003.
+
+- **Act formatting bar** — a row of chips just below the top toolbar: Heading,
+  Summary, Preamble, Body, Article, Paragraph, Item, Sub-item, Quote from
+  another act, Date and place, Signatures, Gazette note, Annex title. Select a
+  passage and click — the editor applies the matching recipe and, for an
+  article, numbers it and creates the bookmark. Shortcut `Ctrl+Alt+1..9`.
+  The chip for whatever the caret is in lights up on its own, and a pill beside
+  it says what the passage is ("Art. 3º") and what it is missing ("no bookmark").
+- **Paste from Word** (`Ctrl+Shift+V`, or paste straight into the text) — text
+  arrives from Word carrying `mso-`, `<o:p>`, `class="Mso…"` and conditional
+  comments. The editor reduces it to clean paragraphs, recognises "Art. 5º",
+  "§ 2º", "III -", "c)" and formats each one. Bold, italics and links survive;
+  the rest is discarded. The report says exactly what happened.
+- **Link to another act** (`Ctrl+K`) — select the text, paste the address, and
+  the editor reads that address back in plain language: *"Decreto nº 12.846, de
+  2026 — art. 11, inciso II, alínea f"*. It also lists this page's provisions
+  and bookmarks to pick as a target, and remembers recent addresses.
+- **Check links** — flags links to bookmarks that do not exist, links to this
+  act by its full address (which break silently when a bookmark is renamed),
+  `http://`, and empty targets.
+- **Act structure** — the first tab in the left panel shows the document the way
+  a drafter reads it: Heading, Summary, Art. 1º, § 1º, Annex I. Clicking jumps
+  there. Articles without a bookmark are marked.
+- **This passage** — the default tab in the right panel, in plain language: what
+  the passage is, whether its formatting matches the pattern, the links it
+  contains, its bookmark, and large buttons for the actions. The technical tabs
+  (Attributes, Style, HTML) are still there, one tab over, under **Advanced**.
+- **Final check of the act** — articles with no bookmark, broken links, a
+  missing gazette note, a page title that is just the file name, Word leftovers,
+  characters outside the file's encoding. It is a report: it fixes only item by
+  item, and only where the fix is unambiguous.
+- **New act from an existing act** — paste the address of an act on the portal;
+  the editor opens it, offers to delete the body and the annexes, and keeps the
+  header, preamble and signatures as a model.
+- **Revision marks** — bookmarks, links, paragraph ends (¶) and a colour rail in
+  the margin showing each paragraph's role. All of it is CSS injected into the
+  editor: it does not shift the layout and **never** reaches the saved file.
+
+#### General editing
+
 - **Visual editing** — click to select, drag to reorder, double-click to edit
-  text in place.
+  text in place. Selecting text and pressing `Delete` (or the trash button)
+  removes just that text, the way FrontPage did.
+- **Bookmarks (anchors)** — FrontPage's "Bookmark": mark a spot so a link can
+  point straight at it (`page.html#bookmark`), with a manager that lists,
+  locates, renames and removes the page's bookmarks. Renaming rewrites the
+  in-page links that pointed at it.
+- **Page title** — sets `<head><title>` without dropping into source mode.
+- **Visual bookmark markers** — shows where the page's anchors are on the
+  canvas, including the invisible ones (empty `<a name>`). Drawn with `outline`,
+  so it never shifts the layout, and it lives in the editor only: it never
+  reaches the saved file. Toggled by the bookmark button in the toolbar.
+- **Document styles** — the **Attributes** tab lists the classes the file itself
+  already defines in its `<style>` (`span.Hiperlink`, `.font5`,
+  `table.MsoNormalTable`…), grouped by the tag they belong to. Pages exported
+  from Word/FrontPage carry dozens; applying one becomes picking from a list
+  instead of remembering its name.
 - **Live save to disk** — a persistent handle to the file via the File System
-  Access API; `Ctrl+S` writes straight back.
+  Access API; `Ctrl+S` writes straight back. In browsers without that API
+  (Firefox), **Save as** asks for the file name before downloading.
 - **Encoding preserved** — detection by BOM, `<meta charset>` or byte analysis;
   byte-exact writing in the same encoding, with a toolbar chip and on-demand
   UTF-8 ↔ ISO-8859-1 conversion.
 - **Source mode** — CodeMirror 6 with HTML highlighting, for fine control.
-- **45 pre-built blocks** across 9 categories, draggable into the document.
+- **47 pre-built blocks** across 10 categories, draggable into the document,
+  plus 2 action tiles (Bookmark and Page title) that open a dialog.
 - **DOM tree** panel with drag-to-reorder.
 - **Properties panel** — typography, layout, spacing, background, border,
   effects, classes, attributes and raw HTML.
@@ -458,7 +623,8 @@ file paying for it.
 
 ### Running on Windows (end user)
 
-1. Download `CEJ-PAGE.exe` from [Releases](https://github.com/waldeyr/cej-editor/releases).
+1. Download the latest `cej-page-vX.Y.exe` from [Releases](https://github.com/waldeyr/cej-editor/releases)
+   — the name carries the version, so you know which build you are running.
 2. **Double-click** it.
 3. The editor opens in your browser. **To stop it, close the black window.**
 
@@ -551,7 +717,8 @@ graph TB
         direction LR
         TREE["tree.js<br/>DOM tree"]
         PROPS["properties.js<br/>style, attrs, HTML"]
-        PANEL["blocks-panel.js<br/>+ blocks.js (45 blocks)"]
+        PANEL["blocks-panel.js<br/>+ blocks.js (47 blocks)"]
+        PGTOOLS["page-tools.js<br/>bookmarks, page title"]
     end
 
     subgraph io["Input and output"]
@@ -579,6 +746,8 @@ graph TB
     CANVAS --> IFRAME
     ASSETS --> IFRAME
     ui --> CANVAS
+    PGTOOLS --> IFRAME
+    PGTOOLS --> STATE
 
     STATE --> FILE
     FILE --> ENC
@@ -608,7 +777,7 @@ sequenceDiagram
     participant C as canvas.js
     participant D as Disk
 
-    U->>F: Open local file
+    U->>F: Open and edit
     F->>D: showOpenFilePicker()
     D-->>F: FileSystemFileHandle
     F->>E: decode(file)
@@ -674,10 +843,17 @@ flowchart TD
 
 | Feature | Rule |
 | --- | --- |
-| Open local file | Persistent handle via the File System Access API. Requires Chrome, Edge or another Chromium browser in a secure context. |
-| Import HTML | Read-only fallback for Safari and Firefox; saving becomes a download. |
+| Open and edit | Persistent handle to the file via the File System Access API: `Ctrl+S` writes over it, and the reload/compare buttons are available. Requires Chrome, Edge or another Chromium browser in a secure context; elsewhere it falls back to *Open a copy* on its own. |
+| Open a copy | Opens the content with **no link** to the file: `Ctrl+S` asks where to write, and reload/compare stay disabled. This is the Safari and Firefox path, and the one URL import uses. |
+| Dropping a file on the window | Equivalent to *Open and edit*: Chrome resolves the dragged item to a real handle (`DataTransferItem.getAsFileSystemHandle()`), so the disk link is kept. Where that API is missing, it opens as a copy. |
 | Save (`Ctrl+S`) | Writes in the document's encoding. Compares the on-disk mtime first; if another process changed the file, asks for confirmation. |
-| Save as | **Keeps** the document's encoding — a copy of a Latin-1 file is Latin-1 too. |
+| Save as | **Keeps** the document's encoding — a copy of a Latin-1 file is Latin-1 too. Always asks where/how to save: the native window on Chrome/Edge; elsewhere (Firefox), a dialog asking for the name, followed by the download. Cancelling downloads nothing. |
+| Save as on Firefox | Firefox does not let a page open the system "Save in" window. To pick the folder on every save, turn on *Menu ≡ → Settings → General → Downloads → "Always ask you where to save files"* once. The editor shows this hint a single time. |
+| Bookmark (anchor) | With text selected, wraps the span in `<a name="x">` — `name` only, the way published acts do it (none of the 1,219 bookmarks in the consolidated Lei 8.112 carries an `id`). With an element selected, inserts the marker as its first child. A selection crossing more than one block inserts an empty marker instead, so block elements never end up inside a link. The name is normalized (accents stripped, spaces to `-`, must start with a letter) and made unique. |
+| Removing a bookmark | Never destroys content: an `<a name>` marker with no `href` is unwrapped, keeping its text; otherwise only the attribute is dropped. |
+| Page title | Written to `<head><title>` via `textContent`, so `&` and `<` are escaped. Creates `<title>` (and `<head>`) when missing. |
+| Bookmark marker | A stylesheet injected into the iframe (`__he_anchor_styles__`), stripped on write along with the other editor traces. No attribute is ever written to the document, so the marker neither dirties the file nor triggers autosave. An empty `<a name>` gets a ⚓ badge; everything else gets a dashed outline. |
+| Document styles | Read from the CSSOM (`document.styleSheets`), including inside `@media`. Editor sheets and cross-origin sheets are skipped. The class comes from the selector's last compound, so `div.Section1 span.texto8` counts as a `span` style. |
 | New blank document | Always UTF-8; never inherits the previous file's encoding. |
 | Encoding detection | Precedence: BOM → `<meta charset>` → byte analysis with a strict `TextDecoder`. Undeclared and not valid UTF-8 means Windows-1252. |
 | Writing | Always a `Uint8Array`. Writing a string through the File System Access API produces UTF-8 by spec — the exact bug this project fixes. |
@@ -696,20 +872,40 @@ flowchart TD
 | Language | pt-BR by default; switchable to English, preference persisted. |
 | Privacy | No network requests at runtime. No file leaves the machine. |
 
+### Coming from Microsoft FrontPage
+
+Equivalents for people migrating:
+
+| In FrontPage | In CEJ-PAGE |
+| --- | --- |
+| Select text + `Delete` | Same — removes just the selected span |
+| Paste text from Word | `Ctrl+Shift+V`, or paste straight into the text: the editor strips Word's markup and formats each paragraph |
+| Insert → Bookmark | Pieces → **Tools** → **Bookmark**, or the *Create a bookmark* button in the **This passage** tab |
+| Insert → Hyperlink | `Ctrl+K`, or the **Link** button in the act bar |
+| File → Page properties → Title | Pieces → **Tools** → **Page title** |
+| Format → Style (style list) | The **act bar**: the Heading, Summary, Article, Item… chips |
+| Format → Font / Paragraph | The **Advanced** tab → **Style**, in the right panel |
+| View → Formatting marks | The bookmark button in the top toolbar: bookmarks, ¶, links, roles |
+| View → HTML | The **Source** button, top left |
+| Table → Insert row/column | Buttons that appear in the floating toolbar when a cell is selected |
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+S` | Save to the linked file (or export) |
+| `Ctrl+S` | Save to the linked file; with no link, asks for a name and downloads |
 | `Ctrl+Shift+S` | Save as |
+| `Ctrl+K` | Turn the selected text into a link |
+| `Ctrl+Shift+V` | Paste text from Word, cleaned and formatted |
+| `Ctrl+Alt+1`…`9` | Apply the act role of the matching chip (Heading, Summary, Article…). `Ctrl+1..9` is unavailable: browsers reserve it for switching tabs |
 | `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+D` | Duplicate selection |
-| `Delete` / `Backspace` | Delete selection |
+| `Delete` / `Backspace` | Delete the selected text; with no text selection, deletes the element. Works with the caret inside the canvas too |
 | `Ctrl+↑` / `Ctrl+↓` | Move selection up / down |
 | `Esc` | Exit preview, or deselect |
 | `P` | Toggle preview |
 | Double-click | Edit text in place |
-| `A` `B` `C` `R` | On the empty screen: open, import, start blank, restore |
+| `A` `B` `C` `N` `R` | On the empty screen: open, import, start blank, new act from an existing act, restore |
 
 ### Technologies and versions
 
@@ -743,8 +939,9 @@ css/editor.css          styles, light and dark themes
 js/i18n.js              pt-BR / en strings (pt-BR is the default)
 js/encoding.js          charset detection and byte-exact writing
 js/state.js             global state, undo/redo, autosave, snippets
-js/blocks.js            library of 45 components
-js/canvas.js            iframe, selection, drag and drop
+js/blocks.js            library of 47 components + action tiles
+js/canvas.js            iframe, selection, text deletion, drag and drop
+js/page-tools.js        bookmarks (anchors) and page title
 js/tree.js              DOM tree panel and breadcrumbs
 js/properties.js        style, attribute and HTML tabs
 js/blocks-panel.js      blocks and snippets sidebar

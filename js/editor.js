@@ -25,6 +25,9 @@
     window.BlocksPanel.init();
     window.FileOps.init();
     window.Keyboard.init();
+    window.ActBar.init();
+    window.OutlinePanel.init();
+    window.PiecePanel.init();
 
     wireEmptyState();
     wireToolbar();
@@ -75,6 +78,9 @@
       window.FileOps.newBlank();
       showEditor();
     });
+    document.getElementById('empty-from-act').addEventListener('click', () => {
+      window.ActTemplate.start();
+    });
     // After any file load — visual (doc-changed) or source (mode-changed) — flip to editor
     ES.on((evt) => {
       if (evt === 'doc-changed' && ES.state.doc) showEditor();
@@ -94,6 +100,7 @@
         a: 'empty-open-local',
         b: 'empty-import',
         c: 'empty-new',
+        n: 'empty-from-act',
         r: 'empty-restore',
       };
       const id = map[e.key.toLowerCase()];
@@ -123,6 +130,8 @@
       if (s && s.parentElement && s.parentElement !== ES.state.doc.documentElement) ES.select(s.parentElement);
     });
 
+    wireMarksMenu();
+
     document.querySelectorAll('.device-btn').forEach(b => {
       b.addEventListener('click', () => {
         document.querySelectorAll('.device-btn').forEach(x => x.classList.remove('active'));
@@ -145,10 +154,8 @@
     document.getElementById('tb-external-preview').addEventListener('click', () => {
       const doc = ES.state.doc;
       if (!doc) return;
-      const html = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML
-        .replace(/<style id="__he_styles__">[\s\S]*?<\/style>/g, '')
-        .replace(/\s+contenteditable="[^"]*"/g, '')
-        .replace(/\s+data-he-editing="[^"]*"/g, '');
+      const html = '<!DOCTYPE html>\n' +
+        window.EditorTraces.strip(doc.documentElement.outerHTML);
       const blob = new Blob([html], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
@@ -171,16 +178,87 @@
     document.getElementById('tb-theme').addEventListener('click', () => ES.toggleTheme());
   }
 
+  // Revision marks. The bookmark button keeps its place and its meaning; it
+  // now opens a small menu so the other marks are reachable too. Nothing that
+  // was visible before was taken away — every mark is additive and CSS-only.
+  function wireMarksMenu() {
+    const btn = document.getElementById('tb-anchors');
+    if (!btn) return;
+    let menu = null;
+
+    const sync = () => {
+      const m = window.Canvas.getMarks();
+      btn.classList.toggle('active', m.anchors || m.paragrafos || m.papeis || m.links);
+    };
+    sync();
+
+    const ITEMS = [
+      ['anchors', 'ui.marks.anchors', 'Âncoras', '#f59e0b'],
+      ['links', 'ui.marks.links', 'Links', '#3b82f6'],
+      ['paragrafos', 'ui.marks.paragraphs', 'Fim de parágrafo (¶)', '#3b82f6'],
+      ['papeis', 'ui.marks.roles', 'Papéis do ato (faixa colorida)', '#800000'],
+    ];
+
+    function close() {
+      if (menu) { menu.remove(); menu = null; }
+      document.removeEventListener('mousedown', onOutside, true);
+    }
+    function onOutside(e) {
+      if (menu && !menu.contains(e.target) && e.target !== btn) close();
+    }
+
+    btn.addEventListener('click', () => {
+      if (menu) { close(); return; }
+      const m = window.Canvas.getMarks();
+      menu = document.createElement('div');
+      menu.className = 'marks-menu';
+      ITEMS.forEach(([key, i18nKey, fallback, colour]) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'marks-item';
+        row.innerHTML = '<input type="checkbox" tabindex="-1"><span class="marks-swatch"></span><span></span>';
+        row.querySelector('input').checked = !!m[key];
+        row.querySelector('.marks-swatch').style.background = colour;
+        row.querySelector('span:last-child').textContent = I18N ? I18N.t(i18nKey, null, fallback) : fallback;
+        row.addEventListener('click', () => {
+          const on = !window.Canvas.getMarks()[key];
+          window.Canvas.setMark(key, on);
+          row.querySelector('input').checked = on;
+          sync();
+        });
+        menu.appendChild(row);
+      });
+      const note = document.createElement('div');
+      note.className = 'marks-note';
+      note.textContent = I18N
+        ? I18N.t('ui.marks.note', null, 'As marcas aparecem só no editor. Nunca são gravadas no arquivo.')
+        : 'As marcas aparecem só no editor. Nunca são gravadas no arquivo.';
+      menu.appendChild(note);
+
+      document.body.appendChild(menu);
+      const r = btn.getBoundingClientRect();
+      menu.style.top = (r.bottom + 6) + 'px';
+      menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+      setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+    });
+  }
+
   function wireTabs() {
     document.querySelectorAll('.sidebar-tabs').forEach(group => {
       group.addEventListener('click', (e) => {
         const tab = e.target.closest('.tab');
         if (!tab) return;
-        const sidebar = group.closest('.sidebar');
-        sidebar.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        sidebar.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        e.stopPropagation();
+        // Scope to THIS tab strip and its sibling panels, not to the whole
+        // sidebar: the right sidebar now nests a strip (Atributos/Estilo/HTML)
+        // inside one of its own panels, and searching the sidebar would make
+        // the two strips clear each other's state.
+        const container = group.parentElement;
+        group.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        container.querySelectorAll(':scope > .tab-panel').forEach(p => p.classList.remove('active'));
         tab.classList.add('active');
-        sidebar.querySelector(`.tab-panel[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+        const panel = container.querySelector(`:scope > .tab-panel[data-panel="${tab.dataset.tab}"]`);
+        if (panel) panel.classList.add('active');
       });
     });
   }

@@ -26,15 +26,37 @@ window.FileOps = (function() {
       warn.hidden = false;
     }
 
-    // Drop on page (empty state)
-    const drop = (e) => {
+    // Drop on page (empty state).
+    //
+    // Dragging a file used to cost the disk link in silence: dataTransfer.files
+    // yields a plain File, so the document opened as a detached copy and the
+    // first Ctrl+S asked where to save a file the user had just dragged in from
+    // disk. Chrome exposes getAsFileSystemHandle() on the drag item, which
+    // gives the same handle the file picker would — so a dropped file now
+    // behaves exactly like "Abrir e editar".
+    const drop = async (e) => {
       e.preventDefault();
       e.stopPropagation();
       document.body.classList.remove('drag-over');
+
+      const item = e.dataTransfer.items && e.dataTransfer.items[0];
       const file = e.dataTransfer.files && e.dataTransfer.files[0];
-      if (file && (file.name.endsWith('.html') || file.name.endsWith('.htm') || file.type === 'text/html')) {
-        importFile(file);
+      if (!file || !isHtmlFile(file)) return;
+
+      if (item && typeof item.getAsFileSystemHandle === 'function') {
+        try {
+          const handle = await item.getAsFileSystemHandle();
+          // A dropped *folder* also resolves here; only a file can be opened.
+          if (handle && handle.kind === 'file') {
+            await openFromHandle(handle);
+            return;
+          }
+        } catch (_) {
+          // Permission denied or an unsupported source — fall through to the
+          // copy path rather than leaving the drop doing nothing.
+        }
       }
+      importFile(file);
     };
     document.addEventListener('dragover', (e) => {
       if (e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
@@ -46,6 +68,10 @@ window.FileOps = (function() {
       if (e.clientX === 0 && e.clientY === 0) document.body.classList.remove('drag-over');
     });
     document.addEventListener('drop', drop);
+
+    function isHtmlFile(f) {
+      return f.name.endsWith('.html') || f.name.endsWith('.htm') || f.type === 'text/html';
+    }
 
     // File input fallback
     const fileInput = document.getElementById('file-input');
@@ -75,29 +101,37 @@ window.FileOps = (function() {
       // accept-maps can grey out matching files until the picker is
       // dismissed and reopened. Simpler to let the user pick any file.
       const [handle] = await window.showOpenFilePicker({ multiple: false });
-      const file = await handle.getFile();
-      const info = await window.Encoding.decode(file);
-      const text = info.text;
-      if (window.AssetResolver) {
-        window.AssetResolver.revokeAllObjectUrls();
-        window.AssetResolver.setCurrentFileName(file.name);
-      }
-      ES.setFile(handle, file.name);
-      ES.setEncoding(info);
-      warnIfEncodingSuspect(info);
-      ES.state.sourceHtml = text;
-      lastKnownMtime = file.lastModified;
-      clearExternalChange();
-      await window.ModeSwitch.loadIntoInitialMode(text);
-      ES.addRecent(file.name);
-      toast(I18N.t('ui.file.opened', { name: file.name }), 'success');
-      ES.setDirty(false);
+      await openFromHandle(handle);
     } catch (e) {
       if (e.name !== 'AbortError') {
         console.error(e);
         toast(I18N.t('ui.file.openError', { message: e.message }), 'error');
       }
     }
+  }
+
+  // Open a file we hold a real handle for — the live link that makes Ctrl+S
+  // write back to disk, and that the refresh / disk-diff / git-diff buttons
+  // depend on. Reached from the file picker and from a dropped file, so the
+  // two produce identical state.
+  async function openFromHandle(handle) {
+    const file = await handle.getFile();
+    const info = await window.Encoding.decode(file);
+    const text = info.text;
+    if (window.AssetResolver) {
+      window.AssetResolver.revokeAllObjectUrls();
+      window.AssetResolver.setCurrentFileName(file.name);
+    }
+    ES.setFile(handle, file.name);
+    ES.setEncoding(info);
+    warnIfEncodingSuspect(info);
+    ES.state.sourceHtml = text;
+    lastKnownMtime = file.lastModified;
+    clearExternalChange();
+    await window.ModeSwitch.loadIntoInitialMode(text);
+    ES.addRecent(file.name);
+    toast(I18N.t('ui.file.opened', { name: file.name }), 'success');
+    ES.setDirty(false);
   }
 
   function promptImport() {
@@ -540,6 +574,7 @@ window.FileOps = (function() {
         status.dataset.state = 'saved';
         status.textContent = I18N.t('ui.file.saved');
         toast(I18N.t('ui.file.saved'), 'success');
+        nudgeActCheck();
       } catch (e) {
         const status = document.getElementById('save-status');
         status.dataset.state = 'error';
@@ -554,11 +589,65 @@ window.FileOps = (function() {
     }
   }
 
+  // Turn whatever the user typed into something Windows will accept as a
+  // file name, always ending in .html/.htm.
+  function sanitizeFileName(raw) {
+    let n = stripControlChars(String(raw || ''))
+      .replace(/[\\/:*?"<>|]/g, '')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .slice(0, 120);
+    if (!n) n = 'untitled';
+    if (!/\.html?$/i.test(n)) n += '.html';
+    return n;
+  }
+
+  function stripControlChars(s) {
+    let out = '';
+    for (const ch of s) {
+      const code = ch.charCodeAt(0);
+      if (code < 32 || code === 127) continue;
+      out += ch;
+    }
+    return out;
+  }
+
+  // Shown once, the first time a browser without the File System Access API
+  // reaches "Save as". Firefox can't open a native destination picker at all —
+  // the closest thing is its own "always ask where to save" download setting.
+  async function maybeShowDownloadHint() {
+    if (supportsFSA) return;
+    try { if (localStorage.getItem('html-editor.hint.saveAsDownloads') === '1') return; }
+    catch (_) { return; }
+    const isFirefox = /firefox/i.test(navigator.userAgent);
+    const ok = await window.Dialog.confirm({
+      title: I18N.t('ui.file.saveAsHintTitle'),
+      message: I18N.t(isFirefox ? 'ui.file.saveAsHintFirefox' : 'ui.file.saveAsHintGeneric'),
+      confirmLabel: I18N.t('ui.file.saveAsHintDismiss'),
+      cancelLabel: I18N.t('ui.file.saveAsHintLater'),
+      icon: 'download',
+    });
+    if (ok) {
+      try { localStorage.setItem('html-editor.hint.saveAsDownloads', '1'); } catch (_) {}
+    }
+  }
+
   async function saveAs() {
     const html = currentHtml();
     if (!html) return;
     if (!supportsFSA || typeof window.showSaveFilePicker !== 'function') {
-      exportFile();
+      // No native picker (Firefox, or file://). Ask for the name ourselves
+      // instead of silently dumping a download — "Save as" must always ask.
+      await maybeShowDownloadHint();
+      const name = await window.Dialog.prompt({
+        title: I18N.t('ui.file.saveAsPromptTitle'),
+        message: I18N.t('ui.file.saveAsPromptMsg'),
+        placeholder: I18N.t('ui.file.saveAsPlaceholder'),
+        defaultValue: ES.state.fileName || 'untitled.html',
+        confirmLabel: I18N.t('ui.file.saveAsPromptConfirm'),
+        icon: 'save',
+      });
+      if (name === null) return; // cancelled — download nothing
+      exportFile({ name, adopt: true });
       return;
     }
 
@@ -598,22 +687,31 @@ window.FileOps = (function() {
     }
   }
 
-  function exportFile() {
+  // opts.name  — file name to download as (defaults to the current one)
+  // opts.adopt — treat the download as a "save as": adopt the new name and
+  //              add it to the recent list. Used by saveAs() when the browser
+  //              has no File System Access API.
+  function exportFile(opts = {}) {
     const html = currentHtml();
     if (!html) return;
+    const name = sanitizeFileName(opts.name || ES.state.fileName || 'untitled.html');
     const charset = window.Encoding.label(ES.state.encoding, ES.state.declaredCharset);
     const bytes = encodeForWrite(html);
     const blob = new Blob([bytes], { type: `text/html;charset=${charset}` });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = ES.state.fileName || 'untitled.html';
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
     ES.state.sourceHtml = html;
     ES.state.originalBytes = bytes.slice();
+    if (opts.adopt) {
+      ES.setFile(null, name);
+      ES.addRecent(name);
+    }
     ES.setDirty(false);
-    toast(I18N.t('ui.file.exported', { name: a.download }), 'success');
+    toast(I18N.t(opts.adopt ? 'ui.file.savedAs' : 'ui.file.exported', { name }), 'success');
   }
 
   // Tell the user when the document's declared charset didn't match its
@@ -743,14 +841,35 @@ window.FileOps = (function() {
     }
   }
 
+  // After a successful save, mention blocking findings — a missing bookmark on
+  // an article is discovered years later, by whoever cannot link to it.
+  // Deliberately NOT a gate: the save already happened, and refusing to write
+  // a file because a checklist is unhappy is not this editor's job.
+  function nudgeActCheck() {
+    if (!window.ActCheck) return;
+    setTimeout(() => {
+      let n = 0;
+      try { n = window.ActCheck.errorCount(); } catch (_) { return; }
+      if (!n) return;
+      const host = document.getElementById('toasts');
+      if (!host) return;
+      const el = document.createElement('div');
+      el.className = 'toast warn toast-action';
+      el.textContent = I18N.t('ui.check.saveNudge', { n });
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = I18N.t('ui.check.seeReport');
+      btn.addEventListener('click', () => { el.remove(); window.ActCheck.show(); });
+      el.appendChild(btn);
+      host.appendChild(el);
+      setTimeout(() => el.remove(), 9000);
+    }, 400);
+  }
+
   function stripEditorTraces(html) {
-    // Remove the injected editor styles and any contenteditable attrs/data flags
-    return html
-      .replace(/<style id="__he_styles__">[\s\S]*?<\/style>/g, '')
-      .replace(/\s+contenteditable="[^"]*"/g, '')
-      .replace(/\s+data-he-editing="[^"]*"/g, '')
-      .replace(/\s+data-he-preview-asset="[^"]*"/g, '')
-      .replace(/\s+data-he-original-(?:src|srcset|poster|href)="[^"]*"/g, '');
+    // Injected stylesheets, contenteditable and every data-he-* attribute.
+    // Owned by js/traces.js so a new marker can never be forgotten here.
+    return window.EditorTraces.strip(html);
   }
 
   async function newBlank() {
