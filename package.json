@@ -44,8 +44,18 @@
       "target": [
         "AppImage",
         "deb"
-      ]
-    }
+      ],
+      "category": "Office",
+      "maintainer": "Waldeyr Mendes Cordeiro da Silva <waldeyr@gmail.com>"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "waldeyr",
+        "repo": "cej-editor",
+        "releaseType": "release"
+      }
+    ]
   },
   "dependencies": {
     "lucide-react": "^0.344.0",
