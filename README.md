@@ -18,7 +18,7 @@ O CEJ-EDITOR é uma aplicação Web e Desktop (Electron) destinada ao suporte à
 
 ## Interface do Usuário
 
-![CEJ-EDITOR - Interface Principal](./docs/screenshot.png)
+![CEJ-EDITOR - Interface Principal](./public/screenshot.png)
 
 ## Tecnologias e Versões
 
