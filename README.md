@@ -22,17 +22,20 @@ O CEJ-EDITOR é uma aplicação Web e Desktop (Electron) destinada ao suporte à
 
 ## Tecnologias e Versões
 
+As versões abaixo são as declaradas no `package.json`. A integração contínua compila e testa o projeto com **Node.js 20**.
+
 | Tecnologia | Versão | Função |
 | :--- | :--- | :--- |
 | **Node.js** | `>= 18.0.0` | Ambiente de execução JavaScript/TypeScript |
-| **React** | `18.3.1` | Biblioteca para construção de interfaces gráficas |
-| **TypeScript** | `5.5.3` | Linguagem para tipagem estática de código |
-| **Vite** | `5.4.1` | Ferramenta de build e servidor de desenvolvimento |
-| **Electron** | `30.0.0` | Framework para execução em ambiente desktop |
-| **TailwindCSS** | `3.4.4` | Framework utilitário para estilização CSS |
-| **Lucide React** | `0.395.0` | Conjunto de ícones para interface |
-| **Vitest** | `1.6.0` | Framework para testes unitários |
-| **Esbuild** | `0.20.2` | Bundler para scripts da camada Electron |
+| **React** | `^18.2.0` | Biblioteca para construção de interfaces gráficas |
+| **TypeScript** | `^5.3.3` | Linguagem para tipagem estática de código |
+| **Vite** | `^5.1.4` | Ferramenta de build e servidor de desenvolvimento |
+| **Electron** | `^29.1.0` | Framework para execução em ambiente desktop |
+| **TailwindCSS** | `^4.0.0` | Framework utilitário para estilização CSS |
+| **Lucide React** | `^0.344.0` | Conjunto de ícones para interface |
+| **Mammoth** | `^1.12.1` | Conversão de DOCX para HTML na importação |
+| **Vitest** | `^1.3.1` | Framework para testes unitários |
+| **Esbuild** | `^0.20.1` | Bundler para scripts da camada Electron |
 
 ## Instalação e Execução
 
@@ -64,7 +67,7 @@ npm install
 npm run dev
 ```
 
-A aplicação estará acessível em `http://localhost:5173`.
+A aplicação estará acessível em `http://localhost:3000` (porta definida em `vite.config.ts`).
 
 ### Execução dos Testes Unitários
 

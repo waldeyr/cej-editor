@@ -19,6 +19,7 @@ import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './pa
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
 import { useHistory } from './hooks/useHistory';
+import { clearDraft, readDraft, writeDraft } from './utils/draft';
 import {
   AnchorPoint,
   LinkChoice,
@@ -62,7 +63,6 @@ declare global {
   }
 }
 
-const DRAFT_STORAGE_KEY = 'sagitario_editor_draft';
 const IMPORT_ENCODING = {
   encoding: 'windows-1252' as const,
   declaredEncoding: 'ISO-8859-1',
@@ -157,21 +157,17 @@ const INITIAL_DOC: LegislativeDocument = {
 };
 
 /**
- * Carrega o rascunho salvo do localStorage (evitando a perda de dados ao recarregar a página com Ctrl+R).
+ * Documento com que o editor abre, e se ele traz trabalho da sessão anterior.
+ *
+ * O rascunho recuperado evita a perda de dados ao recarregar a página com
+ * Ctrl+R. Distinguir o que veio dele do exemplo de partida importa depois: um
+ * rascunho é trabalho que nunca chegou a um arquivo, e o editor precisa saber
+ * disso para não descartá-lo calado quando pedirem um documento novo.
  */
-const getInitialDoc = (): LegislativeDocument => {
-  try {
-    const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && parsed.epigrafe && Array.isArray(parsed.blocks)) {
-        return { ...parsed, ...IMPORT_ENCODING };
-      }
-    }
-  } catch (e) {
-    console.warn('Erro ao carregar rascunho do localStorage:', e);
-  }
-  return INITIAL_DOC;
+const openingDocument = (): { doc: LegislativeDocument; restored: boolean } => {
+  const draft = readDraft();
+  if (draft) return { doc: { ...draft, ...IMPORT_ENCODING }, restored: true };
+  return { doc: INITIAL_DOC, restored: false };
 };
 
 /** Traduz a posição selecionada na tela para o endereço do campo correspondente. */
@@ -194,7 +190,9 @@ const targetsInPlay = (): string[] => {
 };
 
 export const App: React.FC = () => {
-  const { state: doc, setState: setDoc, resetState: resetDoc, undo, redo, canUndo, canRedo } = useHistory(getInitialDoc());
+  /* Lido uma única vez: daí em diante quem manda é o documento em memória. */
+  const [opening] = useState(openingDocument);
+  const { state: doc, setState: setDoc, resetState: resetDoc, undo, redo, canUndo, canRedo } = useHistory(opening.doc);
   const [selectedBlockId, setSelectedBlockId] = useState<string | undefined>(doc.blocks[0]?.id);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
@@ -209,8 +207,12 @@ export const App: React.FC = () => {
    * Última versão gravada ou aberta. A comparação é por identidade porque
    * useHistory devolve o mesmo objeto quando nada mudou de fato — é o que
    * permite perguntar sobre salvar apenas quando há trabalho a perder.
+   *
+   * Um rascunho recuperado começa sem versão limpa (`null`): ele é justamente
+   * o trabalho que a sessão anterior não gravou em lugar nenhum, e tratá-lo
+   * como já salvo faria o editor trocá-lo de documento sem perguntar nada.
    */
-  const [cleanDoc, setCleanDoc] = useState<LegislativeDocument>(doc);
+  const [cleanDoc, setCleanDoc] = useState<LegislativeDocument | null>(opening.restored ? null : opening.doc);
   const isDirty = doc !== cleanDoc;
 
   const docRef = useRef(doc);
@@ -273,14 +275,18 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // Persistência Automática em localStorage ao modificar o documento
+  /*
+   * Persistência automática em localStorage ao modificar o documento.
+   *
+   * O documento de abertura não é gravado: rascunho é trabalho em curso, e
+   * gravar o exemplo de partida intacto criaria, no acesso seguinte, um
+   * rascunho recuperado que ninguém escreveu — e com ele a pergunta sobre
+   * salvar um ato que continua exatamente como nasceu.
+   */
   useEffect(() => {
-    try {
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(doc));
-    } catch (e) {
-      console.warn('Erro ao salvar rascunho no localStorage:', e);
-    }
-  }, [doc]);
+    if (doc === opening.doc) return;
+    writeDraft(doc);
+  }, [doc, opening.doc]);
 
   // Validação em Tempo Real
   useEffect(() => {
@@ -543,7 +549,7 @@ export const App: React.FC = () => {
 
   // Executa a criação de um Novo Documento Limpo
   const executeNewDoc = () => {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    clearDraft();
     loadDocument({
       title: 'NOVO DECRETO',
       epigrafe: 'DECRETO Nº 0.000, DE 1 DE JANEIRO DE 2026',
