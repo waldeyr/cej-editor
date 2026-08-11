@@ -1,0 +1,1112 @@
+import React, { useCallback, useState } from 'react';
+import {
+  Trash2,
+  Copy,
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  CornerDownLeft,
+  Table as TableIcon,
+} from 'lucide-react';
+import {
+  LegislativeDocument,
+  LegislativeBlock,
+  ValidationIssue,
+  BlockType,
+  BlockAlign,
+} from '../types/legislative';
+import { sanitizeQuoteText } from '../parser/rtfParser';
+import { isAgrupador } from '../utils/rank';
+import { Editable } from './Editable';
+import { CanvasContextMenu, CanvasMenuState } from './CanvasContextMenu';
+import { LINK_INK, LINK_INK_HOVER } from '../utils/anchors';
+import {
+  EDITABLE_SELECTOR,
+  EDITABLE_TARGET_ATTR,
+  applyHtmlToTarget,
+  assinaturaTarget,
+  blockTarget,
+  defaultAlignForBlockType,
+  htmlToPlainText,
+  indentForAlign,
+  isEmptyHtml,
+  partTarget,
+  resolvedAlignForTarget,
+} from '../utils/docTargets';
+import {
+  cutContentAfterCaret,
+  deleteSegments,
+  getEditableSegments,
+  readSegments,
+  removeAnchorPoint,
+  removeLink,
+  replaceSegmentsWithText,
+} from '../utils/richText';
+
+interface EditorCanvasProps {
+  doc: LegislativeDocument;
+  onUpdateDoc: (doc: LegislativeDocument) => void;
+  selectedBlockId?: string;
+  onSelectBlock: (id: string) => void;
+  issues: ValidationIssue[];
+  /** Leva a folha até o dispositivo que responde por um nome de âncora. */
+  onNavigateAnchor: (name: string) => void;
+  onInsertAnchor: () => void;
+  onInsertLink: () => void;
+}
+
+const newBlockId = (prefix = 'block') =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+/** Dá o foco a um campo recém-criado, já com o cursor no início. */
+const focusTarget = (target: string) => {
+  requestAnimationFrame(() => {
+    const element = document.querySelector<HTMLElement>(
+      `[${EDITABLE_TARGET_ATTR}="${CSS.escape(target)}"]`
+    );
+    if (!element) return;
+
+    element.focus();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+};
+
+export const EditorCanvas: React.FC<EditorCanvasProps> = ({
+  doc,
+  onUpdateDoc,
+  selectedBlockId,
+  onSelectBlock,
+  onNavigateAnchor,
+  onInsertAnchor,
+  onInsertLink,
+}) => {
+  const [menu, setMenu] = useState<CanvasMenuState | null>(null);
+
+  // As oito operações de tabela dividem uma única superfície neutra. Antes cada
+  // uma tinha sua própria matiz (azul, ardósia, roxo, celeste, esmeralda,
+  // âmbar) sem que a cor distinguisse nada: o rótulo já diz o que o botão faz.
+  const tableActionButtonBaseClass =
+    'h-7 px-2 rounded border border-black/10 bg-black/[0.04] hover:bg-black/10 text-tinta text-[11px] font-medium transition inline-flex items-center justify-center whitespace-nowrap';
+
+  const normalizeNumberedContentHtml = (html: string, hasNumberLabel: boolean) => {
+    if (!hasNumberLabel) return html;
+    return html.replace(/^((?:<[^>]+>\s*)*)(?:&nbsp;|&#160;|\s)+/i, '$1');
+  };
+
+  const normalizeNumberLabel = (label?: string) => {
+    if (!label) return '';
+    return label
+      .replace(/(?: |&nbsp;|&#160;|\s)+/gi, ' ')
+      .trim();
+  };
+
+  const handleCanvasBlockClick = (id: string) => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.toString()) return;
+    onSelectBlock(id);
+  };
+
+  /** Remissão sob o ponto clicado, se houver alguma. */
+  const linkAt = (event: React.MouseEvent): HTMLAnchorElement | null => {
+    const node = event.target as HTMLElement | null;
+    return node?.closest?.<HTMLAnchorElement>('a[href]') || null;
+  };
+
+  /** Ponto de ancoragem sob o ponto clicado, se houver algum. */
+  const anchorPointAt = (event: React.MouseEvent): HTMLAnchorElement | null => {
+    const node = event.target as HTMLElement | null;
+    return node?.closest?.<HTMLAnchorElement>('a[name]') || null;
+  };
+
+  /** Nome da âncora apontada por uma remissão interna (`href="#..."`). */
+  const anchorNameOf = (link: HTMLAnchorElement): string | undefined => {
+    const href = link.getAttribute('href') || '';
+    if (!href.startsWith('#') || href.length < 2) return undefined;
+    return decodeURIComponent(href.slice(1));
+  };
+
+  /*
+   * Seguir uma remissão dentro de um campo editável.
+   *
+   * O navegador não navega por um link em `contentEditable` — ele apenas põe o
+   * cursor dentro dele. Segurar o `mousedown` é o que impede o cursor de cair no
+   * meio do texto do link um instante antes de a folha rolar para longe; o
+   * `click` seguinte é quem de fato leva ao destino. Com Alt o caminho normal
+   * volta, e é assim que se edita o texto de uma remissão já criada.
+   */
+  const handlePaperMouseDown = (event: React.MouseEvent) => {
+    if (event.button !== 0 || event.altKey) return;
+    const link = linkAt(event);
+    if (link && anchorNameOf(link)) event.preventDefault();
+  };
+
+  const handlePaperClick = (event: React.MouseEvent) => {
+    if (event.altKey) return;
+    const link = linkAt(event);
+    const name = link && anchorNameOf(link);
+    if (!name) return;
+
+    event.preventDefault();
+    onNavigateAnchor(name);
+  };
+
+  const handlePaperContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    const link = linkAt(event);
+    const point = anchorPointAt(event);
+
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      hasSelection: getEditableSegments().length > 0,
+      link: link ? { element: link, anchorName: anchorNameOf(link) } : undefined,
+      anchorPoint: point ? { element: point, name: point.getAttribute('name') || '' } : undefined,
+    });
+  };
+
+  /**
+   * Desfaz remissão ou ponto de ancoragem e devolve ao documento o campo em que
+   * estava. As duas passam pelo mesmo caminho porque o efeito é o mesmo — muda
+   * só o que se retira do `<a>`.
+   */
+  const editAnchorElement = (element: HTMLElement, edit: (target: HTMLElement) => void) => {
+    const field = element.closest<HTMLElement>(EDITABLE_SELECTOR);
+    const target = field?.getAttribute(EDITABLE_TARGET_ATTR);
+    if (!field || !target) return;
+
+    edit(element);
+    commitTarget(target, field.innerHTML);
+  };
+
+  /** Devolve ao documento o HTML de um campo editável qualquer. */
+  const commitTarget = useCallback(
+    (target: string, html: string) => {
+      onUpdateDoc(applyHtmlToTarget(doc, target, html));
+    },
+    [doc, onUpdateDoc]
+  );
+
+  const handleUpdateBlockContent = (id: string, newContent: string) => {
+    const updatedBlocks = doc.blocks.map((b) => {
+      if (b.id === id) {
+        const sanitized = b.type === 'ALTERACAO' ? sanitizeQuoteText(newContent) : newContent;
+        const normalized = b.numberLabel
+          ? sanitized.replace(/^((?:<[^>]+>\s*)*)(?:&nbsp;|&#160;|\s)+/i, '$1')
+          : sanitized;
+        return {
+          ...b,
+          content: normalized,
+          rawText: htmlToPlainText(normalized),
+        };
+      }
+      return b;
+    });
+    onUpdateDoc({ ...doc, blocks: updatedBlocks });
+  };
+
+  const handleMoveBlock = (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newBlocks = [...doc.blocks];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= newBlocks.length) return;
+
+    const temp = newBlocks[index];
+    newBlocks[index] = newBlocks[targetIndex];
+    newBlocks[targetIndex] = temp;
+
+    onUpdateDoc({ ...doc, blocks: newBlocks });
+  };
+
+  const handleDuplicateBlock = (block: LegislativeBlock, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const index = doc.blocks.findIndex((b) => b.id === block.id);
+    const newBlock: LegislativeBlock = {
+      ...block,
+      id: newBlockId(),
+      content: block.content,
+      rawText: block.rawText,
+    };
+
+    const newBlocks = [...doc.blocks];
+    if (index >= 0) {
+      newBlocks.splice(index + 1, 0, newBlock);
+    } else {
+      newBlocks.push(newBlock);
+    }
+    onUpdateDoc({ ...doc, blocks: newBlocks });
+  };
+
+  const handleDeleteBlock = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newBlocks = doc.blocks.filter((b) => b.id !== id);
+    onUpdateDoc({ ...doc, blocks: newBlocks });
+  };
+
+  const handleAddBlockBelow = (index: number, type: BlockType, e: React.MouseEvent) => {
+    e.stopPropagation();
+    let numberLabel = '';
+    if (type === 'ARTIGO') {
+      const artCount = doc.blocks.filter((b) => b.type === 'ARTIGO').length + 1;
+      numberLabel = `Art. ${artCount}º`;
+    } else if (type === 'PARAGRAFO') {
+      numberLabel = '§ 1º';
+    } else if (type === 'INCISO') {
+      numberLabel = 'I -';
+    } else if (type === 'ALINEA') {
+      numberLabel = 'a)';
+    }
+
+    const isFreeText = type === 'TEXTO_LIVRE';
+    const newBlock: LegislativeBlock = {
+      id: newBlockId(),
+      type,
+      numberLabel,
+      content: isFreeText ? '' : 'Novo texto do dispositivo...',
+      rawText: isFreeText ? '' : 'Novo texto do dispositivo...',
+    };
+
+    const newBlocks = [...doc.blocks];
+    newBlocks.splice(index + 1, 0, newBlock);
+    onUpdateDoc({ ...doc, blocks: newBlocks });
+    onSelectBlock(newBlock.id);
+    focusTarget(blockTarget(newBlock.id));
+  };
+
+  /**
+   * Enter reparte o dispositivo no cursor e abre uma linha nova sem formatação
+   * nem numeração — a forma direta de continuar escrevendo sem antes escolher
+   * na barra que tipo de dispositivo virá a seguir. Shift+Enter segue quebrando
+   * a linha dentro do mesmo dispositivo.
+   */
+  const handleBlockEnter = (index: number, event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+
+    // Com um trecho longo selecionado, Enter apaga a seleção inteira antes de
+    // qualquer outra coisa — do contrário só o campo com o foco seria afetado.
+    const spanning = getEditableSegments();
+    if (spanning.length > 1) {
+      deleteSegments(spanning);
+      onUpdateDoc(applySegmentEdits(spanning));
+      return;
+    }
+
+    const element = event.currentTarget;
+    const tail = cutContentAfterCaret(element);
+    const head = element.innerHTML;
+
+    const newBlock: LegislativeBlock = {
+      id: newBlockId(),
+      type: 'TEXTO_LIVRE',
+      content: tail,
+      rawText: htmlToPlainText(tail),
+    };
+
+    const blocks = [...doc.blocks];
+    blocks[index] = { ...blocks[index], content: head, rawText: htmlToPlainText(head) };
+    blocks.splice(index + 1, 0, newBlock);
+
+    onUpdateDoc({ ...doc, blocks });
+    onSelectBlock(newBlock.id);
+    focusTarget(blockTarget(newBlock.id));
+  };
+
+  /** Nas partes fixas do ato não há quebra de parágrafo: elas são um parágrafo só. */
+  const handlePartEnter = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) event.preventDefault();
+  };
+
+  /** Enter na ordem de execução abre o primeiro dispositivo do corpo do ato. */
+  const handleOrdemExecucaoEnter = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+
+    const newBlock: LegislativeBlock = {
+      id: newBlockId(),
+      type: 'TEXTO_LIVRE',
+      content: '',
+      rawText: '',
+    };
+    onUpdateDoc({ ...doc, blocks: [newBlock, ...doc.blocks] });
+    onSelectBlock(newBlock.id);
+    focusTarget(blockTarget(newBlock.id));
+  };
+
+  /**
+   * Recolhe o resultado de uma edição feita direto no DOM e o devolve ao
+   * documento. Dispositivos que ficaram inteiramente vazios saem da lista —
+   * apagar um trecho longo deve apagar também os dispositivos que ele consumiu
+   * por inteiro, não deixar cascas vazias no corpo do ato.
+   */
+  const applySegmentEdits = (segments: ReturnType<typeof getEditableSegments>) => {
+    const touched = readSegments(segments);
+    let next = doc;
+    touched.forEach(({ target, html }) => {
+      next = applyHtmlToTarget(next, target, html);
+    });
+
+    const emptiedIds = new Set(
+      touched
+        .filter(({ target, html }) => target.startsWith('block:') && isEmptyHtml(html))
+        .map(({ target }) => target.slice('block:'.length))
+    );
+
+    if (emptiedIds.size > 0) {
+      next = { ...next, blocks: next.blocks.filter((block) => !emptiedIds.has(block.id)) };
+    }
+
+    return next;
+  };
+
+  /**
+   * Apagar ou substituir uma seleção que atravessa dispositivos.
+   *
+   * O navegador só edita dentro do campo com o foco, de modo que Delete sobre
+   * um trecho longo deixava o resto intacto. Aqui a seleção é recortada por
+   * campo e cada trecho é tratado, com o resultado voltando ao documento de
+   * uma vez só — inclusive quando o usuário simplesmente digita por cima.
+   */
+  const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const isDeletion = event.key === 'Delete' || event.key === 'Backspace';
+    const isTypedCharacter =
+      event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (!isDeletion && !isTypedCharacter) return;
+
+    const segments = getEditableSegments();
+    if (segments.length < 2) return;
+
+    event.preventDefault();
+
+    if (isDeletion) {
+      deleteSegments(segments);
+    } else {
+      replaceSegmentsWithText(segments, event.key);
+    }
+
+    onUpdateDoc(applySegmentEdits(segments));
+  };
+
+  const modifyTableStructure = (
+    html: string,
+    action: 'addRow' | 'deleteRow' | 'addColumn' | 'deleteColumn' | 'addCellLeft' | 'addCellRight' | 'mergeCells' | 'splitCells'
+  ): string => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const table = doc.querySelector('table');
+      if (!table) return html;
+
+      const rows = Array.from(table.querySelectorAll('tr'));
+      if (rows.length === 0) return html;
+
+      // Identifica a célula focada ou selecionada pelo usuário
+      const selection = window.getSelection();
+      let targetCellElement: Element | null = null;
+
+      if (selection && selection.anchorNode) {
+        let node: Node | null = selection.anchorNode;
+        while (node && node !== document.body) {
+          if (node.nodeType === Node.ELEMENT_NODE && ((node as Element).tagName === 'TD' || (node as Element).tagName === 'TH')) {
+            targetCellElement = node as Element;
+            break;
+          }
+          node = node.parentNode;
+        }
+      }
+
+      if (action === 'splitCells') {
+        let splitTarget: Element | null = null;
+
+        if (targetCellElement) {
+          const textToFind = targetCellElement.textContent?.trim();
+          for (const row of rows) {
+            for (const cell of Array.from(row.querySelectorAll('td, th'))) {
+              if (textToFind && cell.textContent?.trim() === textToFind) {
+                splitTarget = cell;
+                break;
+              }
+            }
+            if (splitTarget) break;
+          }
+        }
+
+        if (!splitTarget) {
+          for (const row of rows) {
+            for (const cell of Array.from(row.querySelectorAll('td, th'))) {
+              const cs = parseInt(cell.getAttribute('colspan') || '1', 10);
+              const rs = parseInt(cell.getAttribute('rowspan') || '1', 10);
+              if (cs > 1 || rs > 1) {
+                splitTarget = cell;
+                break;
+              }
+            }
+            if (splitTarget) break;
+          }
+        }
+
+        if (splitTarget) {
+          const colspan = parseInt(splitTarget.getAttribute('colspan') || '1', 10);
+          splitTarget.removeAttribute('colspan');
+          splitTarget.removeAttribute('rowspan');
+          for (let i = 1; i < colspan; i++) {
+            const newTd = doc.createElement(splitTarget.tagName.toLowerCase());
+            newTd.setAttribute(
+              'style',
+              'border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; resize: horizontal; overflow: auto; min-width: 35px;'
+            );
+            newTd.innerHTML = '&nbsp;';
+            splitTarget.insertAdjacentElement('afterend', newTd);
+          }
+        }
+      } else if (action === 'mergeCells') {
+        let mergeTarget: Element | null = null;
+
+        if (targetCellElement) {
+          const textToFind = targetCellElement.textContent?.trim();
+          for (const row of rows) {
+            for (const cell of Array.from(row.querySelectorAll('td, th'))) {
+              if (textToFind && cell.textContent?.trim() === textToFind && cell.nextElementSibling) {
+                mergeTarget = cell;
+                break;
+              }
+            }
+            if (mergeTarget) break;
+          }
+        }
+
+        if (!mergeTarget) {
+          for (const row of rows) {
+            const cells = Array.from(row.querySelectorAll('td, th'));
+            if (cells.length > 1) {
+              mergeTarget = cells[0];
+              break;
+            }
+          }
+        }
+
+        if (mergeTarget && mergeTarget.nextElementSibling) {
+          const c1 = mergeTarget as HTMLElement;
+          const c2 = mergeTarget.nextElementSibling as HTMLElement;
+          const span1 = parseInt(c1.getAttribute('colspan') || '1', 10);
+          const span2 = parseInt(c2.getAttribute('colspan') || '1', 10);
+          c1.setAttribute('colspan', String(span1 + span2));
+          if (c2.textContent?.trim()) {
+            c1.innerHTML += (c1.textContent?.trim() ? ' ' : '') + c2.innerHTML;
+          }
+          c2.remove();
+        }
+      } else if (action === 'addCellLeft') {
+        rows.forEach((row) => {
+          const firstCell = row.firstElementChild;
+          const cellTag = firstCell?.tagName.toLowerCase() || 'td';
+          const newCell = doc.createElement(cellTag);
+          newCell.setAttribute(
+            'style',
+            'border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; resize: horizontal; overflow: auto; min-width: 35px;'
+          );
+          newCell.innerHTML = '&nbsp;';
+          if (firstCell) {
+            row.insertBefore(newCell, firstCell);
+          } else {
+            row.appendChild(newCell);
+          }
+        });
+      } else if (action === 'addCellRight') {
+        rows.forEach((row) => {
+          const lastCell = row.lastElementChild;
+          const cellTag = lastCell?.tagName.toLowerCase() || 'td';
+          const newCell = doc.createElement(cellTag);
+          newCell.setAttribute(
+            'style',
+            'border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; resize: horizontal; overflow: auto; min-width: 35px;'
+          );
+          newCell.innerHTML = '&nbsp;';
+          row.appendChild(newCell);
+        });
+      } else if (action === 'addRow') {
+        const lastRow = rows[rows.length - 1];
+        const colCount = Math.max(1, lastRow.children.length);
+        const newTr = doc.createElement('tr');
+        for (let i = 0; i < colCount; i++) {
+          const td = doc.createElement('td');
+          td.setAttribute(
+            'style',
+            'border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; resize: horizontal; overflow: auto; min-width: 35px;'
+          );
+          td.innerHTML = '&nbsp;';
+          newTr.appendChild(td);
+        }
+        table.querySelector('tbody')?.appendChild(newTr) || table.appendChild(newTr);
+      } else if (action === 'deleteRow') {
+        if (rows.length > 1) {
+          rows[rows.length - 1].remove();
+        }
+      } else if (action === 'addColumn') {
+        rows.forEach((row) => {
+          const cellTag = row.querySelector('th') ? 'th' : 'td';
+          const newCell = doc.createElement(cellTag);
+          newCell.setAttribute(
+            'style',
+            'border: 1px solid #000; padding: 6px; text-align: left; vertical-align: top; resize: horizontal; overflow: auto; min-width: 35px;'
+          );
+          newCell.innerHTML = '&nbsp;';
+          row.appendChild(newCell);
+        });
+      } else if (action === 'deleteColumn') {
+        rows.forEach((row) => {
+          if (row.children.length > 1) {
+            row.children[row.children.length - 1].remove();
+          }
+        });
+      }
+
+      return table.outerHTML;
+    } catch (e) {
+      console.error('Erro ao modificar estrutura da tabela:', e);
+      return html;
+    }
+  };
+
+  /*
+   * O padrão Planalto imprime a ordem de execução em negrito. Quando o usuário
+   * limpa a formatação, a marca abaixo registra a escolha para que nem a tela
+   * nem o serializador reponham o negrito por conta própria.
+   */
+  const ordemExecucaoHtml = /<[a-z][^>]*>/i.test(doc.ordemExecucao)
+    ? doc.ordemExecucao
+    : `<b>${doc.ordemExecucao}</b>`;
+
+  const handleDeletePart = (patch: Partial<LegislativeDocument>) => {
+    onUpdateDoc({ ...doc, ...patch });
+  };
+
+  const handleDeleteAssinatura = (index: number) => {
+    const updated = doc.assinaturas.filter((_, i) => i !== index);
+    onUpdateDoc({ ...doc, assinaturas: updated });
+  };
+
+  /**
+   * Alinhamento de uma parte fixa e o recuo que combina com ele. Os padrões
+   * vêm de `utils/docTargets.ts`, os mesmos que o serializador grava no
+   * arquivo — é o que mantém a folha e o HTML salvo dizendo a mesma coisa.
+   */
+  const partLayout = (target: string): React.CSSProperties => {
+    const align = resolvedAlignForTarget(doc, target);
+    return { textAlign: align, textIndent: indentForAlign(align) };
+  };
+
+  /** Barra flutuante de exclusão das partes fixas. */
+  const partActions = (label: string, onDelete: () => void) => (
+    <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="p-1 text-legenda hover:text-falha"
+        title={`Excluir ${label}`}
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+
+  const selectionRingClass = (id: string) =>
+    selectedBlockId === id ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]';
+
+  /*
+   * A folha é centrada por `mx-auto` no próprio papel, e não por
+   * `justify-center` no canvas: numa janela estreita, o item centralizado por
+   * `justify-content` transborda para os dois lados e a metade esquerda fica
+   * fora do alcance da rolagem. Com a margem automática, o excesso continua
+   * acessível.
+   */
+  return (
+    <main
+      className="flex-1 h-full bg-tinta overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-selo/40 selection:text-black"
+      onKeyDown={handleCanvasKeyDown}
+    >
+      {/*
+        Folha do ato normativo. A geometria daqui — Arial 10pt, recuo de 38px na
+        primeira linha, justificação, margens de 15px — é a mesma que
+        parser/htmlSerializer.ts escreve no arquivo salvo, e não uma escolha de
+        estilo: divergir daqui é divergir do documento oficial.
+
+        Vale também para a tinta das remissões: ela vem de utils/anchors.ts, a
+        mesma que o serializador escreve na folha de estilo do arquivo salvo, de
+        modo que o link azul da tela e o do documento exportado são a mesma cor.
+
+        É também por isso que a folha tem largura mínima. Espremida abaixo dela,
+        a ementa de duas colunas e o cabeçalho do brasão — que são tabelas de
+        proporção fixa no arquivo salvo — colapsam em uma coluna ilegível, e o
+        que se vê deixa de ser o documento. Numa janela estreita, portanto, a
+        folha mantém a forma e o canvas rola; só as margens ao redor cedem.
+      */}
+      <div
+        onMouseDown={handlePaperMouseDown}
+        onClick={handlePaperClick}
+        onContextMenu={handlePaperContextMenu}
+        style={
+          {
+            '--cej-link': LINK_INK,
+            '--cej-link-hover': LINK_INK_HOVER,
+          } as React.CSSProperties
+        }
+        className="folha w-full min-w-[640px] max-w-4xl mx-auto bg-white shadow-xl min-h-full h-fit px-5 sm:px-8 lg:px-12 py-6 lg:py-10 mb-12 text-black [font-family:Arial,Helvetica,sans-serif] text-[10pt] leading-normal border border-black/10 rounded-sm select-text"
+      >
+        {/* Cabeçalho — no arquivo salvo, brasão e epígrafe ficam dentro de um blockquote. */}
+        <div className="mb-4 px-10 select-text">
+          <div className="w-full flex items-center justify-center">
+            <table className="w-[70%] border-0">
+              <tbody>
+                <tr>
+                  <td className="w-[14%] text-left align-top">
+                    <img
+                      src="https://www.planalto.gov.br/ccivil_03/LEIS/QUADRO/Brastra.gif"
+                      alt="Brasão da República"
+                      className="w-[74px] h-[82px] object-contain"
+                    />
+                  </td>
+                  <td className="w-[86%] text-center">
+                    <div className="text-[#808000] font-bold leading-snug">
+                      <div className="text-[14.4pt]">Presidência da República</div>
+                      <div className="text-[12pt]">Casa Civil</div>
+                      <div className="text-[10pt]">Secretaria Especial para Assuntos Jurídicos</div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Epígrafe */}
+          {!isEmptyHtml(doc.epigrafe) && (
+            <div
+              id="block-epigrafe"
+              onClick={() => handleCanvasBlockClick('epigrafe')}
+              className={`relative group w-full my-[13px] p-1 rounded cursor-text transition-all ${selectionRingClass(
+                'epigrafe'
+              )}`}
+              style={partLayout(partTarget('epigrafe'))}
+            >
+              {partActions('Epígrafe', () => handleDeletePart({ epigrafe: '' }))}
+              <Editable
+                target={partTarget('epigrafe')}
+                html={doc.epigrafe}
+                onCommit={(html) => commitTarget(partTarget('epigrafe'), html)}
+                onKeyDown={handlePartEnter}
+                ariaLabel="Epígrafe do ato"
+                placeholder="Epígrafe"
+                className="outline-none focus:bg-selo/10 rounded font-bold text-[8.3pt] text-[#000080] underline"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Ementa — tabela de duas colunas, tal como sai no arquivo salvo. */}
+        {!isEmptyHtml(doc.ementa) && (
+          <div id="block-ementa" onClick={() => handleCanvasBlockClick('ementa')} className="w-full flex gap-4">
+            <div className="w-1/2 shrink-0 text-[10pt]">
+              <span
+                className="text-[var(--cej-link)] underline"
+                title="Link de vigência gerado na exportação"
+              >
+                Vigência
+              </span>
+            </div>
+            <div
+              className={`relative group w-1/2 p-1 rounded cursor-text transition-all ${selectionRingClass('ementa')}`}
+            >
+              {partActions('Ementa', () => handleDeletePart({ ementa: '' }))}
+              <Editable
+                target={partTarget('ementa')}
+                html={doc.ementa}
+                onCommit={(html) => commitTarget(partTarget('ementa'), html)}
+                onKeyDown={handlePartEnter}
+                ariaLabel="Ementa do ato"
+                placeholder="Ementa"
+                className="outline-none focus:bg-selo/10 rounded text-[10pt] text-[#800000]"
+                style={partLayout(partTarget('ementa'))}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Preâmbulo */}
+        {!isEmptyHtml(doc.preambulo) && (
+          <div
+            id="block-preambulo"
+            onClick={() => handleCanvasBlockClick('preambulo')}
+            className={`relative group w-full my-[15px] p-1 rounded cursor-text transition-all ${selectionRingClass(
+              'preambulo'
+            )}`}
+          >
+            {partActions('Preâmbulo', () => handleDeletePart({ preambulo: '' }))}
+            <Editable
+              target={partTarget('preambulo')}
+              html={doc.preambulo}
+              onCommit={(html) => commitTarget(partTarget('preambulo'), html)}
+              onKeyDown={handlePartEnter}
+              ariaLabel="Preâmbulo do ato"
+              placeholder="Preâmbulo"
+              className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+              style={partLayout(partTarget('preambulo'))}
+            />
+          </div>
+        )}
+
+        {/* Ordem de execução (DECRETA:) */}
+        {!isEmptyHtml(doc.ordemExecucao) && (
+          <div
+            id="block-ordemExecucao"
+            onClick={() => handleCanvasBlockClick('ordemExecucao')}
+            className={`relative group w-full my-[15px] p-1 rounded cursor-text transition-all ${selectionRingClass(
+              'ordemExecucao'
+            )}`}
+          >
+            {partActions('Ordem de Execução (DECRETA:)', () => handleDeletePart({ ordemExecucao: '' }))}
+            <Editable
+              target={partTarget('ordemExecucao')}
+              html={ordemExecucaoHtml}
+              onCommit={(html) => commitTarget(partTarget('ordemExecucao'), html)}
+              onKeyDown={handleOrdemExecucaoEnter}
+              ariaLabel="Ordem de execução"
+              placeholder="DECRETA:"
+              className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+              style={partLayout(partTarget('ordemExecucao'))}
+            />
+          </div>
+        )}
+
+        {/* Corpo do ato */}
+        <div className="select-text">
+          {doc.blocks.map((block, index) => {
+            const isSelected = selectedBlockId === block.id;
+            const target = blockTarget(block.id);
+            const align = block.align || defaultAlignForBlockType(block.type);
+            const layout: React.CSSProperties = { textAlign: align, textIndent: indentForAlign(align) };
+
+            return (
+              <div
+                key={block.id}
+                id={`block-${block.id}`}
+                onClick={() => handleCanvasBlockClick(block.id)}
+                /*
+                 * A folga vertical é a margem de 15px que o arquivo salvo
+                 * aplica entre parágrafos: ela mora aqui, no invólucro, e não
+                 * no parágrafo, para que o realce de seleção também a cubra.
+                 */
+                className={`relative group rounded px-2 py-[7px] transition-all ${
+                  isSelected ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]'
+                }`}
+              >
+                {/* Barra Flutuante de Ações do Bloco */}
+                <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
+                  <button
+                    onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
+                    className="p-1 hover:bg-rule/60 text-texto rounded flex items-center gap-0.5"
+                    title="Inserir linha sem formatação abaixo (ou tecle Enter)"
+                  >
+                    <CornerDownLeft size={13} /> Novo conteúdo
+                  </button>
+                  <button
+                    onClick={(e) => handleAddBlockBelow(index, 'ARTIGO', e)}
+                    className="p-1 hover:bg-rule/60 text-rank rounded flex items-center gap-0.5"
+                    title="Adicionar Artigo Abaixo"
+                  >
+                    <Plus size={13} /> Art
+                  </button>
+                  <button
+                    onClick={(e) => handleAddBlockBelow(index, 'PARAGRAFO', e)}
+                    className="p-1 hover:bg-rule/60 text-legenda rounded flex items-center gap-0.5"
+                    title="Adicionar Parágrafo Abaixo"
+                  >
+                    <Plus size={13} /> §
+                  </button>
+                  <button
+                    onClick={(e) => handleMoveBlock(index, 'up', e)}
+                    disabled={index === 0}
+                    className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+                    title="Mover para cima"
+                  >
+                    <ArrowUp size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => handleMoveBlock(index, 'down', e)}
+                    disabled={index === doc.blocks.length - 1}
+                    className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+                    title="Mover para baixo"
+                  >
+                    <ArrowDown size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDuplicateBlock(block, e)}
+                    className="p-1 text-legenda hover:text-texto"
+                    title="Duplicar Bloco"
+                  >
+                    <Copy size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteBlock(block.id, e)}
+                    className="p-1 text-legenda hover:text-falha"
+                    title="Excluir Bloco"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+
+                {/* Renderização do Bloco Conforme o Tipo */}
+                {block.type === 'TABELA' ? (
+                  <div className="border border-black/10 rounded-lg p-3 bg-black/[0.02] shadow-sm">
+                    <div className="flex items-center justify-between mb-2 select-none border-b border-black/10 pb-2">
+                      <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <TableIcon size={15} className="text-tinta/50" /> Tabela
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'addRow');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Adicionar Linha na Tabela"
+                        >
+                          + Linha
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'deleteRow');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Remover Última Linha"
+                        >
+                          - Linha
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'addColumn');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Adicionar Coluna na Tabela"
+                        >
+                          + Coluna
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'deleteColumn');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Remover Última Coluna"
+                        >
+                          - Coluna
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'addCellLeft');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Adicionar célula à esquerda completando a coluna"
+                        >
+                          + Célula Esq.
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'addCellRight');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Adicionar célula à direita completando a coluna"
+                        >
+                          + Célula Dir.
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'mergeCells');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Mesclar duas células adjacentes da tabela"
+                        >
+                          Mesclar Células
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newHtml = modifyTableStructure(block.content, 'splitCells');
+                            handleUpdateBlockContent(block.id, newHtml);
+                          }}
+                          className={tableActionButtonBaseClass}
+                          title="Separar/Desfazer células mescladas na tabela"
+                        >
+                          Separar Células
+                        </button>
+                      </div>
+                    </div>
+                    <Editable
+                      target={target}
+                      html={block.content}
+                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+                      ariaLabel="Tabela"
+                      className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-selo p-1 [&_td]:cursor-text [&_td]:focus:bg-selo/10 [&_th]:cursor-text"
+                    />
+                  </div>
+                ) : block.type === 'ALTERACAO' ? (
+                  /* Citação de dispositivo alterado — dois blockquotes no arquivo salvo. */
+                  <div
+                    className="ml-[80px] mr-[40px] text-[10pt]"
+                    style={layout}
+                  >
+                    <span className="select-none">“</span>
+                    {block.numberLabel && (
+                      <span className="select-none">{normalizeNumberLabel(block.numberLabel)} </span>
+                    )}
+                    <Editable
+                      target={target}
+                      html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
+                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+                      onKeyDown={(event) => handleBlockEnter(index, event)}
+                      ariaLabel="Dispositivo alterado"
+                      placeholder="Texto do dispositivo alterado"
+                      className="inline outline-none focus:bg-selo/10 cursor-text"
+                    />
+                    <span className="select-none">”</span>
+                  </div>
+                ) : isAgrupador(block.type) ? (
+                  <div className="font-bold text-[10pt]" style={layout}>
+                    <Editable
+                      target={target}
+                      html={block.content}
+                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+                      onKeyDown={(event) => handleBlockEnter(index, event)}
+                      ariaLabel="Agrupador"
+                      placeholder="Denominação do agrupador"
+                      className="outline-none focus:bg-selo/10 font-bold cursor-text"
+                    />
+                  </div>
+                ) : (
+                  /*
+                   * Dispositivo comum. O rótulo é inline e o campo editável
+                   * também: assim a segunda linha volta à margem esquerda, como
+                   * no arquivo salvo, em vez de ficar pendurada sob o texto.
+                   */
+                  <div
+                    className="text-[10pt]"
+                    style={layout}
+                    onClick={(event) => {
+                      if (event.target === event.currentTarget) focusTarget(target);
+                    }}
+                  >
+                    {block.numberLabel && (
+                      <span className="font-normal select-none">
+                        {normalizeNumberLabel(block.numberLabel)}&nbsp;
+                      </span>
+                    )}
+                    <Editable
+                      target={target}
+                      html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
+                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+                      onKeyDown={(event) => handleBlockEnter(index, event)}
+                      ariaLabel={block.numberLabel || 'Dispositivo'}
+                      placeholder="Novo conteúdo"
+                      className="inline outline-none focus:bg-selo/10 cursor-text"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Ponto de partida para escrever sem antes escolher o tipo do dispositivo. */}
+          <button
+            type="button"
+            onClick={(event) => handleAddBlockBelow(doc.blocks.length - 1, 'TEXTO_LIVRE', event)}
+            className="w-full mt-2 py-2 rounded border border-dashed border-black/15 text-black/40 hover:text-black/70 hover:border-black/30 hover:bg-black/[0.02] text-[9pt] transition-colors select-none"
+          >
+            + Novo conteúdo
+          </button>
+        </div>
+
+        {/* Fecho e assinaturas */}
+        <div id="block-fecho" className="mt-4 select-text">
+          {!isEmptyHtml(doc.fecho) && (
+            <div
+              onClick={() => handleCanvasBlockClick('fecho')}
+              className={`relative group my-[15px] p-1 rounded cursor-text transition-all ${selectionRingClass(
+                'fecho'
+              )}`}
+            >
+              {partActions('Fecho', () => handleDeletePart({ fecho: '' }))}
+              <Editable
+                target={partTarget('fecho')}
+                html={doc.fecho}
+                onCommit={(html) => commitTarget(partTarget('fecho'), html)}
+                onKeyDown={handlePartEnter}
+                ariaLabel="Fecho, local e data"
+                placeholder="Local e data"
+                className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+                style={partLayout(partTarget('fecho'))}
+              />
+            </div>
+          )}
+
+          <div className="mt-4 font-bold text-[10pt]">
+            {doc.assinaturas.map((assinatura, index) => {
+              const target = assinaturaTarget(index);
+              return (
+                <div
+                  key={index}
+                  onClick={() => handleCanvasBlockClick(`assinatura-${index}`)}
+                  className={`relative group px-1 py-[7px] rounded cursor-text transition-all ${selectionRingClass(
+                    `assinatura-${index}`
+                  )}`}
+                >
+                  {partActions('Assinatura', () => handleDeleteAssinatura(index))}
+                  <Editable
+                    target={target}
+                    html={assinatura}
+                    onCommit={(html) => commitTarget(target, html)}
+                    onKeyDown={handlePartEnter}
+                    ariaLabel={`Assinatura ${index + 1}`}
+                    placeholder="Nome do signatário"
+                    className="outline-none focus:bg-selo/10 rounded font-bold cursor-text"
+                    style={partLayout(target)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Menu do botão direito: remissões onde o gesto termina. */}
+      {menu && (
+        <CanvasContextMenu
+          menu={menu}
+          onInsertAnchor={onInsertAnchor}
+          onInsertLink={onInsertLink}
+          onFollowAnchor={onNavigateAnchor}
+          onRemoveLink={(element) => editAnchorElement(element, removeLink)}
+          onRemoveAnchorPoint={(element) => editAnchorElement(element, removeAnchorPoint)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </main>
+  );
+};

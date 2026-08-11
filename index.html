@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/brasao.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CEJ-EDITOR - Editor de Atos Normativos</title>
+  </head>
+  <!--
+    Apenas geometria em estilo inline: cor e tipografia pertencem aos tokens de
+    src/index.css, e estilos inline venceriam a folha de estilo. O fundo repete
+    o valor de --color-tinta unicamente para evitar um lampejo branco antes de
+    a folha ser aplicada.
+  -->
+  <body style="margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden; background-color: #16202b;">
+    <div id="root" style="width: 100%; height: 100%;"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

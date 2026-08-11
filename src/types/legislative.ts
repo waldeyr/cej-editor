@@ -1,0 +1,80 @@
+import { SupportedEncoding } from '../utils/encoding';
+
+export type BlockType =
+  | 'EPIGRAFE'
+  | 'EMENTA'
+  | 'PREAMBULO'
+  | 'ORDEM_EXECUCAO'
+  | 'PARTE'
+  | 'LIVRO'
+  | 'TITULO'
+  | 'SUBTITULO'
+  | 'CAPITULO'
+  | 'SECAO'
+  | 'SUBSECAO'
+  | 'TITULO_AGRUPADOR'
+  | 'ARTIGO'
+  | 'PARAGRAFO'
+  | 'INCISO'
+  | 'ALINEA'
+  | 'ITEM'
+  | 'ALTERACAO'
+  | 'OMISSIS'
+  | 'TABELA'
+  | 'FECHO'
+  | 'ASSINATURA'
+  | 'ANEXO'
+  | 'TEXTO_LIVRE';
+
+/** Alinhamento horizontal do parágrafo, espelhado no HTML exportado. */
+export type BlockAlign = 'left' | 'center' | 'right' | 'justify';
+
+export interface LegislativeBlock {
+  id: string;
+  type: BlockType;
+  numberLabel?: string; // Ex: "Art. 1º", "§ 1º", "I", "a", "1."
+  content: string; // HTML com negritos, itálicos, links ou tabela HTML
+  rawText: string; // Texto limpo
+  linkName?: string; // Ex: "art1", "anexo1"
+  align?: BlockAlign; // Ausente = justificado, como manda o padrão Planalto
+  tableRows?: string[][]; // Matriz de células para blocos do tipo TABELA
+  children?: LegislativeBlock[]; // Dispositivos alterados ou filhos
+}
+
+export interface LegislativeDocument {
+  /**
+   * O `<title>` do arquivo salvo. Acompanha a epígrafe por padrão — é ela que
+   * nomeia o ato — mas pode ser definido à mão quando o nome do arquivo precisa
+   * dizer outra coisa. Ver `titleIsManual`.
+   */
+  title: string;
+  /**
+   * Marca que o título foi escrito à mão e não deve mais seguir a epígrafe.
+   * Sem ela, a primeira correção na epígrafe apagaria a escolha do usuário.
+   */
+  titleIsManual?: boolean;
+  epigrafe: string;
+  ementa: string;
+  linkVigencia?: string;
+  preambulo: string;
+  ordemExecucao: string; // Ex: "DECRETA:"
+  blocks: LegislativeBlock[];
+  fecho: string;
+  assinaturas: string[];
+  /**
+   * Alinhamento das partes fixas do ato (epígrafe, ementa, preâmbulo, ordem de
+   * execução, fecho e cada assinatura), indexado pelo mesmo alvo usado pelos
+   * campos editáveis do canvas — ver `utils/docTargets.ts`.
+   */
+  partAligns?: Record<string, BlockAlign>;
+  encoding?: SupportedEncoding;
+  declaredEncoding?: string;
+  hasBom?: boolean;
+}
+
+export interface ValidationIssue {
+  id: string;
+  blockId?: string;
+  severity: 'error' | 'warning';
+  message: string;
+}

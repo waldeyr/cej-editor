@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+/*
+ * Rawline — tipografia do design system Sagitário / gov.br (licença OFL),
+ * servida localmente a partir de public/fonts.
+ *
+ * Apenas três pesos são carregados. A escada canônica documentada em
+ * public/fonts/README.md é: corpo 400 · rótulos 500 · títulos 500–600 ·
+ * estado ativo 600. Os pesos 100/200 e 800/900 são reservados a marca e
+ * display, sem uso em interface, e os itálicos não aparecem no chrome —
+ * carregá-los custaria ~270 KB cada sem nenhum uso.
+ */
+@font-face {
+  font-family: 'Rawline';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../public/fonts/rawline-400.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Rawline';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../public/fonts/rawline-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Rawline';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../public/fonts/rawline-600.ttf') format('truetype');
+}
+
+@theme {
+  /*
+   * Paleta. A hierarquia legislativa é ordinal — Artigo precede Parágrafo,
+   * que precede Inciso — e por isso é expressa por uma única matiz em
+   * densidades graduadas (--color-rank), nunca por matizes categóricas.
+   * A cor fica reservada a duas perguntas: onde estou, e o que está errado.
+   */
+  --color-tinta: #16202b;
+  --color-tinta-alta: #1e2b38;
+  --color-rule: #33465a;
+  --color-legenda: #93a6b8;
+  --color-texto: #e8eef4;
+  --color-selo: #e0b252;
+  --color-falha: #d4574a;
+  --color-rank: #a8c4e0;
+
+  /* O papel. Espelha o HTML exportado e não deve divergir dele. */
+  --color-papel: #ffffff;
+
+  --font-display: 'Rawline', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-dado: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-titulo: 0.9375rem;
+  --text-titulo--line-height: 1.2;
+  --text-titulo--font-weight: 600;
+  --text-titulo--letter-spacing: -0.01em;
+
+  --text-comando: 0.8125rem;
+  --text-comando--line-height: 1.3;
+  --text-comando--font-weight: 500;
+
+  --text-etiqueta: 0.6875rem;
+  --text-etiqueta--line-height: 1.2;
+  --text-etiqueta--font-weight: 500;
+  --text-etiqueta--letter-spacing: 0.06em;
+
+  --text-lista: 0.75rem;
+  --text-lista--line-height: 1.45;
+  --text-lista--font-weight: 400;
+
+  --text-dado: 0.6875rem;
+  --text-dado--line-height: 1;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-display);
+  background-color: var(--color-tinta);
+  color: var(--color-texto);
+}
+
+/*
+ * Foco visível. Nenhum botão da barra de ferramentas tinha qualquer estilo de
+ * foco antes desta mudança, o que tornava a interface inavegável por teclado.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-selo);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/*
+ * Linha recém-aberta com Enter. Um campo editável vazio colapsa para altura
+ * zero e some da folha — o texto de espera devolve a ele uma linha clicável.
+ */
+[data-cej-target]:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+/*
+ * Remissões e pontos de ancoragem na folha.
+ *
+ * A remissão é a origem — leva a algum lugar, e por isso tem tinta de link, a
+ * mesma que parser/htmlSerializer.ts escreve na folha de estilo do arquivo
+ * salvo. O ponto de ancoragem é o destino: no documento exportado ele é texto
+ * comum, e a marca discreta abaixo existe só na tela, como afordância do
+ * editor — da mesma família do anel de seleção, e não tinta do documento.
+ */
+.folha a[href] {
+  color: var(--cej-link);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.folha a[href]:hover {
+  color: var(--cej-link-hover);
+}
+
+.folha a[name] {
+  background-color: color-mix(in srgb, var(--color-selo) 24%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+}
+
+/* Barras de rolagem discretas sobre o chrome escuro. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-rule);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

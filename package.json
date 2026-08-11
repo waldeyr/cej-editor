@@ -1,0 +1,70 @@
+{
+  "name": "cej-editor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CEJ-EDITOR - Editor Web e Desktop de Atos Normativos no padrão Planalto com preservação adaptativa de encoding e executável standalone",
+  "author": "Secretaria Especial para Assuntos Jurídicos",
+  "license": "Apache-2.0",
+  "main": "dist-electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --target=node18 --outfile=dist-electron/main.cjs --external:electron && esbuild electron/preload.ts --bundle --platform=node --target=node18 --outfile=dist-electron/preload.cjs --external:electron",
+    "build": "tsc && vite build && npm run build:electron",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "electron:dev": "vite",
+    "build:desktop": "tsc && vite build && npm run build:electron && electron-builder"
+  },
+  "build": {
+    "appId": "br.gov.planalto.cej-editor",
+    "productName": "CEJ-EDITOR",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "public/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  },
+  "dependencies": {
+    "lucide-react": "^0.344.0",
+    "mammoth": "^1.12.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^20.11.24",
+    "@types/react": "^18.2.61",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.20.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4",
+    "vitest": "^1.3.1"
+  }
+}

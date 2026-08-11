@@ -1,0 +1,30 @@
+# Dependências
+node_modules/
+
+# Artefatos de build
+dist/
+dist-electron/
+dist-desktop/
+
+# Arquivos de trabalho e documentos de referência locais
+temp/
+
+# Sistema operacional
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Editores
+.vscode/
+.idea/
+*.swp
