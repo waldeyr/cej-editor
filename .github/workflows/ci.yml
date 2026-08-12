@@ -24,8 +24,14 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      # O binário do Electron não é usado aqui: o esbuild empacota a camada
+      # desktop com --external:electron, e o tsc só precisa das tipagens, que
+      # vêm no pacote npm. Baixá-lo custava um minuto e derrubava a integração
+      # sempre que o servidor de releases do Electron fechava a conexão.
       - name: Install Dependencies
         run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Unit Tests
         run: npm test
