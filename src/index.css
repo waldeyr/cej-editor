@@ -115,14 +115,33 @@ body {
  * comum, e a marca discreta abaixo existe só na tela, como afordância do
  * editor — da mesma família do anel de seleção, e não tinta do documento.
  */
+/*
+ * A remissão é azul e sublinhada em qualquer circunstância — inclusive dentro de
+ * um dispositivo que o arquivo importado pintou de outra cor.
+ *
+ * O corpus do Planalto guarda décadas de marcação legada, e nela é comum o link
+ * trazer a própria cor por dentro: <a href="…"><font color="#000080">texto</font></a>,
+ * ou um <span style="color:black"> herdado de quem colou de um editor de textos.
+ * Pintar apenas o <a> deixaria essa tinta de dentro por cima, e o leitor não teria
+ * como saber que ali há um caminho. Daí a regra alcançar os descendentes, e daí o
+ * `!important`: é ele que vence o estilo embutido de quem escreveu o arquivo.
+ *
+ * A mesma folha de estilo é escrita no arquivo exportado por
+ * parser/htmlSerializer.ts — a folha do editor mostra o que o documento vai ser.
+ */
+.folha a[href],
+.folha a[href] * {
+  color: var(--cej-link) !important;
+}
+
 .folha a[href] {
-  color: var(--cej-link);
   text-decoration: underline;
   cursor: pointer;
 }
 
-.folha a[href]:hover {
-  color: var(--cej-link-hover);
+.folha a[href]:hover,
+.folha a[href]:hover * {
+  color: var(--cej-link-hover) !important;
 }
 
 .folha a[name] {

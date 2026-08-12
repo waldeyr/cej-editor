@@ -57,7 +57,7 @@ function plainTextOf(block: LegislativeBlock): string {
 }
 
 /** Como o dispositivo aparece na lista: o rótulo, ou as primeiras palavras. */
-function describeBlock(block: LegislativeBlock): string {
+export function describeBlock(block: LegislativeBlock): string {
   if (block.numberLabel) return block.numberLabel;
   if (block.type === 'TABELA') return 'Tabela';
 

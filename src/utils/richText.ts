@@ -61,6 +61,30 @@ function clipRangeToElement(range: Range, element: HTMLElement): Range | null {
 }
 
 /**
+ * Dá o foco a um campo da folha, com o cursor no início dele.
+ *
+ * O campo de um dispositivo recém-criado só existe depois que o React o
+ * desenha, e é por isso que a busca espera o quadro seguinte: procurar agora
+ * não acharia nada.
+ */
+export function focusEditableTarget(target: string): void {
+  requestAnimationFrame(() => {
+    const element = document.querySelector<HTMLElement>(
+      `[${EDITABLE_TARGET_ATTR}="${CSS.escape(target)}"]`
+    );
+    if (!element) return;
+
+    element.focus();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+}
+
+/**
  * Trechos da seleção corrente, um por campo editável tocado.
  * Vazio quando não há seleção ou quando ela está fora da folha.
  */

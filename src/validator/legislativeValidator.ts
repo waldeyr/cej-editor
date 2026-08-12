@@ -40,11 +40,18 @@ export function validateLegislativeDocument(doc: LegislativeDocument): Validatio
   doc.blocks.forEach((block, index) => {
     // Bloco Vazio
     if (!block.content || block.content.trim().length === 0) {
+      /*
+       * As mensagens são lidas na dica do mouse da Vista do Ato, com o
+       * ponteiro parado sobre o próprio dispositivo. Por isso elas o nomeiam
+       * como ele aparece na folha — "O Art. 3º" — e não pelo número da linha
+       * na lista, que só faz sentido para quem conta blocos.
+       */
+      const dispositivo = block.numberLabel ? `O ${block.numberLabel}` : `O item #${index + 1}`;
       issues.push({
         id: `empty-block-${block.id}`,
         blockId: block.id,
         severity: 'warning',
-        message: `✏️ Este dispositivo (item #${index + 1}) está sem texto. Digite a redação ou remova-o.`,
+        message: `✏️ ${dispositivo} está sem texto. Digite a redação ou remova o dispositivo.`,
       });
     }
 
@@ -59,7 +66,10 @@ export function validateLegislativeDocument(doc: LegislativeDocument): Validatio
             id: `art-seq-${block.id}`,
             blockId: block.id,
             severity: 'warning',
-            message: `🔢 Atenção na numeração: o texto passou para o ${block.numberLabel} (o esperado seria o Art. ${expectedArtNum}º).`,
+            message:
+              `🔢 Numeração fora de sequência: este é o ${block.numberLabel}, mas nesta posição ` +
+              `era esperado o Art. ${expectedArtNum}º. O botão "Renumerar", na barra de estrutura, ` +
+              `acerta a sequência do ato.`,
           });
           expectedArtNum = actualNum + 1;
         } else {

@@ -30,13 +30,25 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      # O nome de cada arquivo gerado carrega a versão do package.json — que é a
+      # mesma da tag, sem o "v". Publicar só quando o disparo veio de uma tag:
+      # o disparo manual serve para conferir que o empacotamento ainda compila,
+      # e não deve criar release nenhum.
       - name: Build Web Application & Desktop Executables
-        run: npm run build:desktop
+        run: npm run build:desktop -- --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Só os instaláveis. O diretório dist-desktop guarda também a árvore
+      # descompactada do aplicativo, que é enorme e não interessa a ninguém.
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cej-editor-${{ matrix.os }}
-          path: dist-desktop/*
+          name: cej-editor-${{ github.ref_name }}-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            dist-desktop/*.dmg
+            dist-desktop/*.zip
+            dist-desktop/*.exe
+            dist-desktop/*.AppImage
+            dist-desktop/*.deb

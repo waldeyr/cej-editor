@@ -20,6 +20,7 @@ import {
   Undo2,
   Redo2,
   Table,
+  ListOrdered,
   CornerDownLeft,
   AlignLeft,
   AlignCenter,
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 import { BlockAlign, BlockType } from '../types/legislative';
 import { InlineFormat } from '../utils/richText';
+import { blockTypeName } from '../utils/blockTypes';
 import { textInkOf, weightOf } from '../utils/rank';
 import logoCej from '../assets/logo-cej.png';
 
@@ -44,7 +46,13 @@ interface ToolbarProps {
   onInsertTable: () => void;
   onSave: () => void;
   onSaveAs: () => void;
-  onAddBlock: (type: BlockType) => void;
+  /**
+   * Aplica o tipo ao dispositivo selecionado. "Novo conteúdo" e "Omissis" são
+   * as exceções que criam bloco novo — ver `handleApplyBlockType` em App.
+   */
+  onApplyBlockType: (type: BlockType) => void;
+  /** Refaz a numeração dos dispositivos selecionados — ou do ato inteiro. */
+  onRenumber: () => void;
   onFormatInline: (format: TextCommand) => void;
   onAlign: (align: BlockAlign) => void;
   activeFormats: readonly InlineFormat[];
@@ -71,24 +79,21 @@ const Divider: React.FC = () => <span className="h-4 w-px bg-rule shrink-0" aria
  * da tinta — a mesma rampa usada pela trilha e pela lista lateral. A versão
  * anterior usava sete matizes categóricas (âmbar, índigo, azul, ciano, roxo,
  * ardósia) que não codificavam hierarquia alguma.
+ *
+ * Os rótulos vêm de utils/blockTypes.ts, que é também quem nomeia os tipos nos
+ * recados da barra de estado; aqui fica só a ordem em que eles aparecem.
  */
-const ESTRUTURA: readonly { type: BlockType; label: string }[] = [
-  { type: 'PARTE', label: 'Parte' },
-  { type: 'LIVRO', label: 'Livro' },
-  { type: 'TITULO', label: 'Título' },
-  { type: 'SUBTITULO', label: 'Subtítulo' },
-  { type: 'CAPITULO', label: 'Capítulo' },
-  { type: 'SECAO', label: 'Seção' },
-  { type: 'SUBSECAO', label: 'Subseção' },
+const ESTRUTURA: readonly BlockType[] = [
+  'PARTE',
+  'LIVRO',
+  'TITULO',
+  'SUBTITULO',
+  'CAPITULO',
+  'SECAO',
+  'SUBSECAO',
 ];
 
-const DISPOSITIVOS: readonly { type: BlockType; label: string }[] = [
-  { type: 'ARTIGO', label: 'Artigo' },
-  { type: 'PARAGRAFO', label: 'Parágrafo' },
-  { type: 'INCISO', label: 'Inciso' },
-  { type: 'ALINEA', label: 'Alínea' },
-  { type: 'ITEM', label: 'Item' },
-];
+const DISPOSITIVOS: readonly BlockType[] = ['ARTIGO', 'PARAGRAFO', 'INCISO', 'ALINEA', 'ITEM'];
 
 const ALINHAMENTOS: readonly { align: BlockAlign; label: string; icon: React.ReactNode }[] = [
   { align: 'left', label: 'Alinhar à esquerda', icon: <AlignLeft size={14} /> },
@@ -115,7 +120,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onInsertTable,
   onSave,
   onSaveAs,
-  onAddBlock,
+  onApplyBlockType,
+  onRenumber,
   onFormatInline,
   onAlign,
   activeFormats,
@@ -132,15 +138,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     e.preventDefault();
   };
 
-  const structureButton = (type: BlockType, label: string) => (
+  /*
+   * Botão de estrutura. Ele formata o que está selecionado, e por isso segura a
+   * seleção no `mousedown` como os botões de negrito e itálico: sem isso o
+   * clique tira o foco da folha e o trecho a formatar se perde no caminho.
+   */
+  const structureButton = (type: BlockType) => (
     <button
       key={type}
       type="button"
-      onClick={() => onAddBlock(type)}
+      onMouseDown={preserveSelectionMouseDown}
+      onClick={() => onApplyBlockType(type)}
+      title={`Transformar o texto selecionado em ${blockTypeName(type)}`}
       className="h-6 px-2 rounded text-comando bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
       style={{ color: 'var(--color-rank)', opacity: textInkOf(type), fontWeight: weightOf(type) }}
     >
-      {label}
+      {blockTypeName(type)}
     </button>
   );
 
@@ -378,11 +391,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <Divider />
 
+        {/*
+          A linha nova nasce abaixo do cursor, e por isso este botão também
+          segura a seleção no `mousedown`: sem isso o clique tira o foco da
+          folha e o editor perde justamente a informação de onde inserir.
+        */}
         <button
           type="button"
-          onClick={() => onAddBlock('TEXTO_LIVRE')}
+          onMouseDown={preserveSelectionMouseDown}
+          onClick={() => onApplyBlockType('TEXTO_LIVRE')}
           className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-texto bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
-          title="Inserir uma linha sem formatação (o mesmo que teclar Enter no fim de um dispositivo)"
+          title="Inserir uma linha sem formatação abaixo do cursor (o mesmo que teclar Enter no fim de um dispositivo)"
         >
           <CornerDownLeft size={12} aria-hidden="true" /> Novo conteúdo
         </button>
@@ -399,20 +418,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* Linha de estrutura: o que se pode inserir no corpo do ato. */}
+      {/*
+        Linha de estrutura: que dispositivo é o texto selecionado. Todos os
+        botões daqui formatam o trecho em jogo, e nenhum deles escreve no
+        documento: mudam o tipo e a numeração, e o texto na folha continua sendo
+        o que o redator escreveu.
+      */}
       <div className="flex px-2 h-9 overflow-x-auto">
         <div className="flex items-center gap-1.5 mx-auto">
-        {ESTRUTURA.map(({ type, label }) => structureButton(type, label))}
+        {ESTRUTURA.map((type) => structureButton(type))}
 
         <Divider />
 
-        {DISPOSITIVOS.map(({ type, label }) => structureButton(type, label))}
+        {DISPOSITIVOS.map((type) => structureButton(type))}
 
         <Divider />
 
         <button
           type="button"
-          onClick={() => onAddBlock('ALTERACAO')}
+          onMouseDown={preserveSelectionMouseDown}
+          onClick={() => onApplyBlockType('ALTERACAO')}
+          title="Transformar o texto selecionado em dispositivo alterado, entre aspas"
           className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
         >
           <Quote size={12} aria-hidden="true" /> Alteração
@@ -420,10 +446,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <button
           type="button"
-          onClick={() => onAddBlock('OMISSIS')}
+          onMouseDown={preserveSelectionMouseDown}
+          onClick={() => onApplyBlockType('OMISSIS')}
+          title="Marcar o dispositivo selecionado como omissis, que perde a numeração"
           className="h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
         >
           Omissis
+        </button>
+
+        <Divider />
+
+        {/*
+          A renumeração fecha o ciclo da conversão: o dispositivo que entra no
+          meio do ato acerta o próprio número e deixa os seguintes um passo
+          atrás. Ela fica ao fim desta linha porque é sobre a mesma coisa que os
+          botões ao lado — que dispositivo é cada trecho —, mas não se usa a
+          cada gesto, e sim depois de mexer na ordem.
+        */}
+        <button
+          type="button"
+          onMouseDown={preserveSelectionMouseDown}
+          onClick={onRenumber}
+          title="Refazer a numeração dos dispositivos selecionados — ou de todo o ato, se nada estiver selecionado"
+          className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+        >
+          <ListOrdered size={12} aria-hidden="true" /> Renumerar
         </button>
         </div>
       </div>

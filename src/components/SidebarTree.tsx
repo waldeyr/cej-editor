@@ -65,6 +65,34 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
     setExpandedNodes((prev) => ({ ...prev, [nodeId]: !prev[nodeId] }));
   };
 
+  /**
+   * Marca de conformidade da lista.
+   *
+   * O ícone diz que há algo a ver; a dica do mouse diz o quê, com as palavras
+   * do próprio validador. Sem ela, o triângulo âmbar só anunciava a existência
+   * de um problema e deixava o usuário caçá-lo na folha — e um aviso que não
+   * se explica é indistinguível de um enfeite.
+   *
+   * A moldura em volta é alvo de mouse: 12px de ícone é pouco para uma dica
+   * que só aparece com o ponteiro parado sobre ela. As margens negativas
+   * devolvem o espaço que a moldura tomaria, de modo que a linha não muda.
+   */
+  const issueMark = (issue: ValidationIssue) => {
+    const Icon = issue.severity === 'error' ? AlertCircle : AlertTriangle;
+    const severity = issue.severity === 'error' ? 'Erro' : 'Aviso';
+
+    return (
+      <span className="shrink-0 -m-1 p-1 flex items-center" title={issue.message}>
+        <Icon
+          size={12}
+          role="img"
+          aria-label={`${severity}: ${issue.message}`}
+          className={issue.severity === 'error' ? 'text-falha' : 'text-selo'}
+        />
+      </span>
+    );
+  };
+
   const selectedIndex = blocks.findIndex((b) => b.id === selectedBlockId);
 
   const handleRailClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -117,7 +145,13 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
               }}
             />
             {issue && (
+              /*
+               * A trilha continua na tela com o painel recolhido, e é então a
+               * única notícia de que há um problema: a dica do mouse vale aqui
+               * pelo mesmo motivo que na lista.
+               */
               <span
+                title={issue.message}
                 className="absolute right-[1px] w-[3px] rounded-[1px]"
                 style={{
                   ...geometry,
@@ -162,12 +196,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
         className={`${leafRowClass} ${isSelected ? 'bg-selo/10 text-texto' : ''}`}
       >
         <span className="truncate">{label}</span>
-        {issue &&
-          (issue.severity === 'error' ? (
-            <AlertCircle size={12} className="text-falha shrink-0" aria-label="erro" />
-          ) : (
-            <AlertTriangle size={12} className="text-selo shrink-0" aria-label="aviso" />
-          ))}
+        {issue && issueMark(issue)}
       </button>
     );
   };
@@ -328,12 +357,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
                           </span>
                         </span>
 
-                        {issue &&
-                          (issue.severity === 'error' ? (
-                            <AlertCircle size={12} className="text-falha shrink-0" aria-label="erro" />
-                          ) : (
-                            <AlertTriangle size={12} className="text-selo shrink-0" aria-label="aviso" />
-                          ))}
+                        {issue && issueMark(issue)}
                       </div>
                     );
                   })}

@@ -97,6 +97,27 @@ describe('RTF Legislative Parser & HTML Serializer', () => {
     expect(tableBlock?.content).toContain('colspan="2"');
   });
 
+  it('não parte a palavra quando o arquivo RTF quebra a linha no meio dela', () => {
+    // O escritor de RTF quebra a linha onde couber: o arquivo do decreto de
+    // docs/file-tests traz "AVALIA\'c7\'c3" no fim de uma linha e "O" no começo
+    // da seguinte, e a folha mostrava "AVALIAÇÃ O".
+    const rtfQuebrado = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o ato.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Fica criada a Subsecretaria de AVALIA\\'c7\\'c3\nO DE POL\\'cd\nTICAS P\\'da\nBLICAS.}`;
+
+    const doc = parseRtfToLegislativeDocument(rtfQuebrado);
+    const artigo = doc.blocks.find((b) => b.type === 'ARTIGO');
+
+    expect(artigo?.content).toBe('Fica criada a Subsecretaria de AVALIAÇÃO DE POLÍTICAS PÚBLICAS.');
+  });
+
+  it('preserva o espaço de verdade que vem ao lado da quebra de linha', () => {
+    const rtfQuebrado = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o ato.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Compete ao Ministro de \nEstado dirigir o \\'f3rg\\'e3o.}`;
+
+    const doc = parseRtfToLegislativeDocument(rtfQuebrado);
+    const artigo = doc.blocks.find((b) => b.type === 'ARTIGO');
+
+    expect(artigo?.content).toContain('Ministro de Estado');
+  });
+
   it('deve separar tabelas adjacentes quando o RTF reinicia irow em zero', () => {
     const rtfTable = `{\\rtf1\\trowd\\irow0 \\cellx1000 Primeira\\cell \\row \\trowd\\irow1 \\cellx1000 Dado\\cell \\row b) Segunda tabela:\\par \\trowd\\irow0 \\cellx1000 Segunda\\cell \\row}`;
     const doc = parseRtfToLegislativeDocument(rtfTable);

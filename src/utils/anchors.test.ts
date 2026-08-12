@@ -105,7 +105,7 @@ describe('arquivo salvo', () => {
 
   it('só veste de link o que tem destino — o ponto de ancoragem é texto comum', () => {
     const exported = serializeToPlanaltoHtml(anexoMarcado());
-    expect(exported).toContain('a[href] { color:');
+    expect(exported).toMatch(/a\[href\][^{]*\{ color:/);
     expect(exported).not.toMatch(/^\s*a \{ color:/m);
   });
 });

@@ -1,6 +1,17 @@
 import { LegislativeBlock, LegislativeDocument, BlockType } from '../types/legislative';
 
 /**
+ * A linha de supressão, sempre com esta medida.
+ *
+ * O omissis não é texto que alguém redige: é a marca de que há texto que não
+ * foi transcrito. Por isso ele tem uma forma só, e é para ela que converge
+ * tanto o que vem do arquivo importado quanto o que nasce de um clique na barra
+ * — ver `retypeBlock`, em utils/blockTypes.ts.
+ */
+export const OMISSIS_LINE =
+  '.......................................................................................................';
+
+/**
  * Mapeamento de tabela de caracteres CP1252 para UTF-8 para escapes RTF Hex (\'XX)
  */
 const CP1252_MAP: Record<number, string> = {
@@ -49,30 +60,9 @@ export function parseRtfTokens(input: string): RtfToken[] {
   ]);
 
   function flushText() {
-    let raw = currentText.trim();
-    if (raw.length === 0) return;
-    const parts = raw.split(/\r?\n/);
-    let normalized = '';
-    for (const part of parts) {
-      const p = part.trim();
-      if (!p) continue;
-      if (!normalized) {
-        normalized = p;
-        continue;
-      }
-      if (/^[,;.:\)!?]/.test(p)) {
-        normalized = normalized + p;
-      } else if (/\d$/.test(normalized) && /^[\dºª]/.test(p)) {
-        normalized = normalized + p;
-      } else if (/[a-zA-Z]$/.test(normalized) && /^[ºª]/.test(p)) {
-        normalized = normalized + p;
-      } else {
-        normalized = normalized + ' ' + p;
-      }
-    }
-    if (normalized.length > 0) {
-      tokens.push({ type: 'text', val: normalized });
-    }
+    const texto = currentText.trim();
+    if (texto.length === 0) return;
+    tokens.push({ type: 'text', val: texto });
     currentText = '';
   }
 
@@ -213,6 +203,19 @@ export function parseRtfTokens(input: string): RtfToken[] {
       }
     }
 
+    /*
+     * A quebra de linha do arquivo RTF não é conteúdo. Quem escreve o arquivo
+     * quebra a linha onde couber — inclusive no meio de uma palavra — e o leitor
+     * precisa ignorá-la; o que separa texto é `\par`, `\line` ou um espaço de
+     * verdade. Tratá-la como espaço partia a palavra ao meio: "AVALIAÇÃ O",
+     * "GESTÃ O", "PÚ BLICO" apareciam assim na folha, dezenove vezes no decreto
+     * de `docs/file-tests/`.
+     */
+    if (char === '\r' || char === '\n') {
+      pos++;
+      continue;
+    }
+
     currentText += char;
     pos++;
   }
@@ -301,6 +304,16 @@ export function sanitizeQuoteText(text: string): string {
 }
 
 /**
+ * A epígrafe nomeia o ato e o número dele (LC 95/1998, art. 3º, I).
+ *
+ * É por esta forma que se acha a epígrafe num arquivo publicado, onde o
+ * cabeçalho do brasão — "Presidência da República / Casa Civil / …" — também é
+ * um parágrafo centralizado e em cor, e vinha sendo tomado por ela.
+ */
+export const EPIGRAFE_PATTERN =
+  /^(DECRETO|DECRETO-LEI|LEI COMPLEMENTAR|LEI|MEDIDA PROVISÓRIA|EMENDA CONSTITUCIONAL|PORTARIA|RESOLUÇÃO|INSTRUÇÃO NORMATIVA)\b[\s\S]{0,40}?N[ºO°]/i;
+
+/**
  * Verifica se a linha inicia um novo dispositivo legislativo.
  */
 function isNewDeviceStart(line: string): boolean {
@@ -359,7 +372,7 @@ export function identifyBlockType(line: string): { type: BlockType; numberLabel?
     return { type: 'ALTERACAO', cleanText: clean };
   }
   if (/^(\.|\s){5,}$/.test(clean) || /^\.{4,}/.test(clean)) {
-    return { type: 'OMISSIS', cleanText: '.......................................................................................................' };
+    return { type: 'OMISSIS', cleanText: OMISSIS_LINE };
   }
   return { type: 'TEXTO_LIVRE', cleanText: clean };
 }

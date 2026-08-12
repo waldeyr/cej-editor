@@ -19,7 +19,8 @@ import { sanitizeQuoteText } from '../parser/rtfParser';
 import { isAgrupador } from '../utils/rank';
 import { Editable } from './Editable';
 import { CanvasContextMenu, CanvasMenuState } from './CanvasContextMenu';
-import { LINK_INK, LINK_INK_HOVER } from '../utils/anchors';
+import { LinkHint, LinkHintState } from './LinkHint';
+import { LINK_INK, LINK_INK_HOVER, describeBlock, findAnchorBlock } from '../utils/anchors';
 import {
   EDITABLE_SELECTOR,
   EDITABLE_TARGET_ATTR,
@@ -36,12 +37,14 @@ import {
 import {
   cutContentAfterCaret,
   deleteSegments,
+  focusEditableTarget,
   getEditableSegments,
   readSegments,
   removeAnchorPoint,
   removeLink,
   replaceSegmentsWithText,
 } from '../utils/richText';
+import { numberLabelForTypeAt } from '../utils/blockTypes';
 
 interface EditorCanvasProps {
   doc: LegislativeDocument;
@@ -58,24 +61,6 @@ interface EditorCanvasProps {
 const newBlockId = (prefix = 'block') =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-/** Dá o foco a um campo recém-criado, já com o cursor no início. */
-const focusTarget = (target: string) => {
-  requestAnimationFrame(() => {
-    const element = document.querySelector<HTMLElement>(
-      `[${EDITABLE_TARGET_ATTR}="${CSS.escape(target)}"]`
-    );
-    if (!element) return;
-
-    element.focus();
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  });
-};
-
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   doc,
   onUpdateDoc,
@@ -86,6 +71,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onInsertLink,
 }) => {
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
+  /** Remissão sob o ponteiro, cujo destino a etiqueta mostra. */
+  const [linkHint, setLinkHint] = useState<LinkHintState | null>(null);
 
   // As oito operações de tabela dividem uma única superfície neutra. Antes cada
   // uma tinha sua própria matiz (azul, ardósia, roxo, celeste, esmeralda,
@@ -155,8 +142,47 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     onNavigateAnchor(name);
   };
 
+  /** Onde chega uma remissão interna, dita como o dispositivo aparece na lista. */
+  const anchorDestination = (name: string): string => {
+    const block = findAnchorBlock(doc, name);
+    return block ? `Vai para ${describeBlock(block)}` : 'Nenhum ponto de ancoragem com este nome';
+  };
+
+  /*
+   * Etiqueta com o destino da remissão sob o ponteiro.
+   *
+   * O gesto é o `mouseover`, e não o `mousemove`: a etiqueta acompanha o link e
+   * não o ponteiro, de modo que ela é calculada uma vez por remissão visitada em
+   * vez de a cada pixel percorrido sobre a folha. Entrar num trecho que não é
+   * remissão — inclusive o texto em volta dela — apaga a etiqueta pelo mesmo
+   * caminho, porque o evento também sobe daí.
+   */
+  const handlePaperMouseOver = (event: React.MouseEvent) => {
+    const link = linkAt(event);
+    if (!link) {
+      setLinkHint((previous) => (previous ? null : previous));
+      return;
+    }
+
+    setLinkHint((previous) => {
+      if (previous?.element === link) return previous;
+
+      const name = anchorNameOf(link);
+      const { left, top, bottom } = link.getBoundingClientRect();
+      return {
+        element: link,
+        href: link.getAttribute('href') || '',
+        destination: name ? anchorDestination(name) : undefined,
+        left,
+        top,
+        bottom,
+      };
+    });
+  };
+
   const handlePaperContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
+    setLinkHint(null);
     const link = linkAt(event);
     const point = anchorPointAt(event);
 
@@ -250,32 +276,31 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   const handleAddBlockBelow = (index: number, type: BlockType, e: React.MouseEvent) => {
     e.stopPropagation();
-    let numberLabel = '';
-    if (type === 'ARTIGO') {
-      const artCount = doc.blocks.filter((b) => b.type === 'ARTIGO').length + 1;
-      numberLabel = `Art. ${artCount}º`;
-    } else if (type === 'PARAGRAFO') {
-      numberLabel = '§ 1º';
-    } else if (type === 'INCISO') {
-      numberLabel = 'I -';
-    } else if (type === 'ALINEA') {
-      numberLabel = 'a)';
-    }
+    // O rótulo sai da posição em que o dispositivo entra, não de uma contagem
+    // do ato inteiro: um artigo criado no meio do texto é o artigo dali.
+    const numberLabel = numberLabelForTypeAt(doc.blocks, index + 1, type);
 
-    const isFreeText = type === 'TEXTO_LIVRE';
+    /*
+     * O dispositivo nasce vazio: ele é lugar para escrever, e não texto
+     * escrito. A frase de espera que aparece na folha é desenhada pelo CSS
+     * sobre o campo em branco (ver `[data-cej-target]:empty` em index.css) e
+     * some ao primeiro caractere — o "Novo texto do dispositivo..." que ficava
+     * aqui era texto de verdade, e obrigava a selecioná-lo e apagá-lo antes de
+     * redigir.
+     */
     const newBlock: LegislativeBlock = {
       id: newBlockId(),
       type,
       numberLabel,
-      content: isFreeText ? '' : 'Novo texto do dispositivo...',
-      rawText: isFreeText ? '' : 'Novo texto do dispositivo...',
+      content: '',
+      rawText: '',
     };
 
     const newBlocks = [...doc.blocks];
     newBlocks.splice(index + 1, 0, newBlock);
     onUpdateDoc({ ...doc, blocks: newBlocks });
     onSelectBlock(newBlock.id);
-    focusTarget(blockTarget(newBlock.id));
+    focusEditableTarget(blockTarget(newBlock.id));
   };
 
   /**
@@ -314,7 +339,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     onUpdateDoc({ ...doc, blocks });
     onSelectBlock(newBlock.id);
-    focusTarget(blockTarget(newBlock.id));
+    focusEditableTarget(blockTarget(newBlock.id));
   };
 
   /** Nas partes fixas do ato não há quebra de parágrafo: elas são um parágrafo só. */
@@ -335,7 +360,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     };
     onUpdateDoc({ ...doc, blocks: [newBlock, ...doc.blocks] });
     onSelectBlock(newBlock.id);
-    focusTarget(blockTarget(newBlock.id));
+    focusEditableTarget(blockTarget(newBlock.id));
   };
 
   /**
@@ -631,6 +656,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     <main
       className="flex-1 h-full bg-tinta overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-selo/40 selection:text-black"
       onKeyDown={handleCanvasKeyDown}
+      /*
+        A etiqueta da remissão é posicionada em coordenadas de janela, medidas
+        no instante em que o ponteiro entrou no link. Rolar a folha move o link
+        e deixa a etiqueta para trás, apontando para o nada: ela sai de cena e
+        volta no próximo link visitado.
+      */
+      onScroll={() => setLinkHint((previous) => (previous ? null : previous))}
     >
       {/*
         Folha do ato normativo. A geometria daqui — Arial 10pt, recuo de 38px na
@@ -652,6 +684,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         onMouseDown={handlePaperMouseDown}
         onClick={handlePaperClick}
         onContextMenu={handlePaperContextMenu}
+        onMouseOver={handlePaperMouseOver}
+        onMouseLeave={() => setLinkHint(null)}
         style={
           {
             '--cej-link': LINK_INK,
@@ -989,7 +1023,20 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     <span className="select-none">”</span>
                   </div>
                 ) : isAgrupador(block.type) ? (
+                  /*
+                   * Agrupador. O rótulo fica fora do campo editável, como nos
+                   * demais dispositivos: no arquivo salvo ele e a denominação
+                   * são uma linha só — "CAPÍTULO I - DAS DISPOSIÇÕES" —, e é
+                   * por isso que os dois correm inline. O que vem do arquivo
+                   * importado traz a denominação inteira no conteúdo, sem
+                   * rótulo, e continua aparecendo como sempre apareceu.
+                   */
                   <div className="font-bold text-[10pt]" style={layout}>
+                    {block.numberLabel && (
+                      <span className="select-none">
+                        {normalizeNumberLabel(block.numberLabel)} -{' '}
+                      </span>
+                    )}
                     <Editable
                       target={target}
                       html={block.content}
@@ -997,7 +1044,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                       onKeyDown={(event) => handleBlockEnter(index, event)}
                       ariaLabel="Agrupador"
                       placeholder="Denominação do agrupador"
-                      className="outline-none focus:bg-selo/10 font-bold cursor-text"
+                      className="inline outline-none focus:bg-selo/10 font-bold cursor-text"
                     />
                   </div>
                 ) : (
@@ -1010,7 +1057,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     className="text-[10pt]"
                     style={layout}
                     onClick={(event) => {
-                      if (event.target === event.currentTarget) focusTarget(target);
+                      if (event.target === event.currentTarget) focusEditableTarget(target);
                     }}
                   >
                     {block.numberLabel && (
@@ -1107,6 +1154,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           onClose={() => setMenu(null)}
         />
       )}
+
+      {/* Destino da remissão sob o ponteiro, que a folha por si só não diz. */}
+      {linkHint && <LinkHint hint={linkHint} />}
     </main>
   );
 };

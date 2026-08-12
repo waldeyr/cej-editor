@@ -7,6 +7,8 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { LinkModal } from './components/LinkModal';
 import { OpenUrlModal } from './components/OpenUrlModal';
 import { DocumentTitleModal } from './components/DocumentTitleModal';
+import { InsertTableModal } from './components/InsertTableModal';
+import { SaveAsModal, suggestedFileName } from './components/SaveAsModal';
 import {
   LegislativeDocument,
   LegislativeBlock,
@@ -45,11 +47,18 @@ import {
   activeFormatsAtSelection,
   applyInlineFormat,
   clearFormatting,
+  focusEditableTarget,
   getEditableSegments,
   readSegments,
   wrapInAnchorPoint,
   wrapInLink,
 } from './utils/richText';
+import {
+  applyBlockType,
+  blockTypeName,
+  numberLabelForTypeAt,
+  renumberBlocks,
+} from './utils/blockTypes';
 import mammoth from 'mammoth';
 
 declare global {
@@ -70,6 +79,15 @@ const IMPORT_ENCODING = {
 };
 
 const NAMED_PARTS: readonly DocPart[] = ['epigrafe', 'ementa', 'preambulo', 'ordemExecucao', 'fecho'];
+
+/**
+ * Partes que abrem o ato. O que vem imediatamente abaixo delas na folha é o
+ * primeiro dispositivo do corpo, e é lá que nasce o conteúdo pedido com o
+ * cursor pousado numa delas.
+ */
+const OPENING_PART_TARGETS: readonly string[] = (
+  ['epigrafe', 'ementa', 'preambulo', 'ordemExecucao'] as const
+).map(partTarget);
 
 /** Ação de arquivo que só pode prosseguir depois de decidir o destino do trabalho em curso. */
 type PendingAction =
@@ -221,6 +239,9 @@ export const App: React.FC = () => {
   /** Trecho selecionado no momento em que uma caixa de diálogo é aberta. */
   const heldSegmentsRef = useRef<EditableSegment[]>([]);
 
+  /** Campos alcançados pelo cursor no momento em que a caixa da tabela é aberta. */
+  const heldInsertionTargetsRef = useRef<string[] | null>(null);
+
   /**
    * Documento incluindo a edição ainda em curso.
    *
@@ -346,7 +367,9 @@ export const App: React.FC = () => {
 
     const decoded = detectAndDecode(new Uint8Array(buffer));
     if (extension === 'doc' && !decoded.text.trimStart().startsWith('{\\rtf')) {
-      throw new Error('Arquivos .doc binarios nao sao suportados. Converta o documento para .docx ou .rtf e tente novamente.');
+      throw new Error(
+        'Este arquivo .doc é do Word antigo, que o editor não lê. Abra-o no Word e salve como .docx ou .rtf.'
+      );
     }
 
     loadDocument(parseRtfToLegislativeDocument(decoded.text));
@@ -381,10 +404,16 @@ export const App: React.FC = () => {
       return;
     }
 
+    /*
+     * A recusa de abrir vai para a barra de estado, como todo recado do
+     * programa: uma caixa do navegador interrompe o trabalho, rouba o foco da
+     * folha e ainda fala a língua do sistema operacional, não a do ofício.
+     */
     const run = action.kind === 'openHtml' ? openHtmlFile(action.file) : importDocFile(action.file);
     void run.catch((error: unknown) => {
-      console.error('Erro ao abrir documento:', error);
-      alert(error instanceof Error ? error.message : 'Nao foi possivel abrir o documento selecionado.');
+      setNotice(
+        error instanceof Error ? error.message : 'Não foi possível abrir o arquivo escolhido.'
+      );
     });
   };
 
@@ -463,7 +492,7 @@ export const App: React.FC = () => {
     const htmlContent = serializeToPlanaltoHtml(snapshot);
     const targetEncoding = 'windows-1252';
     const bytes = encodeToBytes(htmlContent, targetEncoding, snapshot.hasBom);
-    const defaultName = suggestedName || `${snapshot.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}.html`;
+    const defaultName = suggestedName || suggestedFileName(snapshot.title);
 
     const markSaved = () => setCleanDoc(snapshot);
 
@@ -536,15 +565,27 @@ export const App: React.FC = () => {
     if (saved) setJustSaved(true);
   };
 
-  // Salvar Como (permite escolher o nome do arquivo)
+  /*
+   * Salvar Como.
+   *
+   * Quem pergunta o nome é o seletor de gravação, quando ele existe: no
+   * aplicativo de mesa e nos navegadores com `showSaveFilePicker`, abrir uma
+   * caixa aqui faria a mesma pergunta duas vezes. A caixa do editor é para o
+   * caminho da descarga direta, que grava sem perguntar nada.
+   */
   const handleSaveAs = async () => {
-    const nome = prompt(
-      'Nome do arquivo para salvar (sem extensão):',
-      doc.title.replace(/[^a-zA-Z0-9\s]/g, '').trim() || 'ato_normativo'
-    );
-    if (!nome) return;
-    const defaultName = `${nome.trim().toLowerCase().replace(/\s+/g, '_')}.html`;
-    await performSaveFile(defaultName);
+    if (window.electronAPI || 'showSaveFilePicker' in window) {
+      const saved = await performSaveFile();
+      if (saved) setJustSaved(true);
+      return;
+    }
+
+    setShowSaveAsModal(true);
+  };
+
+  const handleSaveAsName = async (fileName: string) => {
+    const saved = await performSaveFile(fileName);
+    if (saved) setJustSaved(true);
   };
 
   // Executa a criação de um Novo Documento Limpo
@@ -584,99 +625,215 @@ export const App: React.FC = () => {
     setPendingAction(null);
   };
 
-  /** Insere o bloco logo abaixo do dispositivo selecionado, ou ao fim do ato. */
-  const insertBlock = (newBlock: LegislativeBlock) => {
-    setDoc((prev) => {
-      const index = prev.blocks.findIndex((b) => b.id === selectedBlockId);
-      const blocks = [...prev.blocks];
-      blocks.splice(index >= 0 ? index + 1 : blocks.length, 0, newBlock);
-      return { ...prev, blocks };
-    });
+  /**
+   * Dispositivos que a seleção alcança.
+   *
+   * Com um trecho selecionado, são todos os que ele atravessa; com o cursor
+   * pousado, o dispositivo que o abriga; sem foco algum na folha, o que está
+   * marcado na lista lateral. As partes fixas do ato — epígrafe, ementa,
+   * preâmbulo — ficam de fora: elas não são dispositivos e não têm tipo.
+   */
+  const blocksInPlay = (base: LegislativeDocument): string[] => {
+    const reached = targetsInPlay()
+      .filter((target) => target.startsWith('block:'))
+      .map((target) => target.slice('block:'.length));
+
+    if (reached.length > 0) return reached;
+    return base.blocks.some((block) => block.id === selectedBlockId) ? [selectedBlockId!] : [];
+  };
+
+  /**
+   * Onde entra o conteúdo novo: na linha imediatamente abaixo do cursor.
+   *
+   * O ponto de entrada vinha do dispositivo marcado na lista lateral, que diz
+   * onde o usuário esteve e não onde ele está: escrever no Art. 8º e pedir uma
+   * linha nova punha a linha embaixo do Art. 2º clicado minutos antes. Agora
+   * quem manda é o campo com o cursor — o mesmo lugar em que Enter abriria a
+   * linha. Com um trecho selecionado, ela nasce abaixo do último dispositivo
+   * que o trecho alcança.
+   *
+   * Nas partes fixas não há dispositivo abaixo do cursor, e aí vale a posição
+   * delas na folha: das que abrem o ato — epígrafe, ementa, preâmbulo, ordem de
+   * execução — a linha nasce à frente do primeiro dispositivo; do fecho e das
+   * assinaturas, ao fim do corpo. Sem cursor algum na folha, sobra a marca da
+   * lista lateral.
+   *
+   * `targets` existe para quem passa por uma caixa de diálogo antes de inserir:
+   * a caixa leva o foco embora, e aí o cursor a valer é o que foi lido no
+   * clique, não o que sobrou depois.
+   */
+  const insertionIndexIn = (
+    base: LegislativeDocument,
+    targets: string[] = targetsInPlay()
+  ): number => {
+    // Cursor num dispositivo: a linha nasce logo abaixo dele.
+    const reached = targets
+      .filter((target) => target.startsWith('block:'))
+      .map((target) => target.slice('block:'.length));
+    const anchor = reached[reached.length - 1];
+    const index = anchor ? base.blocks.findIndex((block) => block.id === anchor) : -1;
+    if (index >= 0) return index + 1;
+
+    // Cursor numa das partes que abrem o ato: à frente do primeiro dispositivo.
+    if (targets.some((target) => OPENING_PART_TARGETS.includes(target))) return 0;
+
+    // Cursor no fecho ou nas assinaturas, que vêm depois do corpo: ao fim dele.
+    if (targets.length > 0) return base.blocks.length;
+
+    // Sem cursor na folha: vale a marca da lista lateral.
+    const selected = base.blocks.findIndex((block) => block.id === selectedBlockId);
+    return selected >= 0 ? selected + 1 : base.blocks.length;
+  };
+
+  /** Insere o bloco na linha abaixo do cursor. */
+  const insertBlock = (
+    newBlock: LegislativeBlock,
+    base: LegislativeDocument = docRef.current,
+    targets?: string[]
+  ) => {
+    const blocks = [...base.blocks];
+    blocks.splice(insertionIndexIn(base, targets), 0, newBlock);
+    setDoc({ ...base, blocks });
     setSelectedBlockId(newBlock.id);
   };
 
-  // Adicionar Bloco
-  const handleAddBlock = (type: BlockType) => {
-    let numberLabel = '';
-    if (type === 'PARTE') {
-      const count = doc.blocks.filter((b) => b.type === 'PARTE').length + 1;
-      numberLabel = `PARTE ${count}`;
-    } else if (type === 'LIVRO') {
-      const count = doc.blocks.filter((b) => b.type === 'LIVRO').length + 1;
-      numberLabel = `LIVRO ${count}`;
-    } else if (type === 'TITULO') {
-      const count = doc.blocks.filter((b) => b.type === 'TITULO').length + 1;
-      numberLabel = `TÍTULO ${count}`;
-    } else if (type === 'SUBTITULO') {
-      const count = doc.blocks.filter((b) => b.type === 'SUBTITULO').length + 1;
-      numberLabel = `SUBTÍTULO ${count}`;
-    } else if (type === 'CAPITULO') {
-      const count = doc.blocks.filter((b) => b.type === 'CAPITULO').length + 1;
-      numberLabel = `CAPÍTULO ${count}`;
-    } else if (type === 'SECAO') {
-      const count = doc.blocks.filter((b) => b.type === 'SECAO').length + 1;
-      numberLabel = `Seção ${count}`;
-    } else if (type === 'SUBSECAO') {
-      const count = doc.blocks.filter((b) => b.type === 'SUBSECAO').length + 1;
-      numberLabel = `Subseção ${count}`;
-    } else if (type === 'ARTIGO') {
-      const artCount = doc.blocks.filter((b) => b.type === 'ARTIGO').length + 1;
-      numberLabel = `Art. ${artCount}º`;
-    } else if (type === 'PARAGRAFO') {
-      numberLabel = '§ 1º';
-    } else if (type === 'INCISO') {
-      numberLabel = 'I -';
-    } else if (type === 'ALINEA') {
-      numberLabel = 'a)';
-    } else if (type === 'ITEM') {
-      numberLabel = '1.';
-    }
+  /**
+   * Cria um dispositivo novo abaixo do selecionado, vazio.
+   *
+   * Vazio de propósito: o dispositivo que nasce de um clique é lugar para
+   * escrever, e não texto escrito. O campo em branco mostra na folha a frase de
+   * espera que o CSS desenha (ver `[data-cej-target]:empty` em index.css) — ela
+   * some ao primeiro caractere e nunca esteve no documento, ao contrário do
+   * "Novo texto do dispositivo..." que era preciso selecionar e apagar antes de
+   * redigir.
+   *
+   * Um botão só chega aqui por vontade própria: a linha sem formatação, que
+   * existe para receber texto que ainda não tem forma. Os demais aplicam o tipo
+   * ao que já está escrito — ver `handleApplyBlockType` — e recaem aqui apenas
+   * quando não há dispositivo algum no corpo do ato.
+   */
+  const insertNewBlock = (type: BlockType, base: LegislativeDocument) => {
+    const numberLabel = numberLabelForTypeAt(base.blocks, insertionIndexIn(base), type);
+    const id = `block-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // A linha sem formatação nasce vazia: ela existe justamente para receber
-    // conteúdo que ainda não tem forma de dispositivo.
-    const defaultContent =
-      type === 'TEXTO_LIVRE'
-        ? ''
-        : ['PARTE', 'LIVRO', 'TITULO', 'SUBTITULO', 'CAPITULO', 'SECAO', 'SUBSECAO', 'TITULO_AGRUPADOR'].includes(type)
-        ? `${numberLabel} - NOME DA ESTRUTURA`
-        : type === 'OMISSIS'
-        ? '.......................................................................................................'
-        : 'Novo texto do dispositivo...';
-
-    insertBlock({
-      id: `block-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type,
-      numberLabel,
-      content: defaultContent,
-      rawText: defaultContent,
-    });
+    insertBlock({ id, type, numberLabel, content: '', rawText: '' }, base);
+    focusEditableTarget(blockTarget(id));
   };
 
-  const handleInsertTable = () => {
-    const rowsInput = prompt('Quantidade de linhas da tabela:', '3');
-    if (rowsInput === null) return;
+  /**
+   * Aplica um tipo de dispositivo ao trecho selecionado.
+   *
+   * É o mesmo gesto do negrito, um degrau acima: seleciona-se o texto e diz-se o
+   * que ele é. Antes cada botão da barra de estrutura criava um dispositivo novo
+   * com texto de exemplo, de modo que dar forma a um parágrafo já escrito era
+   * trabalho manual de recortar e colar.
+   *
+   * Formatar não escreve: a conversão muda o tipo e o rótulo do dispositivo, e o
+   * texto na folha continua sendo palavra por palavra o que o redator escreveu.
+   * Fora dela fica apenas a linha sem formatação, que nasce vazia justamente
+   * porque não há texto do qual ela possa nascer.
+   */
+  const handleApplyBlockType = (type: BlockType) => {
+    // O campo com o foco pode estar sendo digitado neste instante, e é o texto
+    // que está na tela que recebe o tipo.
+    const base = currentDoc();
 
-    const colsInput = prompt('Quantidade de colunas da tabela:', '3');
-    if (colsInput === null) return;
-
-    const rows = Number.parseInt(rowsInput, 10);
-    const columns = Number.parseInt(colsInput, 10);
-
-    if (!Number.isFinite(rows) || !Number.isFinite(columns) || rows < 1 || columns < 1) {
-      alert('Informe valores inteiros maiores que zero para linhas e colunas.');
+    if (type === 'TEXTO_LIVRE') {
+      insertNewBlock(type, base);
       return;
     }
 
-    const safeRows = Math.min(rows, 100);
-    const safeColumns = Math.min(columns, 20);
+    const reached = blocksInPlay(base);
+    if (reached.length === 0) {
+      // Um ato sem dispositivo algum não tem o que converter: o primeiro nasce
+      // aqui, vazio, com o rótulo que a posição lhe dá.
+      if (base.blocks.length === 0) {
+        insertNewBlock(type, base);
+        return;
+      }
+      setNotice(`Selecione no corpo do ato o texto que deve virar ${blockTypeName(type)}.`);
+      return;
+    }
 
-    insertBlock({
-      id: `table-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type: 'TABELA',
-      content: createEmptyTableHtml(safeRows, safeColumns),
-      rawText: 'Tabela',
-      tableRows: Array.from({ length: safeRows }, () => Array.from({ length: safeColumns }, () => '')),
-    });
+    const ids = new Set(reached);
+    const blocks = applyBlockType(base.blocks, ids, type);
+    const converted = blocks.filter((block, index) => block !== base.blocks[index]);
+
+    if (converted.length === 0) {
+      setNotice(`Nada a converter: o trecho selecionado já é ${blockTypeName(type)}.`);
+      return;
+    }
+
+    setDoc({ ...base, blocks });
+    if (!ids.has(selectedBlockId || '')) setSelectedBlockId(converted[0].id);
+  };
+
+  /**
+   * Refaz a numeração pela ordem dos dispositivos no ato.
+   *
+   * Inserir um artigo no meio do texto acerta o número do que entrou e deixa os
+   * seguintes um passo atrás — e o rótulo não é editável na folha. Este é o
+   * comando que fecha o ciclo, e ele é explícito de propósito: renumerar por
+   * conta própria a cada inserção reescreveria, calado, a numeração de um ato
+   * que pode ter sido escrita à mão.
+   *
+   * Com um trecho selecionado, ele alcança apenas os dispositivos desse trecho;
+   * sem seleção, o ato inteiro — que é o caso comum de quem acabou de inserir
+   * um artigo e quer o resto acertado.
+   */
+  const handleRenumber = () => {
+    const base = currentDoc();
+
+    const selected = getEditableSegments()
+      .map((segment) => segment.target)
+      .filter((target) => target.startsWith('block:'))
+      .map((target) => target.slice('block:'.length));
+
+    const blocks = renumberBlocks(base.blocks, selected.length > 0 ? new Set(selected) : undefined);
+    const changed = blocks.filter((block, index) => block !== base.blocks[index]).length;
+
+    if (changed === 0) {
+      setNotice('A numeração já acompanha a ordem dos dispositivos.');
+      return;
+    }
+
+    setDoc({ ...base, blocks });
+    setNotice(
+      changed === 1 ? '1 dispositivo renumerado.' : `${changed} dispositivos renumerados.`
+    );
+  };
+
+  /**
+   * Retém o cursor antes de perguntar a medida da tabela.
+   *
+   * A caixa abre com o foco no campo de linhas, e com ele se desfaz a seleção na
+   * folha: quando a medida enfim chegava, não havia mais cursor a consultar e a
+   * tabela nascia onde a lista lateral apontasse — em geral no fim do ato. O
+   * ponto de entrada é lido aqui, no clique, enquanto o cursor ainda está no
+   * dispositivo, e fica retido até a inserção.
+   */
+  const handleOpenTableModal = () => {
+    // O campo pode estar sendo digitado neste instante: o texto na tela é o que vale.
+    currentDoc();
+    heldInsertionTargetsRef.current = targetsInPlay();
+    setShowTableModal(true);
+  };
+
+  const handleInsertTable = (rows: number, columns: number) => {
+    const held = heldInsertionTargetsRef.current ?? undefined;
+    heldInsertionTargetsRef.current = null;
+
+    insertBlock(
+      {
+        id: `table-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        type: 'TABELA',
+        content: createEmptyTableHtml(rows, columns),
+        rawText: 'Tabela',
+        tableRows: Array.from({ length: rows }, () => Array.from({ length: columns }, () => '')),
+      },
+      docRef.current,
+      held
+    );
   };
 
   /** Reordena o corpo do ato — usado pelo arrasto na Vista do Ato. */
@@ -693,6 +850,8 @@ export const App: React.FC = () => {
   const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
   const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
   const [showTitleModal, setShowTitleModal] = useState<boolean>(false);
+  const [showTableModal, setShowTableModal] = useState<boolean>(false);
+  const [showSaveAsModal, setShowSaveAsModal] = useState<boolean>(false);
   const [activeSelectionText, setActiveSelectionText] = useState<string>('');
 
   /**
@@ -755,7 +914,10 @@ export const App: React.FC = () => {
 
     const segments = getEditableSegments();
     if (segments.length === 0) {
-      alert('Selecione no documento o trecho de texto a formatar.');
+      // Recado na barra de estado, como os demais: uma caixa modal para dizer
+      // que falta selecionar texto interrompe o trabalho para nada e ainda
+      // tira da folha o foco que o próximo gesto vai precisar.
+      setNotice('Selecione no corpo do ato o trecho de texto a formatar.');
       return;
     }
 
@@ -846,13 +1008,25 @@ export const App: React.FC = () => {
     spot.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
   };
 
-  /** Alinhamento: propriedade do parágrafo, gravada no bloco e no HTML exportado. */
+  /**
+   * Alinhamento: propriedade do parágrafo, gravada no bloco e no HTML exportado.
+   *
+   * Vale para todos os campos que a seleção atravessa — selecionar do meio de um
+   * artigo até o meio do seguinte e centralizar alinha os dois, como em qualquer
+   * editor de texto. `targetsInPlay`, lido a cada mudança de seleção, é quem diz
+   * quais são eles; sem seleção alguma, o alinhamento cai sobre o dispositivo
+   * marcado na lista lateral.
+   *
+   * A leitura passa por `currentDoc` porque o campo com o foco pode estar sendo
+   * digitado neste instante: sem isso, o alinhamento devolveria à folha a versão
+   * anterior da frase, desfazendo o que o usuário acabou de escrever.
+   */
   const handleAlign = (align: BlockAlign) => {
     const targets = activeTargets.length > 0 ? activeTargets : [targetForSelectedId(selectedBlockId)];
     const valid = targets.filter((target): target is string => Boolean(target));
     if (valid.length === 0) return;
 
-    let next = docRef.current;
+    let next = currentDoc();
     valid.forEach((target) => {
       next = setAlignForTarget(next, target, align);
     });
@@ -929,10 +1103,11 @@ export const App: React.FC = () => {
         onImportRtf={handleImportRtf}
         onOpenHtml={handleOpenHtml}
         onOpenUrl={() => setShowUrlModal(true)}
-        onInsertTable={handleInsertTable}
+        onInsertTable={handleOpenTableModal}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
-        onAddBlock={handleAddBlock}
+        onApplyBlockType={handleApplyBlockType}
+        onRenumber={handleRenumber}
         onFormatInline={handleFormatInline}
         onAlign={handleAlign}
         activeFormats={activeFormats}
@@ -1008,6 +1183,21 @@ export const App: React.FC = () => {
         isOpen={showUrlModal}
         onSubmit={handleOpenUrl}
         onClose={() => setShowUrlModal(false)}
+      />
+
+      {/* Medida da tabela a inserir */}
+      <InsertTableModal
+        isOpen={showTableModal}
+        onInsert={handleInsertTable}
+        onClose={() => setShowTableModal(false)}
+      />
+
+      {/* Nome do arquivo, quando o sistema não pergunta */}
+      <SaveAsModal
+        isOpen={showSaveAsModal}
+        suggested={suggestedFileName(doc.title)}
+        onSubmit={handleSaveAsName}
+        onClose={() => setShowSaveAsModal(false)}
       />
 
       {/* Para onde o trecho selecionado vai levar */}
