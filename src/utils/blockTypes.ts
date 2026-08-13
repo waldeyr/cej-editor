@@ -1,7 +1,7 @@
 import { BlockType, LegislativeBlock } from '../types/legislative';
 import { sanitizeQuoteText } from '../parser/rtfParser';
 import { htmlToPlainText } from './docTargets';
-import { RANK_NONE, isAgrupador, rankOf } from './rank';
+import { RANK_NONE, desenhaComoTitulo, isAgrupador, rankOf } from './rank';
 
 /**
  * Aplicar um tipo de dispositivo a um bloco que já existe.
@@ -112,13 +112,18 @@ export function ordinalForTypeAt(
   counts: (block: LegislativeBlock) => boolean = () => true
 ): number {
   const rank = rankOf(type);
-  if (rank === RANK_NONE) return 0;
-
   const upTo = Math.max(0, Math.min(index, blocks.length));
 
-  if (type === 'ARTIGO' || isAgrupador(type)) {
+  /*
+   * Série única no ato inteiro. O anexo entra aqui embora esteja fora da
+   * hierarquia ordinal: "ANEXO I", "ANEXO II" correm no ato todo, como o
+   * artigo e os agrupadores, e não dentro do dispositivo que os antecede.
+   */
+  if (type === 'ANEXO' || type === 'ARTIGO' || isAgrupador(type)) {
     return blocks.slice(0, upTo).filter((block) => block.type === type && counts(block)).length + 1;
   }
+
+  if (rank === RANK_NONE) return 0;
 
   let position = 1;
   for (let i = upTo - 1; i >= 0; i--) {
@@ -169,9 +174,29 @@ export function numberLabelForTypeAt(
       return `${toLetters(position)})`;
     case 'ITEM':
       return `${position}.`;
+    case 'ANEXO':
+      return `ANEXO ${toRoman(position)}`;
     default:
       return '';
   }
+}
+
+/**
+ * Onde começa o anexo, isto é, a parte do ato que se lê depois das assinaturas.
+ *
+ * A lista de dispositivos continua sendo uma só (`doc.blocks`); o que existe é
+ * um corte, e o corte é o primeiro bloco do tipo `ANEXO`. Foi a solução
+ * escolhida em vez de um segundo vetor no documento: a lista plana mantém
+ * intactos o histórico, a reordenação, o endereçamento por `id` e o validador,
+ * enquanto dois vetores obrigariam todo manipulador de bloco a saber em qual
+ * dos dois está mexendo.
+ *
+ * Quem consome isto são a folha e o serializador, que desenham corpo, fecho,
+ * assinaturas e então o anexo — a ordem do ato publicado.
+ */
+export function inicioDoAnexo(blocks: readonly LegislativeBlock[]): number {
+  const indice = blocks.findIndex((bloco) => bloco.type === 'ANEXO');
+  return indice === -1 ? blocks.length : indice;
 }
 
 /**
@@ -244,8 +269,14 @@ function splitTypedLabel(html: string, type: BlockType): { html: string; label?:
   return { html: kept, label: canonicalTypedLabel(type, match) };
 }
 
-/** Denominações que já trazem o nome do agrupador no próprio texto. */
-const AGRUPADOR_HEADING = /^(?:<[^>]+>|\s|&nbsp;|&#160;)*(PARTE|LIVRO|T[ÍI]TULO|SUBT[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)\b/i;
+/**
+ * Denominações que já trazem o próprio nome no texto.
+ *
+ * `ANEXO` está aqui pelo mesmo motivo dos agrupadores: um bloco importado que
+ * já diz "ANEXO I" não pode receber de novo o rótulo "ANEXO I", ou a folha
+ * mostraria o nome duas vezes.
+ */
+const AGRUPADOR_HEADING = /^(?:<[^>]+>|\s|&nbsp;|&#160;)*(PARTE|LIVRO|T[ÍI]TULO|SUBT[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O|ANEXOS?)\b/i;
 
 /**
  * O bloco com o novo tipo, já numerado. `preceding` são os blocos que ficam
@@ -291,7 +322,7 @@ function retypeBlock(
    * Uma denominação que já comece pelo nome do agrupador não recebe rótulo
    * algum: o número dela já está escrito, e é o que o ato diz.
    */
-  if (isAgrupador(type)) {
+  if (desenhaComoTitulo(type)) {
     const numberLabel = AGRUPADOR_HEADING.test(block.content)
       ? ''
       : numberLabelForTypeAt(preceding, preceding.length, type);

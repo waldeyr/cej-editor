@@ -9,6 +9,7 @@ import {
   Bold,
   Italic,
   Underline,
+  Strikethrough,
   Superscript,
   Subscript,
   RemoveFormatting,
@@ -30,6 +31,12 @@ import {
 import { BlockAlign, BlockType } from '../types/legislative';
 import { InlineFormat } from '../utils/richText';
 import { blockTypeName } from '../utils/blockTypes';
+import {
+  DocPart,
+  GENERO_DA_PARTE,
+  NOME_DA_PARTE,
+  PARTES_PRELIMINARES,
+} from '../utils/docTargets';
 import { textInkOf, weightOf } from '../utils/rank';
 import logoCej from '../assets/logo-cej.png';
 
@@ -51,6 +58,11 @@ interface ToolbarProps {
    * as exceções que criam bloco novo — ver `handleApplyBlockType` em App.
    */
   onApplyBlockType: (type: BlockType) => void;
+  /**
+   * Faz do texto selecionado uma das partes que abrem o ato. O trecho sai da
+   * lista de dispositivos e passa a morar no campo — ver `handleApplyPart`.
+   */
+  onApplyPart: (part: DocPart) => void;
   /** Refaz a numeração dos dispositivos selecionados — ou do ato inteiro. */
   onRenumber: () => void;
   onFormatInline: (format: TextCommand) => void;
@@ -91,6 +103,12 @@ const ESTRUTURA: readonly BlockType[] = [
   'CAPITULO',
   'SECAO',
   'SUBSECAO',
+  /*
+   * O anexo fecha a lista porque fecha o ato: ele é a última coisa que se lê,
+   * depois das assinaturas. Vinha só de arquivo importado, e uma parte da folha
+   * que o redator vê mas não sabe criar é pior do que não existir.
+   */
+  'ANEXO',
 ];
 
 const DISPOSITIVOS: readonly BlockType[] = ['ARTIGO', 'PARAGRAFO', 'INCISO', 'ALINEA', 'ITEM'];
@@ -106,6 +124,7 @@ const FORMATOS: readonly { format: InlineFormat; label: string; icon: React.Reac
   { format: 'bold', label: 'Negrito', icon: <Bold size={14} /> },
   { format: 'italic', label: 'Itálico', icon: <Italic size={14} /> },
   { format: 'underline', label: 'Sublinhado', icon: <Underline size={14} /> },
+  { format: 'strikethrough', label: 'Tachado', icon: <Strikethrough size={14} /> },
   { format: 'superscript', label: 'Sobrescrito', icon: <Superscript size={14} /> },
   { format: 'subscript', label: 'Subscrito', icon: <Subscript size={14} /> },
 ];
@@ -121,6 +140,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
   onSaveAs,
   onApplyBlockType,
+  onApplyPart,
   onRenumber,
   onFormatInline,
   onAlign,
@@ -137,6 +157,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     // Impede que o clique na barra roube o foco e colapse a seleção corrente.
     e.preventDefault();
   };
+
+  /*
+   * Botão de parte fixa. Mesmo gesto do botão de estrutura, e por isso a mesma
+   * retenção da seleção no `mousedown`. A tinta é a do texto comum, e não a da
+   * rampa hierárquica: a epígrafe não é degrau da articulação.
+   */
+  const partButton = (part: DocPart) => (
+    <button
+      key={part}
+      type="button"
+      onMouseDown={preserveSelectionMouseDown}
+      onClick={() => onApplyPart(part)}
+      title={`Fazer do texto selecionado ${GENERO_DA_PARTE[part]} ${NOME_DA_PARTE[part].toLowerCase()} do ato`}
+      className="h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+    >
+      {NOME_DA_PARTE[part]}
+    </button>
+  );
 
   /*
    * Botão de estrutura. Ele formata o que está selecionado, e por isso segura a
@@ -426,6 +464,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       */}
       <div className="flex px-2 h-9 overflow-x-auto">
         <div className="flex items-center gap-1.5 mx-auto">
+        {PARTES_PRELIMINARES.map((part) => partButton(part))}
+
+        <Divider />
+
         {ESTRUTURA.map((type) => structureButton(type))}
 
         <Divider />

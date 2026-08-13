@@ -87,6 +87,19 @@ export function isAgrupador(type: BlockType): boolean {
   return AGRUPADORES.includes(type);
 }
 
+/**
+ * O bloco se desenha como título: centralizado e em negrito, na folha e no
+ * arquivo salvo.
+ *
+ * O anexo entra aqui, mas **não** em `AGRUPADORES` nem em `RANK_BY_TYPE`: ele
+ * não é degrau da hierarquia ordinal (invariante 5) — não está acima nem abaixo
+ * de um artigo, está fora da articulação. Pô-lo na escala o faria contar série
+ * com capítulos e seções, e a Vista do Ato o recuaria como se fosse um deles.
+ */
+export function desenhaComoTitulo(type: BlockType): boolean {
+  return isAgrupador(type) || type === 'ANEXO';
+}
+
 /** Largura da marca na trilha. Blocos fora da hierarquia ocupam a faixa inteira. */
 export function tickWidthOf(type: BlockType): number {
   const rank = rankOf(type);

@@ -18,6 +18,7 @@ import {
 } from './types/legislative';
 import { parseRtfToLegislativeDocument } from './parser/rtfParser';
 import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './parser/htmlSerializer';
+import { completarEmentaDoDocx, prepararHtmlDoDocx } from './parser/docxHtml';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
 import { useHistory } from './hooks/useHistory';
@@ -32,12 +33,18 @@ import {
 import {
   DocPart,
   EDITABLE_TARGET_ATTR,
+  GENERO_DA_PARTE,
+  NOME_DA_PARTE,
+  PARTES_PRELIMINARES,
   applyHtmlToTarget,
   assinaturaTarget,
   blockTarget,
   htmlToPlainText,
+  isEmptyHtml,
   markOrdemExecucaoAsPlain,
+  moverParaParte,
   partTarget,
+  podeVirarParte,
   resolvedAlignForTarget,
   setAlignForTarget,
 } from './utils/docTargets';
@@ -56,6 +63,7 @@ import {
 import {
   applyBlockType,
   blockTypeName,
+  inicioDoAnexo,
   numberLabelForTypeAt,
   renumberBlocks,
 } from './utils/blockTypes';
@@ -361,7 +369,35 @@ export const App: React.FC = () => {
 
     if (extension === 'docx') {
       const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
-      loadDocument(deserializePlanaltoHtmlToDocument(result.value));
+      const preparo = prepararHtmlDoDocx(result.value);
+      const importado = completarEmentaDoDocx(deserializePlanaltoHtmlToDocument(preparo.html));
+      loadDocument(importado);
+
+      /*
+       * O recado conta o que entrou, porque a conversão de Word é a única que
+       * pode sair calada e incompleta: o mammoth não lê cabeçalho nem rodapé, e
+       * avisa por uma lista que ninguém via. Sem a conta, uma tabela perdida
+       * passa despercebida até alguém reler o ato inteiro.
+       */
+      const tabelas = importado.blocks.filter((bloco) => bloco.type === 'TABELA').length;
+      // A tabela é bloco como os outros: contá-la aqui e de novo adiante daria
+      // o mesmo conteúdo duas vezes num recado que existe para conferir contas.
+      const dispositivos = importado.blocks.length - tabelas;
+      const avisos = result.messages.length;
+      setNotice(
+        [
+          `Documento importado: ${dispositivos} ${dispositivos === 1 ? 'dispositivo' : 'dispositivos'}`,
+          tabelas > 0 ? `${tabelas} ${tabelas === 1 ? 'tabela' : 'tabelas'}` : '',
+          preparo.comentariosDescartados > 0
+            ? `${preparo.comentariosDescartados} ${
+                preparo.comentariosDescartados === 1 ? 'comentário' : 'comentários'
+              } de revisão fora do ato`
+            : '',
+          avisos > 0 ? `${avisos} ${avisos === 1 ? 'aviso' : 'avisos'} de conversão` : '',
+        ]
+          .filter(Boolean)
+          .join(', ') + '.'
+      );
       return;
     }
 
@@ -677,12 +713,17 @@ export const App: React.FC = () => {
     // Cursor numa das partes que abrem o ato: à frente do primeiro dispositivo.
     if (targets.some((target) => OPENING_PART_TARGETS.includes(target))) return 0;
 
-    // Cursor no fecho ou nas assinaturas, que vêm depois do corpo: ao fim dele.
-    if (targets.length > 0) return base.blocks.length;
+    /*
+     * Cursor no fecho ou nas assinaturas: ao fim do corpo do ato — antes do
+     * anexo, que na folha se desenha depois delas. Sem esse cuidado o
+     * dispositivo novo nasceria no fim do anexo, longe de onde está o cursor.
+     */
+    const fimDoCorpo = inicioDoAnexo(base.blocks);
+    if (targets.length > 0) return fimDoCorpo;
 
     // Sem cursor na folha: vale a marca da lista lateral.
     const selected = base.blocks.findIndex((block) => block.id === selectedBlockId);
-    return selected >= 0 ? selected + 1 : base.blocks.length;
+    return selected >= 0 ? selected + 1 : fimDoCorpo;
   };
 
   /** Insere o bloco na linha abaixo do cursor. */
@@ -766,6 +807,88 @@ export const App: React.FC = () => {
 
     setDoc({ ...base, blocks });
     if (!ids.has(selectedBlockId || '')) setSelectedBlockId(converted[0].id);
+  };
+
+  /**
+   * Faz do texto selecionado a epígrafe, a ementa ou o preâmbulo.
+   *
+   * O gesto é o dos botões de estrutura — selecionar e dizer o que aquilo é —,
+   * e por isso os botões ficam na mesma linha da barra. O que muda é o destino:
+   * a parte fixa é campo do documento, não dispositivo, então o trecho sai da
+   * lista de dispositivos ao entrar no campo.
+   */
+  const handleApplyPart = (part: DocPart) => {
+    // O campo com o foco pode estar sendo digitado neste instante.
+    const base = currentDoc();
+    const destino = partTarget(part);
+    const nome = NOME_DA_PARTE[part];
+    // Vale pelo artigo definido e pela concordância do particípio.
+    const genero = GENERO_DA_PARTE[part];
+
+    /*
+     * Só o cursor na folha comanda — a marca da Vista do Ato, não.
+     *
+     * Os botões de estrutura aceitam a marca da lista porque a conversão deixa
+     * o dispositivo onde ele está: muda o tipo, e pronto. Este comando **tira**
+     * o trecho da lista de dispositivos e ainda por cima reescreve um campo do
+     * ato. Feito sem que ninguém tenha selecionado nada, é um salto grande
+     * demais para desfazer de cabeça.
+     */
+    const alvos = targetsInPlay();
+
+    if (alvos.length === 0) {
+      setNotice(`Selecione na folha o texto que deve virar ${genero} ${nome.toLowerCase()}.`);
+      return;
+    }
+
+    /*
+     * Nem tudo o que está na folha pode virar parte fixa, e a recusa precisa
+     * dizer qual é o impedimento — um botão que não faz nada e não explica leva
+     * o redator a clicar de novo, mais forte.
+     */
+    const impedimento = alvos
+      .map((alvo) => {
+        if (alvo.startsWith('assinatura:')) return 'A assinatura não é texto do ato.';
+        if (alvo.startsWith('part:') && !PARTES_PRELIMINARES.includes(alvo.slice(5) as DocPart)) {
+          const outra = alvo.slice(5) as DocPart;
+          return `${NOME_DA_PARTE[outra]} não se move por aqui: sem texto, ${GENERO_DA_PARTE[outra]} ${NOME_DA_PARTE[outra].toLowerCase()} sumiria da folha.`;
+        }
+        const bloco = base.blocks.find((candidato) => blockTarget(candidato.id) === alvo);
+        if (bloco && !podeVirarParte(bloco)) {
+          return bloco.type === 'TABELA'
+            ? 'A tabela não pode virar parte do ato: ela deixaria de ser tabela.'
+            : 'O anexo não pode virar parte do ato: é ele que marca onde o anexo começa.';
+        }
+        return '';
+      })
+      .find(Boolean);
+
+    if (impedimento) {
+      setNotice(impedimento);
+      return;
+    }
+
+    const substituiu = !isEmptyHtml(base[part]);
+    const novo = moverParaParte(base, part, alvos);
+
+    if (novo === base) {
+      setNotice(`Nada a mover: o trecho selecionado já é ${genero} ${nome.toLowerCase()}, ou está em branco.`);
+      return;
+    }
+
+    // A marca da Vista do Ato não pode apontar para um dispositivo que saiu da
+    // lista: sem isto, a trilha e a inserção passam a olhar para um id morto.
+    if (!novo.blocks.some((bloco) => bloco.id === selectedBlockId)) {
+      setSelectedBlockId(novo.blocks[0]?.id);
+    }
+
+    setDoc(novo);
+    focusEditableTarget(destino);
+    setNotice(
+      substituiu
+        ? `${nome} substituíd${genero}. O texto anterior volta com Ctrl+Z.`
+        : `${nome} definid${genero}.`
+    );
   };
 
   /**
@@ -1107,6 +1230,7 @@ export const App: React.FC = () => {
         onSave={handleSave}
         onSaveAs={handleSaveAs}
         onApplyBlockType={handleApplyBlockType}
+        onApplyPart={handleApplyPart}
         onRenumber={handleRenumber}
         onFormatInline={handleFormatInline}
         onAlign={handleAlign}

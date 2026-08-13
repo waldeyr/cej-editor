@@ -16,12 +16,19 @@ import { EDITABLE_SELECTOR, EDITABLE_TARGET_ATTR } from './docTargets';
  * `data-cej-target`.
  */
 
-export type InlineFormat = 'bold' | 'italic' | 'underline' | 'superscript' | 'subscript';
+export type InlineFormat =
+  | 'bold'
+  | 'italic'
+  | 'underline'
+  | 'strikethrough'
+  | 'superscript'
+  | 'subscript';
 
 const TAG_BY_FORMAT: Record<InlineFormat, string> = {
   bold: 'b',
   italic: 'i',
   underline: 'u',
+  strikethrough: 's',
   superscript: 'sup',
   subscript: 'sub',
 };
@@ -31,11 +38,13 @@ const TAGS_BY_FORMAT: Record<InlineFormat, readonly string[]> = {
   bold: ['b', 'strong'],
   italic: ['i', 'em'],
   underline: ['u'],
+  strikethrough: ['s', 'strike', 'del'],
   superscript: ['sup'],
   subscript: ['sub'],
 };
 
-const INLINE_WRAPPERS = 'span, b, strong, i, em, u, s, mark, a, font, sub, sup, small, big';
+const INLINE_WRAPPERS =
+  'span, b, strong, i, em, u, s, strike, del, mark, a, font, sub, sup, small, big';
 
 const MAX_UNWRAP_DEPTH = 24;
 

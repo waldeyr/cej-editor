@@ -1,5 +1,6 @@
 import { LegislativeDocument, LegislativeBlock } from '../types/legislative';
-import { isAgrupador } from '../utils/rank';
+import { desenhaComoTitulo } from '../utils/rank';
+import { inicioDoAnexo } from '../utils/blockTypes';
 import { LINK_INK, LINK_INK_HOVER } from '../utils/anchors';
 import {
   assinaturaTarget,
@@ -92,9 +93,15 @@ export function serializeToPlanaltoHtml(doc: LegislativeDocument): string {
 	<p class="Textbody0" style="text-align: ${ordemExecucaoAlign}; text-indent: ${indentForAlign(ordemExecucaoAlign)}; margin-left: 0cm; margin-right: -.05pt; margin-top: 15px; margin-bottom: 15px">
   ${ordemExecucaoPrefix}<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${ordemExecucaoHtml}</span>${ordemExecucaoSuffix}</p>`;
 
-  const blocksHtml = doc.blocks
-    .map((block) => serializeBlockToHtml(block))
-    .join('\n');
+  /*
+   * O anexo se lê depois das assinaturas, e é assim que o arquivo o escreve.
+   * O corte é o primeiro bloco do tipo `ANEXO` — ver `inicioDoAnexo`.
+   */
+  const corte = inicioDoAnexo(doc.blocks);
+  const serializar = (blocos: readonly LegislativeBlock[]) =>
+    blocos.map((block) => serializeBlockToHtml(block)).join('\n');
+  const blocksHtml = serializar(doc.blocks.slice(0, corte));
+  const anexosHtml = serializar(doc.blocks.slice(corte));
 
   const fechoHtml = `
 	<p class="MsoNormal" style="text-align: ${fechoAlign}; text-indent: ${indentForAlign(fechoAlign)}; line-height: normal; margin-top: 15px; margin-bottom: 15px">
@@ -143,6 +150,7 @@ ${preambuloHtml}
 ${blocksHtml}
 ${fechoHtml}
 ${assinaturasHtml}
+${anexosHtml}
 </body></html>`;
 }
 
@@ -160,6 +168,12 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
   const labelPrefix = block.numberLabel ? `${block.numberLabel} ` : '';
   const align = block.align || defaultAlignForBlockType(block.type);
   const indent = indentForAlign(align);
+  /*
+   * "(NR)" fecha o dispositivo alterado, depois das aspas (Decreto nº
+   * 12.002/2024, art. 14, I). Vem da marca do bloco, e não do texto: o redator
+   * não o digita nem o apaga por engano, e ele sobrevive à ida e à volta.
+   */
+  const novaRedacao = block.novaRedacao ? ' (NR)' : '';
 
   if (block.type === 'TABELA') {
     return `\t<div align="center" style="margin-top: 15px; margin-bottom: 15px" data-block-id="${block.id}">${anchor}\n${block.content}\n\t</div>`;
@@ -169,18 +183,19 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
     return `\t<blockquote data-block-id="${block.id}">
 \t\t<blockquote>
 \t\t\t<p class="Textbody0" style="text-align: ${align}; text-indent: ${indent}; vertical-align: baseline; margin-right: 0cm; margin-top: 15px; margin-bottom: 15px">
-\t\t\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${anchor}“${labelPrefix}${block.content}”</span></p>
+\t\t\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${anchor}“${labelPrefix}${block.content}”${novaRedacao}</span></p>
 \t\t</blockquote>
 \t</blockquote>`;
   }
 
   /*
-   * Agrupadores (Parte, Livro, Título, Capítulo, Seção…) saem centralizados e
-   * em negrito, como aparecem na tela. Antes, apenas TITULO_AGRUPADOR recebia
-   * esse tratamento: os demais eram exportados como parágrafo justificado e com
-   * o rótulo repetido, já que a denominação completa está no próprio conteúdo.
+   * Agrupadores (Parte, Livro, Título, Capítulo, Seção…) e o título do anexo
+   * saem centralizados e em negrito, como aparecem na tela. Antes, apenas
+   * TITULO_AGRUPADOR recebia esse tratamento: os demais eram exportados como
+   * parágrafo justificado e com o rótulo repetido, já que a denominação
+   * completa está no próprio conteúdo.
    */
-  if (isAgrupador(block.type)) {
+  if (desenhaComoTitulo(block.type)) {
     /*
      * "CAPÍTULO I - DAS DISPOSIÇÕES" é uma linha só, e é assim que ela sai
      * daqui. O travessão separa o rótulo da denominação: no agrupador o número
@@ -188,13 +203,20 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
      * O que vem do arquivo importado traz a denominação inteira no conteúdo e
      * rótulo nenhum — nesse caso não há o que prefixar.
      */
-    const denominacao = block.numberLabel ? `${block.numberLabel} - ` : '';
+    /*
+     * Sem denominação não há o que separar, e o travessão não pode sair
+     * sozinho: "ANEXO I - " reaberto deixava de ser reconhecido como título de
+     * anexo, e a região inteira do anexo voltava para o corpo do ato — o
+     * caminho normal de quem cria um anexo pela barra, já que o dispositivo
+     * nasce vazio (invariante 2).
+     */
+    const denominacao = block.numberLabel ? (block.content ? `${block.numberLabel} - ` : block.numberLabel) : '';
     return `\t<p align="${align}" style="margin-top: 20px; margin-bottom: 10px" data-block-id="${block.id}">
 \t\t<b><span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${denominacao}${block.content}</span></b></p>`;
   }
 
   return `\t<p class="MsoNormal" style="text-align: ${align}; text-indent: ${indent}; line-height: normal; margin-top: 15px; margin-bottom: 15px" data-block-id="${block.id}">
-\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${labelPrefix}${block.content}</span></p>`;
+\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${labelPrefix}${block.content}${novaRedacao}</span></p>`;
 }
 
 /** Texto de uma linha só: é assim que as partes fixas do ato são guardadas. */
@@ -231,22 +253,75 @@ function acharEpigrafeNoDom(parsedDoc: Document): string {
   return '';
 }
 
+/** Palavras que ligam um nome próprio brasileiro e não vêm em maiúscula. */
+const CONECTIVOS_DE_NOME = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+/**
+ * O parágrafo tem a forma de um nome de pessoa?
+ *
+ * Ministro assina em caixa mista — "Esther Dweck", "Fernando Haddad" —, e a
+ * regra da caixa alta, feita para o Presidente, o deixava de fora: ele chegava
+ * à folha como dispositivo do ato, e no arquivo salvo subia para cima do fecho.
+ * A medida é curta de propósito: nome de pessoa não tem algarismo, não termina
+ * em pontuação e não passa de meia dúzia de palavras.
+ */
+function pareceNomeDeSignatario(texto: string): boolean {
+  if (/[0-9]/.test(texto) || /[.;:,]$/.test(texto)) return false;
+  const palavras = texto.split(/\s+/);
+  if (palavras.length < 2 || palavras.length > 6) return false;
+  return palavras.every(
+    (palavra) => CONECTIVOS_DE_NOME.has(palavra) || /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-zàáâãéêíóôõúç'’-]+$/.test(palavra)
+  );
+}
+
+/**
+ * As assinaturas são contíguas: vêm logo depois do fecho, uma sob a outra, e
+ * acabam no primeiro parágrafo que não é nome.
+ *
+ * É esta a guarda que impede a forma de nome próprio — duas a seis palavras
+ * capitalizadas, sem algarismo e sem pontuação final — de recolher meio anexo
+ * para a lista de signatários: "Quadro Demonstrativo de Cargos" e "Ministério
+ * da Gestão e da Inovação" têm exatamente essa forma. Depois que o primeiro
+ * dispositivo entra, ninguém mais assina o ato.
+ */
+function aindaSeAssina(doc: LegislativeDocument, blocosNoFecho: number): boolean {
+  return Boolean(doc.fecho) && doc.blocks.length === blocosNoFecho;
+}
+
 /**
  * Absorve um parágrafo do arquivo: parte fixa do ato ou dispositivo.
- *
- * Os dois caminhos de leitura — DOMParser no navegador, expressão regular no
- * Node — chamam esta função com o HTML de dentro do `<p>`, e é isso que os
- * mantém dizendo a mesma coisa: a classificação legislativa, a filtragem do
- * cabeçalho e o recorte do rótulo acontecem uma vez só.
  *
  * O conteúdo guardado é HTML, e não texto: é dentro do parágrafo que moram a
  * remissão, o ponto de ancoragem e o negrito do ato publicado.
  */
-function absorverParagrafo(doc: LegislativeDocument, interiorBruto: string, indice: number): void {
+function absorverParagrafo(
+  doc: LegislativeDocument,
+  interiorBruto: string,
+  indice: number,
+  blocosNoFecho: number
+): void {
   const interior = sanitizeInlineHtml(interiorBruto);
   const texto = visibleTextOfHtml(interior);
 
-  if (!texto || texto.includes('Presidência da República')) return;
+  /*
+   * O cabeçalho do brasão — "Presidência da República / Casa Civil / …" — não é
+   * o ato: a folha o desenha e o serializador o reescreve.
+   *
+   * A forma está ancorada no começo do parágrafo, e não pode deixar de estar.
+   * Procurando a expressão em qualquer posição, o inciso "ser requisitados pela
+   * Presidência ou pela Vice-Presidência da República ou nas hipóteses de
+   * requisição previstas em lei" era tomado por cabeçalho e apagado — cinco
+   * dispositivos inteiros, seiscentos e vinte e um caracteres, na medida
+   * provisória de `docs/file-tests/`.
+   *
+   * Sem fronteira de palavra ao final: no arquivo publicado as três linhas do
+   * cabeçalho são um parágrafo só, separadas por `<br>`, e o texto visível sai
+   * "Presidência da RepúblicaCasa CivilSecretaria Especial…".
+   */
+  if (/^Presidência da República/.test(texto)) return;
+  // Parágrafo sem texto ainda pode ter conteúdo: a imagem que vem do `.docx` é
+  // o ato tanto quanto a palavra, e descartá-la por não ter texto a perderia.
+  if (!texto && !/<img\b/i.test(interior)) return;
 
   // A epígrafe e a ementa já têm campo próprio na folha; sem esta guarda, o
   // parágrafo de onde saíram voltava a aparecer como dispositivo, e o ato
@@ -282,8 +357,8 @@ function absorverParagrafo(doc: LegislativeDocument, interiorBruto: string, indi
    * assinaturas, e o ponto de ancoragem que morava neles se perdia junto.
    */
   if (
-    doc.fecho &&
-    /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ\s]{4,}$/.test(texto) &&
+    aindaSeAssina(doc, blocosNoFecho) &&
+    (/^[A-ZÁÉÍÓÚÂÊÔÃÕÇ\s]{4,}$/.test(texto) || pareceNomeDeSignatario(texto)) &&
     !texto.includes('DECRETO') &&
     !texto.includes('PRESIDENTE') &&
     // O anexo vem depois das assinaturas e também é uma linha em maiúsculas —
@@ -294,7 +369,7 @@ function absorverParagrafo(doc: LegislativeDocument, interiorBruto: string, indi
     return;
   }
 
-  const { type, numberLabel, cleanText } = identifyBlockType(texto);
+  const { type, numberLabel, cleanText, novaRedacao } = identifyBlockType(texto);
 
   /*
    * O rótulo e as aspas de citação saem do texto na classificação; aqui eles
@@ -312,12 +387,20 @@ function absorverParagrafo(doc: LegislativeDocument, interiorBruto: string, indi
     numberLabel,
     content,
     rawText: cleanText,
+    novaRedacao,
   });
 }
 
 /**
- * Re-converte uma string HTML Planalto de volta para AST `LegislativeDocument`.
- * Funciona nativamente no Navegador (DOMParser) e no Node.js (Regex Fallback).
+ * Relê um arquivo HTML no padrão Planalto e devolve o ato.
+ *
+ * Exige `DOMParser`. Havia aqui um segundo leitor, por expressão regular, para
+ * quando ele faltasse — o caso do Node. Ele saía por um motivo e ficava por
+ * outro: navegador e Electron sempre têm `DOMParser`, de modo que o único
+ * consumidor era o próprio teste, que passava a aprovar um leitor que ninguém
+ * executa. E ele não era equivalente: no ato publicado de docs/file-tests,
+ * seis `<p>` sem fechamento faziam a expressão regular engolir a epígrafe, e a
+ * ementa era procurada por um `style` literal que o arquivo não escreve.
  */
 export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocument {
   const doc: LegislativeDocument = {
@@ -339,67 +422,63 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
    */
   let declaredTitle = '';
 
-  if (typeof DOMParser !== 'undefined') {
-    const parser = new DOMParser();
-    const parsedDoc = parser.parseFromString(html, 'text/html');
+  const parser = new DOMParser();
+  const parsedDoc = parser.parseFromString(html, 'text/html');
 
-    const titleEl = parsedDoc.querySelector('title');
-    if (titleEl) {
-      doc.title = titleEl.textContent?.trim() || doc.title;
-      declaredTitle = doc.title;
+  const titleEl = parsedDoc.querySelector('title');
+  if (titleEl) {
+    doc.title = titleEl.textContent?.trim() || doc.title;
+    declaredTitle = doc.title;
+  }
+
+  doc.epigrafe = acharEpigrafeNoDom(parsedDoc);
+
+  /*
+   * A ementa volta como HTML, e não como texto corrido.
+   *
+   * Ela é campo de uma linha só, mas pode carregar dentro o negrito e a
+   * remissão que o redator pôs — e carrega, desde que a barra ganhou o botão
+   * que faz da seleção a ementa do ato: promover um dispositivo com remissão e
+   * salvar gravava o link no arquivo, e a releitura o apagava. Perda silenciosa
+   * que só aparecia na segunda abertura (invariante 9).
+   */
+  const ementaEl = parsedDoc.querySelector('table p[align="justify"] span') || parsedDoc.querySelector('table span');
+  if (ementaEl) doc.ementa = textoCorrido(sanitizeInlineHtml(ementaEl.innerHTML));
+
+  /*
+   * O agrupador do ato publicado costuma ser um título de seção do HTML, e não
+   * um parágrafo: os setenta e cinco capítulos da medida provisória de
+   * docs/file-tests são `<h2>`. Lendo só `<p>`, eles não chegavam à folha —
+   * nem o texto, nem o ponto de ancoragem que trazem dentro.
+   */
+  const paragraphs = Array.from(parsedDoc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, table.MsoTableGrid'));
+
+  // Quantos dispositivos havia quando o fecho apareceu — ver `aindaSeAssina`.
+  let blocosNoFecho = -1;
+
+  paragraphs.forEach((p, indice) => {
+    if (p.tagName.toLowerCase() === 'table') {
+      doc.blocks.push({
+        id: `table-${indice}-${Math.random().toString(36).substring(2, 7)}`,
+        type: 'TABELA',
+        content: p.outerHTML,
+        rawText: 'Tabela',
+      });
+      return;
     }
-
-    doc.epigrafe = acharEpigrafeNoDom(parsedDoc);
-
-    const ementaEl = parsedDoc.querySelector('table p[align="justify"] span') || parsedDoc.querySelector('table span');
-    if (ementaEl) doc.ementa = textoCorrido(ementaEl.textContent);
 
     /*
-     * O agrupador do ato publicado costuma ser um título de seção do HTML, e não
-     * um parágrafo: os setenta e cinco capítulos da medida provisória de
-     * docs/file-tests são `<h2>`. Lendo só `<p>`, eles não chegavam à folha —
-     * nem o texto, nem o ponto de ancoragem que trazem dentro.
+     * O parágrafo que mora dentro de uma tabela já foi absorvido com ela, no
+     * `outerHTML` acima. Sem esta guarda o texto de cada célula entrava duas
+     * vezes: uma na tabela e outra como dispositivo solto — e o Word escreve
+     * `<p class=MsoNormal>` dentro de toda célula que gera.
      */
-    const paragraphs = Array.from(parsedDoc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, table.MsoTableGrid'));
+    if (p.closest('table.MsoTableGrid')) return;
 
-    paragraphs.forEach((p, indice) => {
-      if (p.tagName.toLowerCase() === 'table') {
-        doc.blocks.push({
-          id: `table-${indice}-${Math.random().toString(36).substring(2, 7)}`,
-          type: 'TABELA',
-          content: p.outerHTML,
-          rawText: 'Tabela',
-        });
-        return;
-      }
-
-      absorverParagrafo(doc, p.innerHTML, indice);
-    });
-  } else {
-    // Fallback para Node.js (Regex Extractor)
-    const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-    if (titleMatch) {
-      doc.title = titleMatch[1].trim();
-      declaredTitle = doc.title;
-    }
-
-    // Parágrafos e títulos de seção, que é como o ato publicado escreve o agrupador.
-    const pMatches = Array.from(html.matchAll(/<(p|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi));
-
-    // Atributos a mais no <font> são a regra, e não a exceção: o arquivo salvo
-    // marca ali o azul-marinho da epígrafe, e o corpus legado traz `face`, `size`
-    // e o que mais o editor de origem tenha escrito. Quando o arquivo não segue
-    // essa convenção, vale a forma da epígrafe: o nome do ato e o número dele.
-    const epigrafeMatch = html.match(/<font color="#000080"[^>]*>(.*?)<\/font>/i);
-    const epigrafePorTexto = pMatches.find((p) => EPIGRAFE_PATTERN.test(visibleTextOfHtml(p[2])));
-    if (epigrafeMatch) doc.epigrafe = textoCorrido(epigrafeMatch[1].replace(/<[^>]+>/g, ''));
-    else if (epigrafePorTexto) doc.epigrafe = visibleTextOfHtml(epigrafePorTexto[2]);
-
-    const ementaMatch = html.match(/<span style="font-size: 10\.0pt; font-family: Arial,sans-serif; color: #800000">\s*(.*?)\s*<\/span>/is);
-    if (ementaMatch) doc.ementa = textoCorrido(ementaMatch[1].replace(/<[^>]+>/g, ''));
-
-    pMatches.forEach((p, indice) => absorverParagrafo(doc, p[2], indice));
-  }
+    const tinhaFecho = Boolean(doc.fecho);
+    absorverParagrafo(doc, p.innerHTML, indice, blocosNoFecho);
+    if (!tinhaFecho && doc.fecho) blocosNoFecho = doc.blocks.length;
+  });
 
   doc.titleIsManual = Boolean(declaredTitle) && declaredTitle !== doc.epigrafe.trim();
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRtfToLegislativeDocument, decodeRtfToParagraphs } from './rtfParser';
+import { parseRtfToLegislativeDocument, decodeRtfToParagraphs, identifyBlockType } from './rtfParser';
 import { validateLegislativeDocument } from '../validator/legislativeValidator';
 import { serializeToPlanaltoHtml } from './htmlSerializer';
 
@@ -126,5 +126,117 @@ describe('RTF Legislative Parser & HTML Serializer', () => {
     expect(tables).toHaveLength(2);
     expect(tables[0].content).toContain('Primeira');
     expect(tables[1].content).toContain('Segunda');
+  });
+
+  it('guarda o título que anuncia a tabela, e o guarda depois da tabela anterior', () => {
+    // O parágrafo entre duas tabelas é o título da segunda. Ele não estava em
+    // lugar nenhum do ato: caía fora da máquina de estados, que depois do fecho
+    // não tinha para onde mandar um parágrafo.
+    const rtfTable = `{\\rtf1\\trowd\\irow0 \\cellx1000 Primeira\\cell \\row b) Segunda tabela:\\par \\trowd\\irow0 \\cellx1000 Segunda\\cell \\row}`;
+    const doc = parseRtfToLegislativeDocument(rtfTable);
+    const tipos = doc.blocks.map((block) => block.type);
+    const titulo = doc.blocks.findIndex((block) => block.rawText.includes('Segunda tabela'));
+
+    expect(titulo).toBeGreaterThan(-1);
+    expect(tipos.indexOf('TABELA')).toBeLessThan(titulo);
+    expect(tipos.lastIndexOf('TABELA')).toBeGreaterThan(titulo);
+  });
+
+  it('preenche a célula cujo conteúdo o Word escreve antes do \\trowd da linha', () => {
+    // O Word emite o conteúdo de uma linha antes da definição dela. Quem se
+    // guiava pela linha aberta tomava esse trecho por texto solto e gravava a
+    // primeira célula vazia — 229 células no decreto de docs/file-tests.
+    const rtfTable = `{\\rtf1\\trowd\\irow0 \\cellx1000\\cellx2000 \\row \\pard\\intbl CCE 1.15\\cell 5,81\\cell \\trowd\\irow1 \\cellx1000\\cellx2000 \\row}`;
+    const doc = parseRtfToLegislativeDocument(rtfTable);
+    const tabela = doc.blocks.find((block) => block.type === 'TABELA');
+
+    expect(tabela?.tableRows?.some((linha) => linha.includes('CCE 1.15'))).toBe(true);
+  });
+
+  it('não deixa o parâmetro da palavra de controle virar texto do ato', () => {
+    // `\\trleft-70` é definição de linha, não conteúdo: lido como `\\trleft`
+    // seguido de texto, o "-70" entrava grudado no começo de cada célula.
+    const rtfTable = `{\\rtf1\\trowd\\irow0\\trleft-70 \\cellx1000 \\pard\\intbl C\\'d3DIGO\\cell \\row}`;
+    const doc = parseRtfToLegislativeDocument(rtfTable);
+
+    expect(doc.blocks[0].content).toContain('CÓDIGO');
+    expect(doc.blocks[0].content).not.toContain('-70');
+  });
+
+  it('escreve o travessão que o RTF guarda como palavra de controle', () => {
+    // O espaço logo depois da palavra de controle é delimitador dela, e não
+    // conteúdo — por isso o arquivo escreve dois quando quer um.
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o ato.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Cargos Executivos \\endash  CCE.}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.blocks[0].content).toBe('Cargos Executivos – CCE.');
+  });
+
+  it('acolhe o anexo, que vem depois das assinaturas', () => {
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o ato.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Ficam remanejados os cargos.\\par Bras\\'edlia, 4 de agosto de 2026.\\par ##APR LUIZ IN\\'c1CIO LULA DA SILVA\\par ##AMI Esther Dweck\\par ##ANE ANEXO I\\par REMANEJAMENTO DE CARGOS COMISSIONADOS\\par}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA', 'Esther Dweck']);
+    expect(doc.blocks.map((block) => block.type)).toContain('ANEXO');
+    // Título e denominação são parágrafos distintos: um não se cola no outro.
+    expect(doc.blocks.at(-1)?.rawText).toBe('REMANEJAMENTO DE CARGOS COMISSIONADOS');
+  });
+
+  it('devolve o "(NR)" como marca do dispositivo, e não como texto dele', () => {
+    // Antes ele era simplesmente apagado: `sanitizeQuoteText` o tirava do texto
+    // e nada o repunha, de modo que o ato salvo perdia a marca da nova redação.
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Altera o Decreto n\\'ba 11.353.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba O Decreto passa a vigorar com a seguinte altera\\'e7\\'e3o:\\par \\'93Art. 5\\'ba Compete ao \\'f3rg\\'e3o dirigir.\\'94 (NR)}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+    const alteracao = doc.blocks.find((block) => block.type === 'ALTERACAO');
+
+    expect(alteracao?.novaRedacao).toBe(true);
+    expect(alteracao?.content).not.toContain('NR');
+    expect(alteracao?.numberLabel).toBe('Art. 5º');
+  });
+
+  it('mantém o sufixo do dispositivo acrescentado por alteração no rótulo', () => {
+    // Decreto nº 12.002/2024, art. 14, parágrafo único. Sem isto o rótulo saía
+    // "Art. 35" e o "-B-B" ia parar dentro do texto do dispositivo.
+    expect(identifyBlockType('Art. 35-B-B Fica criado o cargo.')).toMatchObject({
+      type: 'ARTIGO',
+      numberLabel: 'Art. 35-B-B',
+      cleanText: 'Fica criado o cargo.',
+    });
+    expect(identifyBlockType('X-A - Inspetor Federal do Mercado de Capitais;')).toMatchObject({
+      type: 'INCISO',
+      numberLabel: 'X-A -',
+      cleanText: 'Inspetor Federal do Mercado de Capitais;',
+    });
+  });
+
+  it('só toma por título de anexo o que abre um anexo, e não a remissão a anexo alheio', () => {
+    expect(identifyBlockType('ANEXO I').type).toBe('ANEXO');
+    expect(identifyBlockType('ANEXOS').type).toBe('ANEXO');
+    expect(identifyBlockType('ANEXO I - REMANEJAMENTO DE CARGOS').type).toBe('ANEXO');
+    // A forma do ato que tem um anexo só, e a do anexo designado por letra.
+    expect(identifyBlockType('ANEXO ÚNICO').type).toBe('ANEXO');
+    expect(identifyBlockType('ANEXO A').type).toBe('ANEXO');
+    // "ANEXO I -" com a denominação na linha de baixo continua sendo título.
+    expect(identifyBlockType('ANEXO I -').type).toBe('ANEXO');
+
+    expect(identifyBlockType('Anexos I, III-A e V à Lei nº 10.483, de 3 de julho').type).not.toBe('ANEXO');
+    expect(identifyBlockType('Anexo III-A. A partir de 1º de janeiro de 2025').type).not.toBe('ANEXO');
+  });
+
+  it('reconhece o fecho do ato assinado no primeiro dia do mês', () => {
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o ato.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Texto.\\par Bras\\'edlia, 1\\'ba de agosto de 2026.\\par LUIZ IN\\'c1CIO LULA DA SILVA}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.fecho).toContain('Brasília, 1º de agosto de 2026');
+    expect(doc.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA']);
+  });
+
+  it('escreve os sinais que o Windows-1252 guarda entre 0x80 e 0x9F', () => {
+    // Fora dessa faixa CP1252 e Latin-1 coincidem; dentro dela, não — e o
+    // código cru saía da importação como caractere de controle invisível.
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Disp\\'f5e sobre o marcador \\'95, as retic\\'eancias\\'85 e a aspa\\'92.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba Texto.}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.ementa).toBe('Dispõe sobre o marcador •, as reticências… e a aspa’.');
   });
 });

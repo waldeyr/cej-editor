@@ -16,10 +16,10 @@ import {
   BlockAlign,
 } from '../types/legislative';
 import { sanitizeQuoteText } from '../parser/rtfParser';
-import { isAgrupador } from '../utils/rank';
+import { desenhaComoTitulo } from '../utils/rank';
 import { Editable } from './Editable';
 import { CanvasContextMenu, CanvasMenuState } from './CanvasContextMenu';
-import { LinkHint, LinkHintState } from './LinkHint';
+import { CanvasHint, CanvasHintState } from './CanvasHint';
 import { LINK_INK, LINK_INK_HOVER, describeBlock, findAnchorBlock } from '../utils/anchors';
 import {
   EDITABLE_SELECTOR,
@@ -44,7 +44,7 @@ import {
   removeLink,
   replaceSegmentsWithText,
 } from '../utils/richText';
-import { numberLabelForTypeAt } from '../utils/blockTypes';
+import { inicioDoAnexo, numberLabelForTypeAt } from '../utils/blockTypes';
 
 interface EditorCanvasProps {
   doc: LegislativeDocument;
@@ -72,7 +72,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 }) => {
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
   /** Remissão sob o ponteiro, cujo destino a etiqueta mostra. */
-  const [linkHint, setLinkHint] = useState<LinkHintState | null>(null);
+  const [hint, setHint] = useState<CanvasHintState | null>(null);
 
   // As oito operações de tabela dividem uma única superfície neutra. Antes cada
   // uma tinha sua própria matiz (azul, ardósia, roxo, celeste, esmeralda,
@@ -149,40 +149,57 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   };
 
   /*
-   * Etiqueta com o destino da remissão sob o ponteiro.
+   * Etiqueta do que está sob o ponteiro: o destino da remissão, ou o nome do
+   * ponto de ancoragem que o ícone de âncora anuncia na folha.
    *
-   * O gesto é o `mouseover`, e não o `mousemove`: a etiqueta acompanha o link e
-   * não o ponteiro, de modo que ela é calculada uma vez por remissão visitada em
+   * O gesto é o `mouseover`, e não o `mousemove`: a etiqueta acompanha a marca e
+   * não o ponteiro, de modo que ela é calculada uma vez por marca visitada em
    * vez de a cada pixel percorrido sobre a folha. Entrar num trecho que não é
-   * remissão — inclusive o texto em volta dela — apaga a etiqueta pelo mesmo
+   * marca — inclusive o texto em volta dela — apaga a etiqueta pelo mesmo
    * caminho, porque o evento também sobe daí.
+   *
+   * A remissão vem antes do ponto de ancoragem porque um `<a>` pode ser as duas
+   * coisas, e aí o que interessa saber é para onde ele leva: o nome pelo qual
+   * ele responde continua no menu do botão direito.
    */
   const handlePaperMouseOver = (event: React.MouseEvent) => {
     const link = linkAt(event);
-    if (!link) {
-      setLinkHint((previous) => (previous ? null : previous));
+    const point = link ? null : anchorPointAt(event);
+    const mark = link || point;
+
+    if (!mark) {
+      setHint((previous) => (previous ? null : previous));
       return;
     }
 
-    setLinkHint((previous) => {
-      if (previous?.element === link) return previous;
+    setHint((previous) => {
+      if (previous?.element === mark) return previous;
 
-      const name = anchorNameOf(link);
-      const { left, top, bottom } = link.getBoundingClientRect();
+      const { left, top, bottom } = mark.getBoundingClientRect();
+      const position = { left, top, bottom };
+
+      if (link) {
+        const name = anchorNameOf(link);
+        return {
+          element: link,
+          label: link.getAttribute('href') || '',
+          note: name ? anchorDestination(name) : undefined,
+          ...position,
+        };
+      }
+
       return {
-        element: link,
-        href: link.getAttribute('href') || '',
-        destination: name ? anchorDestination(name) : undefined,
-        left,
-        top,
-        bottom,
+        element: mark,
+        label: `#${mark.getAttribute('name') || ''}`,
+        note: 'Ponto de ancoragem — é aqui que chegam as remissões a este nome.',
+        ...position,
       };
     });
   };
 
   const handlePaperContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
-    setLinkHint(null);
+    setHint(null);
     const link = linkAt(event);
     const point = anchorPointAt(event);
 
@@ -620,10 +637,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
    * Alinhamento de uma parte fixa e o recuo que combina com ele. Os padrões
    * vêm de `utils/docTargets.ts`, os mesmos que o serializador grava no
    * arquivo — é o que mantém a folha e o HTML salvo dizendo a mesma coisa.
+   *
+   * A ementa é a única parte sem recuo, e por isso pede `recuo: false`: no
+   * arquivo ela é a segunda coluna de uma tabela, e o `<p>` que a serializa não
+   * leva `text-indent` algum. O recuo que a folha desenhava era diferença nossa,
+   * não do documento.
    */
-  const partLayout = (target: string): React.CSSProperties => {
+  const partLayout = (target: string, recuo = true): React.CSSProperties => {
     const align = resolvedAlignForTarget(doc, target);
-    return { textAlign: align, textIndent: indentForAlign(align) };
+    return { textAlign: align, textIndent: recuo ? indentForAlign(align) : undefined };
   };
 
   /** Barra flutuante de exclusão das partes fixas. */
@@ -652,17 +674,299 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
    * fora do alcance da rolagem. Com a margem automática, o excesso continua
    * acessível.
    */
+  /**
+   * Desenha um dispositivo na folha.
+   *
+   * `index` é a posição no ato inteiro, e não na fatia em que o dispositivo
+   * está sendo desenhado: a folha desenha o corpo e o anexo em duas passagens,
+   * e os manipuladores escrevem por índice — `handleBlockEnter` faz
+   * `blocks[index] = …`. Um índice relativo à fatia do anexo sobrescreveria o
+   * art. 1º.
+   */
+  const corte = inicioDoAnexo(doc.blocks);
+  const corpo = doc.blocks.slice(0, corte);
+  const anexo = doc.blocks.slice(corte);
+
+  const renderBlock = (block: LegislativeBlock, index: number) => {
+    const isSelected = selectedBlockId === block.id;
+    const target = blockTarget(block.id);
+    const align = block.align || defaultAlignForBlockType(block.type);
+    const layout: React.CSSProperties = { textAlign: align, textIndent: indentForAlign(align) };
+
+    return (
+      <div
+        key={block.id}
+        id={`block-${block.id}`}
+        onClick={() => handleCanvasBlockClick(block.id)}
+        /*
+         * A folga vertical é a margem de 15px que o arquivo salvo
+         * aplica entre parágrafos: ela mora aqui, no invólucro, e não
+         * no parágrafo, para que o realce de seleção também a cubra.
+         */
+        className={`relative group rounded px-2 py-[7px] transition-all ${
+          isSelected ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]'
+        }`}
+      >
+        {/* Barra Flutuante de Ações do Bloco */}
+        <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
+          <button
+            onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
+            className="p-1 hover:bg-rule/60 text-texto rounded flex items-center gap-0.5"
+            title="Inserir linha sem formatação abaixo (ou tecle Enter)"
+          >
+            <CornerDownLeft size={13} /> Novo conteúdo
+          </button>
+          <button
+            onClick={(e) => handleAddBlockBelow(index, 'ARTIGO', e)}
+            className="p-1 hover:bg-rule/60 text-rank rounded flex items-center gap-0.5"
+            title="Adicionar Artigo Abaixo"
+          >
+            <Plus size={13} /> Art
+          </button>
+          <button
+            onClick={(e) => handleAddBlockBelow(index, 'PARAGRAFO', e)}
+            className="p-1 hover:bg-rule/60 text-legenda rounded flex items-center gap-0.5"
+            title="Adicionar Parágrafo Abaixo"
+          >
+            <Plus size={13} /> §
+          </button>
+          {/*
+            As setas param na fronteira entre o corpo e o anexo, e não só nas
+            pontas do ato. Atravessá-la com um clique mandaria o dispositivo
+            para o outro lado das assinaturas — uma viagem de dezenas de linhas
+            que a seta "mover para baixo" não anuncia.
+          */}
+          <button
+            onClick={(e) => handleMoveBlock(index, 'up', e)}
+            disabled={index === 0 || index === corte}
+            className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+            title="Mover para cima"
+          >
+            <ArrowUp size={13} />
+          </button>
+          <button
+            onClick={(e) => handleMoveBlock(index, 'down', e)}
+            disabled={index === doc.blocks.length - 1 || index === corte - 1}
+            className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+            title="Mover para baixo"
+          >
+            <ArrowDown size={13} />
+          </button>
+          <button
+            onClick={(e) => handleDuplicateBlock(block, e)}
+            className="p-1 text-legenda hover:text-texto"
+            title="Duplicar Bloco"
+          >
+            <Copy size={13} />
+          </button>
+          <button
+            onClick={(e) => handleDeleteBlock(block.id, e)}
+            className="p-1 text-legenda hover:text-falha"
+            title="Excluir Bloco"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+
+        {/* Renderização do Bloco Conforme o Tipo */}
+        {block.type === 'TABELA' ? (
+          <div className="border border-black/10 rounded-lg p-3 bg-black/[0.02] shadow-sm">
+            <div className="flex items-center justify-between mb-2 select-none border-b border-black/10 pb-2">
+              <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <TableIcon size={15} className="text-tinta/50" /> Tabela
+              </div>
+              <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'addRow');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Adicionar Linha na Tabela"
+                >
+                  + Linha
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'deleteRow');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Remover Última Linha"
+                >
+                  - Linha
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'addColumn');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Adicionar Coluna na Tabela"
+                >
+                  + Coluna
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'deleteColumn');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Remover Última Coluna"
+                >
+                  - Coluna
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'addCellLeft');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Adicionar célula à esquerda completando a coluna"
+                >
+                  + Célula Esq.
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'addCellRight');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Adicionar célula à direita completando a coluna"
+                >
+                  + Célula Dir.
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'mergeCells');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Mesclar duas células adjacentes da tabela"
+                >
+                  Mesclar Células
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newHtml = modifyTableStructure(block.content, 'splitCells');
+                    handleUpdateBlockContent(block.id, newHtml);
+                  }}
+                  className={tableActionButtonBaseClass}
+                  title="Separar/Desfazer células mescladas na tabela"
+                >
+                  Separar Células
+                </button>
+              </div>
+            </div>
+            <Editable
+              target={target}
+              html={block.content}
+              onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+              ariaLabel="Tabela"
+              className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-selo p-1 [&_td]:cursor-text [&_td]:focus:bg-selo/10 [&_th]:cursor-text"
+            />
+          </div>
+        ) : block.type === 'ALTERACAO' ? (
+          /* Citação de dispositivo alterado — dois blockquotes no arquivo salvo. */
+          <div
+            className="ml-[80px] mr-[40px] text-[10pt]"
+            style={layout}
+          >
+            <span className="select-none">“</span>
+            {block.numberLabel && (
+              <span className="select-none">{normalizeNumberLabel(block.numberLabel)} </span>
+            )}
+            <Editable
+              target={target}
+              html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
+              onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+              onKeyDown={(event) => handleBlockEnter(index, event)}
+              ariaLabel="Dispositivo alterado"
+              placeholder="Texto do dispositivo alterado"
+              className="inline outline-none focus:bg-selo/10 cursor-text"
+            />
+            <span className="select-none">”</span>
+            {block.novaRedacao && <span className="select-none"> (NR)</span>}
+          </div>
+        ) : desenhaComoTitulo(block.type) ? (
+          /*
+           * Agrupador. O rótulo fica fora do campo editável, como nos
+           * demais dispositivos: no arquivo salvo ele e a denominação
+           * são uma linha só — "CAPÍTULO I - DAS DISPOSIÇÕES" —, e é
+           * por isso que os dois correm inline. O que vem do arquivo
+           * importado traz a denominação inteira no conteúdo, sem
+           * rótulo, e continua aparecendo como sempre apareceu.
+           */
+          <div className="font-bold text-[10pt]" style={layout}>
+            {block.numberLabel && (
+              <span className="select-none">
+                {normalizeNumberLabel(block.numberLabel)} -{' '}
+              </span>
+            )}
+            <Editable
+              target={target}
+              html={block.content}
+              onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+              onKeyDown={(event) => handleBlockEnter(index, event)}
+              ariaLabel="Agrupador"
+              placeholder="Denominação do agrupador"
+              className="inline outline-none focus:bg-selo/10 font-bold cursor-text"
+            />
+          </div>
+        ) : (
+          /*
+           * Dispositivo comum. O rótulo é inline e o campo editável
+           * também: assim a segunda linha volta à margem esquerda, como
+           * no arquivo salvo, em vez de ficar pendurada sob o texto.
+           */
+          <div
+            className="text-[10pt]"
+            style={layout}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) focusEditableTarget(target);
+            }}
+          >
+            {block.numberLabel && (
+              <span className="font-normal select-none">
+                {normalizeNumberLabel(block.numberLabel)}&nbsp;
+              </span>
+            )}
+            <Editable
+              target={target}
+              html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
+              onCommit={(html) => handleUpdateBlockContent(block.id, html)}
+              onKeyDown={(event) => handleBlockEnter(index, event)}
+              ariaLabel={block.numberLabel || 'Dispositivo'}
+              placeholder="Novo conteúdo"
+              className="inline outline-none focus:bg-selo/10 cursor-text"
+            />
+            {/* A linha pontilhada que encerra a alteração também leva a marca. */}
+            {block.novaRedacao && <span className="select-none"> (NR)</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <main
       className="flex-1 h-full bg-tinta overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-selo/40 selection:text-black"
       onKeyDown={handleCanvasKeyDown}
       /*
-        A etiqueta da remissão é posicionada em coordenadas de janela, medidas
-        no instante em que o ponteiro entrou no link. Rolar a folha move o link
-        e deixa a etiqueta para trás, apontando para o nada: ela sai de cena e
-        volta no próximo link visitado.
+        A etiqueta é posicionada em coordenadas de janela, medidas no instante em
+        que o ponteiro entrou na marca. Rolar a folha move a marca e deixa a
+        etiqueta para trás, apontando para o nada: ela sai de cena e volta na
+        próxima marca visitada.
       */
-      onScroll={() => setLinkHint((previous) => (previous ? null : previous))}
+      onScroll={() => setHint((previous) => (previous ? null : previous))}
     >
       {/*
         Folha do ato normativo. A geometria daqui — Arial 10pt, recuo de 38px na
@@ -685,7 +989,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         onClick={handlePaperClick}
         onContextMenu={handlePaperContextMenu}
         onMouseOver={handlePaperMouseOver}
-        onMouseLeave={() => setLinkHint(null)}
+        onMouseLeave={() => setHint(null)}
         style={
           {
             '--cej-link': LINK_INK,
@@ -766,7 +1070,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 ariaLabel="Ementa do ato"
                 placeholder="Ementa"
                 className="outline-none focus:bg-selo/10 rounded text-[10pt] text-[#800000]"
-                style={partLayout(partTarget('ementa'))}
+                style={partLayout(partTarget('ementa'), false)}
               />
             </div>
           </div>
@@ -820,270 +1124,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
         {/* Corpo do ato */}
         <div className="select-text">
-          {doc.blocks.map((block, index) => {
-            const isSelected = selectedBlockId === block.id;
-            const target = blockTarget(block.id);
-            const align = block.align || defaultAlignForBlockType(block.type);
-            const layout: React.CSSProperties = { textAlign: align, textIndent: indentForAlign(align) };
-
-            return (
-              <div
-                key={block.id}
-                id={`block-${block.id}`}
-                onClick={() => handleCanvasBlockClick(block.id)}
-                /*
-                 * A folga vertical é a margem de 15px que o arquivo salvo
-                 * aplica entre parágrafos: ela mora aqui, no invólucro, e não
-                 * no parágrafo, para que o realce de seleção também a cubra.
-                 */
-                className={`relative group rounded px-2 py-[7px] transition-all ${
-                  isSelected ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]'
-                }`}
-              >
-                {/* Barra Flutuante de Ações do Bloco */}
-                <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
-                  <button
-                    onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
-                    className="p-1 hover:bg-rule/60 text-texto rounded flex items-center gap-0.5"
-                    title="Inserir linha sem formatação abaixo (ou tecle Enter)"
-                  >
-                    <CornerDownLeft size={13} /> Novo conteúdo
-                  </button>
-                  <button
-                    onClick={(e) => handleAddBlockBelow(index, 'ARTIGO', e)}
-                    className="p-1 hover:bg-rule/60 text-rank rounded flex items-center gap-0.5"
-                    title="Adicionar Artigo Abaixo"
-                  >
-                    <Plus size={13} /> Art
-                  </button>
-                  <button
-                    onClick={(e) => handleAddBlockBelow(index, 'PARAGRAFO', e)}
-                    className="p-1 hover:bg-rule/60 text-legenda rounded flex items-center gap-0.5"
-                    title="Adicionar Parágrafo Abaixo"
-                  >
-                    <Plus size={13} /> §
-                  </button>
-                  <button
-                    onClick={(e) => handleMoveBlock(index, 'up', e)}
-                    disabled={index === 0}
-                    className="p-1 text-legenda hover:text-texto disabled:opacity-30"
-                    title="Mover para cima"
-                  >
-                    <ArrowUp size={13} />
-                  </button>
-                  <button
-                    onClick={(e) => handleMoveBlock(index, 'down', e)}
-                    disabled={index === doc.blocks.length - 1}
-                    className="p-1 text-legenda hover:text-texto disabled:opacity-30"
-                    title="Mover para baixo"
-                  >
-                    <ArrowDown size={13} />
-                  </button>
-                  <button
-                    onClick={(e) => handleDuplicateBlock(block, e)}
-                    className="p-1 text-legenda hover:text-texto"
-                    title="Duplicar Bloco"
-                  >
-                    <Copy size={13} />
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteBlock(block.id, e)}
-                    className="p-1 text-legenda hover:text-falha"
-                    title="Excluir Bloco"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-
-                {/* Renderização do Bloco Conforme o Tipo */}
-                {block.type === 'TABELA' ? (
-                  <div className="border border-black/10 rounded-lg p-3 bg-black/[0.02] shadow-sm">
-                    <div className="flex items-center justify-between mb-2 select-none border-b border-black/10 pb-2">
-                      <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                        <TableIcon size={15} className="text-tinta/50" /> Tabela
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'addRow');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Adicionar Linha na Tabela"
-                        >
-                          + Linha
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'deleteRow');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Remover Última Linha"
-                        >
-                          - Linha
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'addColumn');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Adicionar Coluna na Tabela"
-                        >
-                          + Coluna
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'deleteColumn');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Remover Última Coluna"
-                        >
-                          - Coluna
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'addCellLeft');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Adicionar célula à esquerda completando a coluna"
-                        >
-                          + Célula Esq.
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'addCellRight');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Adicionar célula à direita completando a coluna"
-                        >
-                          + Célula Dir.
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'mergeCells');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Mesclar duas células adjacentes da tabela"
-                        >
-                          Mesclar Células
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const newHtml = modifyTableStructure(block.content, 'splitCells');
-                            handleUpdateBlockContent(block.id, newHtml);
-                          }}
-                          className={tableActionButtonBaseClass}
-                          title="Separar/Desfazer células mescladas na tabela"
-                        >
-                          Separar Células
-                        </button>
-                      </div>
-                    </div>
-                    <Editable
-                      target={target}
-                      html={block.content}
-                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
-                      ariaLabel="Tabela"
-                      className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-selo p-1 [&_td]:cursor-text [&_td]:focus:bg-selo/10 [&_th]:cursor-text"
-                    />
-                  </div>
-                ) : block.type === 'ALTERACAO' ? (
-                  /* Citação de dispositivo alterado — dois blockquotes no arquivo salvo. */
-                  <div
-                    className="ml-[80px] mr-[40px] text-[10pt]"
-                    style={layout}
-                  >
-                    <span className="select-none">“</span>
-                    {block.numberLabel && (
-                      <span className="select-none">{normalizeNumberLabel(block.numberLabel)} </span>
-                    )}
-                    <Editable
-                      target={target}
-                      html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
-                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
-                      onKeyDown={(event) => handleBlockEnter(index, event)}
-                      ariaLabel="Dispositivo alterado"
-                      placeholder="Texto do dispositivo alterado"
-                      className="inline outline-none focus:bg-selo/10 cursor-text"
-                    />
-                    <span className="select-none">”</span>
-                  </div>
-                ) : isAgrupador(block.type) ? (
-                  /*
-                   * Agrupador. O rótulo fica fora do campo editável, como nos
-                   * demais dispositivos: no arquivo salvo ele e a denominação
-                   * são uma linha só — "CAPÍTULO I - DAS DISPOSIÇÕES" —, e é
-                   * por isso que os dois correm inline. O que vem do arquivo
-                   * importado traz a denominação inteira no conteúdo, sem
-                   * rótulo, e continua aparecendo como sempre apareceu.
-                   */
-                  <div className="font-bold text-[10pt]" style={layout}>
-                    {block.numberLabel && (
-                      <span className="select-none">
-                        {normalizeNumberLabel(block.numberLabel)} -{' '}
-                      </span>
-                    )}
-                    <Editable
-                      target={target}
-                      html={block.content}
-                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
-                      onKeyDown={(event) => handleBlockEnter(index, event)}
-                      ariaLabel="Agrupador"
-                      placeholder="Denominação do agrupador"
-                      className="inline outline-none focus:bg-selo/10 font-bold cursor-text"
-                    />
-                  </div>
-                ) : (
-                  /*
-                   * Dispositivo comum. O rótulo é inline e o campo editável
-                   * também: assim a segunda linha volta à margem esquerda, como
-                   * no arquivo salvo, em vez de ficar pendurada sob o texto.
-                   */
-                  <div
-                    className="text-[10pt]"
-                    style={layout}
-                    onClick={(event) => {
-                      if (event.target === event.currentTarget) focusEditableTarget(target);
-                    }}
-                  >
-                    {block.numberLabel && (
-                      <span className="font-normal select-none">
-                        {normalizeNumberLabel(block.numberLabel)}&nbsp;
-                      </span>
-                    )}
-                    <Editable
-                      target={target}
-                      html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
-                      onCommit={(html) => handleUpdateBlockContent(block.id, html)}
-                      onKeyDown={(event) => handleBlockEnter(index, event)}
-                      ariaLabel={block.numberLabel || 'Dispositivo'}
-                      placeholder="Novo conteúdo"
-                      className="inline outline-none focus:bg-selo/10 cursor-text"
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {corpo.map((block, posicao) => renderBlock(block, posicao))}
 
           {/* Ponto de partida para escrever sem antes escolher o tipo do dispositivo. */}
           <button
             type="button"
-            onClick={(event) => handleAddBlockBelow(doc.blocks.length - 1, 'TEXTO_LIVRE', event)}
+            onClick={(event) => handleAddBlockBelow(corte - 1, 'TEXTO_LIVRE', event)}
             className="w-full mt-2 py-2 rounded border border-dashed border-black/15 text-black/40 hover:text-black/70 hover:border-black/30 hover:bg-black/[0.02] text-[9pt] transition-colors select-none"
           >
             + Novo conteúdo
@@ -1140,6 +1186,26 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             })}
           </div>
         </div>
+
+        {/*
+          O anexo, que num ato normativo se lê depois das assinaturas. É a cauda
+          da mesma lista de dispositivos, a partir do primeiro bloco do tipo
+          Anexo — ver `inicioDoAnexo`. Só existe quando o ato tem anexo: o botão
+          para criar o primeiro está na barra de estrutura.
+        */}
+        {anexo.length > 0 && (
+          <div className="mt-8 pt-4 border-t border-black/10 select-text">
+            {anexo.map((block, posicao) => renderBlock(block, corte + posicao))}
+
+            <button
+              type="button"
+              onClick={(event) => handleAddBlockBelow(doc.blocks.length - 1, 'TEXTO_LIVRE', event)}
+              className="w-full mt-2 py-2 rounded border border-dashed border-black/15 text-black/40 hover:text-black/70 hover:border-black/30 hover:bg-black/[0.02] text-[9pt] transition-colors select-none"
+            >
+              + Novo conteúdo no anexo
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Menu do botão direito: remissões onde o gesto termina. */}
@@ -1155,8 +1221,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         />
       )}
 
-      {/* Destino da remissão sob o ponteiro, que a folha por si só não diz. */}
-      {linkHint && <LinkHint hint={linkHint} />}
+      {/* O que a marca sob o ponteiro é, que a folha por si só não diz. */}
+      {hint && <CanvasHint hint={hint} />}
     </main>
   );
 };

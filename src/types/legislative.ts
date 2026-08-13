@@ -36,6 +36,16 @@ export interface LegislativeBlock {
   content: string; // HTML com negritos, itálicos, links ou tabela HTML
   rawText: string; // Texto limpo
   linkName?: string; // Ex: "art1", "anexo1"
+  /**
+   * O dispositivo alterado encerra com "(NR)" (Decreto nº 12.002/2024, art. 14, I).
+   *
+   * Mora fora do conteúdo pelo mesmo motivo que `numberLabel`: quem o desenha é
+   * a folha, depois das aspas de fechamento. Guardá-lo no texto o poria dentro
+   * da citação, que não é onde a norma o quer — e não guardá-lo de forma alguma
+   * era o que vinha acontecendo: `sanitizeQuoteText` o retirava do texto
+   * importado e nada o repunha, de modo que o ato salvo perdia a marca.
+   */
+  novaRedacao?: boolean;
   align?: BlockAlign; // Ausente = justificado, como manda o padrão Planalto
   tableRows?: string[][]; // Matriz de células para blocos do tipo TABELA
   children?: LegislativeBlock[]; // Dispositivos alterados ou filhos

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { AlertCircle, AlertTriangle, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
-import { LegislativeDocument, ValidationIssue } from '../types/legislative';
+import { LegislativeBlock, LegislativeDocument, ValidationIssue } from '../types/legislative';
 import { indentOf, inkOf, isAgrupador, textInkOf, tickWidthOf, weightOf } from '../utils/rank';
+import { inicioDoAnexo } from '../utils/blockTypes';
 
 interface SidebarTreeProps {
   doc: LegislativeDocument;
@@ -39,6 +40,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
     header: true,
     dispositivos: true,
     fecho: true,
+    anexos: true,
   });
 
   // Reordenação por arrasto. `dropIndex` é a posição de inserção, isto é, a
@@ -201,6 +203,127 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
     );
   };
 
+  /**
+   * Uma linha da lista. `index` é a posição no ato inteiro, e não na seção:
+   * o arrasto reordena `doc.blocks` por índice, e um índice relativo à seção
+   * do anexo moveria o dispositivo errado.
+   */
+  const corte = inicioDoAnexo(blocks);
+  const corpo = blocks.slice(0, corte);
+  const anexo = blocks.slice(corte);
+
+  const renderBlockRow = (block: LegislativeBlock, index: number) => {
+    const issue = issueByBlockId.get(block.id);
+    const isSelected = selectedBlockId === block.id;
+    const agrupador = isAgrupador(block.type);
+    const previousIsAgrupador =
+      index > 0 && isAgrupador(blocks[index - 1].type);
+
+    const preview =
+      block.type === 'OMISSIS'
+        ? 'Omissis'
+        : block.type === 'TABELA'
+        ? 'Tabela'
+        : block.rawText;
+
+    /*
+     * Agrupadores já trazem a própria denominação no conteúdo
+     * ("CAPÍTULO I - DAS DISPOSIÇÕES PRELIMINARES"), então
+     * exibir também o numberLabel repetiria "CAPÍTULO I" na
+     * mesma linha. Dispositivos são o caso oposto: o rótulo é
+     * renderizado à parte do texto, como no documento.
+     */
+    const showNumberLabel = Boolean(block.numberLabel) && !agrupador;
+    const isDragging = dragIndex === index;
+    const dropsAbove = dropIndex === index && dragIndex !== null;
+    const dropsBelow = dropIndex === index + 1 && dragIndex !== null;
+
+    return (
+      <div
+        key={block.id}
+        role="button"
+        tabIndex={0}
+        draggable
+        aria-grabbed={isDragging}
+        onClick={() => onSelectBlock(block.id)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelectBlock(block.id);
+            return;
+          }
+          // Equivalente de teclado do arrasto, para quem navega sem mouse.
+          if (event.altKey && event.key === 'ArrowUp' && index > 0) {
+            event.preventDefault();
+            onReorderBlocks(index, index - 1);
+          }
+          if (event.altKey && event.key === 'ArrowDown' && index < blocks.length - 1) {
+            event.preventDefault();
+            onReorderBlocks(index, index + 2);
+          }
+        }}
+        onDragStart={(event) => {
+          setDragIndex(index);
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', String(index));
+        }}
+        onDragOver={(event) => {
+          if (dragIndex === null) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          const rect = event.currentTarget.getBoundingClientRect();
+          const below = event.clientY > rect.top + rect.height / 2;
+          setDropIndex(below ? index + 1 : index);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (dragIndex !== null && dropIndex !== null) onReorderBlocks(dragIndex, dropIndex);
+          endDrag();
+        }}
+        onDragEnd={endDrag}
+        style={{ paddingLeft: indentOf(block.type) }}
+        className={`group w-full text-left pr-2 py-1 rounded flex items-center justify-between gap-2 transition-colors cursor-grab active:cursor-grabbing ${
+          agrupador && !previousIsAgrupador ? 'mt-2 border-t border-rule/50 pt-2' : ''
+        } ${isDragging ? 'opacity-40' : ''} ${
+          dropsAbove ? 'shadow-[inset_0_2px_0_0_var(--color-selo)]' : ''
+        } ${dropsBelow ? 'shadow-[inset_0_-2px_0_0_var(--color-selo)]' : ''} ${
+          isSelected
+            ? 'bg-selo/10 border-l-2 border-l-selo'
+            : 'border-l-2 border-l-transparent hover:bg-tinta'
+        }`}
+      >
+        <span className="flex items-baseline gap-1.5 min-w-0">
+          <GripVertical
+            size={11}
+            aria-hidden="true"
+            className="shrink-0 self-center text-legenda/0 group-hover:text-legenda/60 transition-colors"
+          />
+          {showNumberLabel && (
+            <span
+              className="text-lista shrink-0"
+              style={{
+                color: 'var(--color-rank)',
+                opacity: textInkOf(block.type),
+                fontWeight: weightOf(block.type),
+              }}
+            >
+              {block.numberLabel}
+            </span>
+          )}
+          <span
+            className={`truncate ${
+              agrupador ? 'text-etiqueta uppercase' : 'text-lista'
+            } ${isSelected ? 'text-texto' : 'text-legenda'}`}
+          >
+            {preview}
+          </span>
+        </span>
+
+        {issue && issueMark(issue)}
+      </div>
+    );
+  };
+
   return (
     <aside className="h-full flex bg-tinta-alta border-r border-rule/60 select-none">
       {rail}
@@ -250,117 +373,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
 
               {expandedNodes.dispositivos && (
                 <div className="mt-0.5">
-                  {blocks.map((block, index) => {
-                    const issue = issueByBlockId.get(block.id);
-                    const isSelected = selectedBlockId === block.id;
-                    const agrupador = isAgrupador(block.type);
-                    const previousIsAgrupador =
-                      index > 0 && isAgrupador(blocks[index - 1].type);
-
-                    const preview =
-                      block.type === 'OMISSIS'
-                        ? 'Omissis'
-                        : block.type === 'TABELA'
-                        ? 'Tabela'
-                        : block.rawText;
-
-                    /*
-                     * Agrupadores já trazem a própria denominação no conteúdo
-                     * ("CAPÍTULO I - DAS DISPOSIÇÕES PRELIMINARES"), então
-                     * exibir também o numberLabel repetiria "CAPÍTULO I" na
-                     * mesma linha. Dispositivos são o caso oposto: o rótulo é
-                     * renderizado à parte do texto, como no documento.
-                     */
-                    const showNumberLabel = Boolean(block.numberLabel) && !agrupador;
-                    const isDragging = dragIndex === index;
-                    const dropsAbove = dropIndex === index && dragIndex !== null;
-                    const dropsBelow = dropIndex === index + 1 && dragIndex !== null;
-
-                    return (
-                      <div
-                        key={block.id}
-                        role="button"
-                        tabIndex={0}
-                        draggable
-                        aria-grabbed={isDragging}
-                        onClick={() => onSelectBlock(block.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            onSelectBlock(block.id);
-                            return;
-                          }
-                          // Equivalente de teclado do arrasto, para quem navega sem mouse.
-                          if (event.altKey && event.key === 'ArrowUp' && index > 0) {
-                            event.preventDefault();
-                            onReorderBlocks(index, index - 1);
-                          }
-                          if (event.altKey && event.key === 'ArrowDown' && index < blocks.length - 1) {
-                            event.preventDefault();
-                            onReorderBlocks(index, index + 2);
-                          }
-                        }}
-                        onDragStart={(event) => {
-                          setDragIndex(index);
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', String(index));
-                        }}
-                        onDragOver={(event) => {
-                          if (dragIndex === null) return;
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = 'move';
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          const below = event.clientY > rect.top + rect.height / 2;
-                          setDropIndex(below ? index + 1 : index);
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          if (dragIndex !== null && dropIndex !== null) onReorderBlocks(dragIndex, dropIndex);
-                          endDrag();
-                        }}
-                        onDragEnd={endDrag}
-                        style={{ paddingLeft: indentOf(block.type) }}
-                        className={`group w-full text-left pr-2 py-1 rounded flex items-center justify-between gap-2 transition-colors cursor-grab active:cursor-grabbing ${
-                          agrupador && !previousIsAgrupador ? 'mt-2 border-t border-rule/50 pt-2' : ''
-                        } ${isDragging ? 'opacity-40' : ''} ${
-                          dropsAbove ? 'shadow-[inset_0_2px_0_0_var(--color-selo)]' : ''
-                        } ${dropsBelow ? 'shadow-[inset_0_-2px_0_0_var(--color-selo)]' : ''} ${
-                          isSelected
-                            ? 'bg-selo/10 border-l-2 border-l-selo'
-                            : 'border-l-2 border-l-transparent hover:bg-tinta'
-                        }`}
-                      >
-                        <span className="flex items-baseline gap-1.5 min-w-0">
-                          <GripVertical
-                            size={11}
-                            aria-hidden="true"
-                            className="shrink-0 self-center text-legenda/0 group-hover:text-legenda/60 transition-colors"
-                          />
-                          {showNumberLabel && (
-                            <span
-                              className="text-lista shrink-0"
-                              style={{
-                                color: 'var(--color-rank)',
-                                opacity: textInkOf(block.type),
-                                fontWeight: weightOf(block.type),
-                              }}
-                            >
-                              {block.numberLabel}
-                            </span>
-                          )}
-                          <span
-                            className={`truncate ${
-                              agrupador ? 'text-etiqueta uppercase' : 'text-lista'
-                            } ${isSelected ? 'text-texto' : 'text-legenda'}`}
-                          >
-                            {preview}
-                          </span>
-                        </span>
-
-                        {issue && issueMark(issue)}
-                      </div>
-                    );
-                  })}
+                  {corpo.map((block, posicao) => renderBlockRow(block, posicao))}
                 </div>
               )}
             </div>
@@ -378,6 +391,26 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
                 </div>
               )}
             </div>
+
+            {/*
+              Anexos — depois da parte final, que é onde eles são lidos. A seção
+              própria existe para que a fronteira seja visível: arrastar um
+              dispositivo para cá o leva para depois das assinaturas, e o
+              contrário também vale.
+            */}
+            {anexo.length > 0 && (
+              <div>
+                <button type="button" onClick={() => toggleNode('anexos')} className={sectionButtonClass}>
+                  {expandedNodes.anexos ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                  Anexos
+                </button>
+                {expandedNodes.anexos && (
+                  <div className="mt-0.5">
+                    {anexo.map((block, posicao) => renderBlockRow(block, corte + posicao))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </nav>
       )}

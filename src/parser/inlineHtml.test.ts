@@ -24,6 +24,17 @@ describe('limpeza do HTML do dispositivo', () => {
   });
 
   /*
+   * O botão "Tachado" escreve `<s>`; o corpus legado traz `<strike>` e `<del>`.
+   * Reter só a primeira faria o tachado sumir na reabertura do arquivo salvo por
+   * outro editor — e sumir texto formatado é perder informação do ato.
+   */
+  it('deixa passar o tachado nas três formas em que ele chega', () => {
+    const limpo = sanitizeInlineHtml('<s>um</s> <strike>dois</strike> <del>três</del>');
+
+    expect(limpo).toBe('<s>um</s> <strike>dois</strike> <del>três</del>');
+  });
+
+  /*
    * O conteúdo importado vai para o `contentEditable` por `innerHTML`, e o
    * arquivo pode ter vindo de qualquer lugar — do disco ou de um endereço da
    * internet. Por isso a limpeza é por lista de permissão.

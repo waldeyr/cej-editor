@@ -12,18 +12,49 @@ export const OMISSIS_LINE =
   '.......................................................................................................';
 
 /**
- * Mapeamento de tabela de caracteres CP1252 para UTF-8 para escapes RTF Hex (\'XX)
+ * A faixa em que CP1252 difere de Latin-1: 0x80 a 0x9F.
+ *
+ * Fora dela os dois são o mesmo, e `String.fromCharCode` basta. Dentro dela,
+ * não: o Windows-1252 põe ali a aspa curva, o travessão, as reticências e o
+ * marcador, e devolver o código cru dava um caractere de controle invisível no
+ * lugar do sinal — o `\'85` de "…", o `\'92` de "’", o `\'95` de "•" saíam da
+ * importação como sujeira que nem se vê nem se digita. A tabela cobre a faixa
+ * inteira porque o buraco parcial é pior que a ausência: dá a impressão de que
+ * o assunto está resolvido.
  */
 const CP1252_MAP: Record<number, string> = {
-  0xba: 'º', 0xaa: 'ª', 0xe1: 'á', 0xe9: 'é', 0xed: 'í', 0xf3: 'ó', 0xfa: 'ú',
-  0xe3: 'ã', 0xf5: 'õ', 0xe2: 'â', 0xea: 'ê', 0xf4: 'ô', 0xe7: 'ç', 0xc1: 'Á',
-  0xc9: 'É', 0xcd: 'Í', 0xd3: 'Ó', 0xda: 'Ú', 0xc3: 'Ã', 0xd5: 'Õ', 0xc2: 'Â',
-  0xca: 'Ê', 0xd4: 'Ô', 0xc7: 'Ç', 0x93: '“', 0x94: '”', 0x96: '–', 0x97: '—'
+  0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡',
+  0x88: 'ˆ', 0x89: '‰', 0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž',
+  0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•', 0x96: '–', 0x97: '—',
+  0x98: '˜', 0x99: '™', 0x9a: 'š', 0x9b: '›', 0x9c: 'œ', 0x9e: 'ž', 0x9f: 'Ÿ',
+};
+
+/**
+ * Palavras de controle que mostram um caractere.
+ *
+ * O tokenizador consome toda palavra de controle sem devolver nada, o que está
+ * certo para `\fs18` e errado para estas: `\endash` é o travessão que separa
+ * "CARGOS COMISSIONADOS EXECUTIVOS – CCE", e engoli-lo tira do ato um caractere
+ * que o redator escreveu.
+ */
+const SIMBOLOS: Record<string, string> = {
+  endash: '–', emdash: '—', bullet: '•', lquote: '‘', rquote: '’',
+  ldblquote: '“', rdblquote: '”', tab: '\t', emspace: ' ', enspace: ' ',
 };
 
 interface RtfToken {
   type: 'text' | 'cell' | 'row' | 'par' | 'trowd';
   val?: string;
+  /**
+   * O trecho estava dentro de uma célula de tabela (`\intbl`).
+   *
+   * É o que distingue o título da tabela do conteúdo dela, e a distinção não
+   * pode sair do estado da linha: o Word emite o conteúdo de uma linha *antes*
+   * do `\trowd` que a define, de modo que quem se guia pela linha aberta toma
+   * a primeira célula de cada linha por texto solto — e o título da tabela, que
+   * vem entre duas tabelas, por célula.
+   */
+  intbl?: boolean;
   clmgf?: boolean;
   clmrg?: boolean;
   clvmgf?: boolean;
@@ -52,6 +83,7 @@ export function parseRtfTokens(input: string): RtfToken[] {
   let cellFlags = emptyCellFlags();
   let rowCellDefinitions: CellDefinition[] = [];
   let tableCellIndex = 0;
+  let intbl = false;
 
   const IGNORE_GROUPS = new Set([
     'fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'header', 'footer',
@@ -61,9 +93,9 @@ export function parseRtfTokens(input: string): RtfToken[] {
 
   function flushText() {
     const texto = currentText.trim();
-    if (texto.length === 0) return;
-    tokens.push({ type: 'text', val: texto });
     currentText = '';
+    if (texto.length === 0) return;
+    tokens.push({ type: 'text', val: texto, intbl });
   }
 
   while (pos < len) {
@@ -194,11 +226,36 @@ export function parseRtfTokens(input: string): RtfToken[] {
       continue;
     }
 
-    // Comandos de controle RTF
+    /*
+     * Palavra de controle: letras, um parâmetro numérico opcional e um espaço
+     * que é delimitador, não conteúdo.
+     *
+     * O parâmetro precisa entrar no casamento. Lendo `[a-zA-Z0-9]+`, o `-70` de
+     * `\trleft-70` ficava para trás e entrava no ato como texto — trezentas e
+     * noventa e oito vezes no decreto de `docs/file-tests/`, grudado no começo
+     * de cada célula ("-70CÓDIGO"). Havia cinco remendos espalhados pelo módulo
+     * raspando esse `-70`; a leitura certa da palavra de controle dispensa os
+     * cinco.
+     */
     if (char === '\\') {
-      let match = input.substring(pos).match(/^\\([a-zA-Z0-9]+|\~|\-|\_)\s?/);
+      const match = input.substring(pos).match(/^\\([a-zA-Z]+)(-?\d+)? ?/);
       if (match) {
+        const palavra = match[1];
+        if (SIMBOLOS[palavra]) currentText += SIMBOLOS[palavra];
+        else if (palavra === 'pard') intbl = false;
+        else if (palavra === 'intbl') intbl = true;
         pos += match[0].length;
+        continue;
+      }
+
+      // Símbolos de controle. `\~` é o espaço inseparável; `\{`, `\}` e `\\` são
+      // a chave e a barra literais — sem tratá-los, a chave escapada abria um
+      // grupo que nunca fechava, e o resto do arquivo desaparecia dentro dele.
+      const simbolo = input[pos + 1];
+      if (simbolo !== undefined && /[~_{}\\-]/.test(simbolo)) {
+        if (simbolo === '~') currentText += ' ';
+        else if (simbolo === '{' || simbolo === '}' || simbolo === '\\') currentText += simbolo;
+        pos += 2;
         continue;
       }
     }
@@ -314,14 +371,49 @@ export const EPIGRAFE_PATTERN =
   /^(DECRETO|DECRETO-LEI|LEI COMPLEMENTAR|LEI|MEDIDA PROVISÓRIA|EMENDA CONSTITUCIONAL|PORTARIA|RESOLUÇÃO|INSTRUÇÃO NORMATIVA)\b[\s\S]{0,40}?N[ºO°]/i;
 
 /**
+ * O sufixo do dispositivo acrescentado por alteração.
+ *
+ * "Art. 5º-A", "§ 2º-B", e às vezes mais de um: o decreto de `docs/file-tests/`
+ * altera um "Art. 35-B-B". A alínea já reconhecia a forma ("b-A)"), o artigo e
+ * o parágrafo não — e o rótulo saía cortado em "Art. 35", com o "-B-B" indo
+ * para dentro do texto do dispositivo (Decreto nº 12.002/2024, art. 14,
+ * parágrafo único).
+ *
+ * Rótulo com sufixo não é canônico de propósito: `hasCanonicalLabel` o rejeita,
+ * e por isso a renumeração não o reescreve nem deixa que ele desloque a série.
+ */
+const SUFIXO_DE_INCLUSAO = /(?:-[A-Za-z]+)*/.source;
+
+/**
+ * O título que abre um anexo — e só ele.
+ *
+ * Aceita "ANEXO", "ANEXOS", "ANEXO I", "ANEXO III-A", "ANEXO ÚNICO", "ANEXO A"
+ * e a forma com denominação na mesma linha ("ANEXO I - REMANEJAMENTO DE
+ * CARGOS"), com ou sem nada depois do travessão.
+ *
+ * O que não pode aceitar é a remissão a anexo de outro ato, que também começa
+ * por essa palavra: o ato publicado de `docs/file-tests/` tem dispositivos que
+ * abrem em "Anexos I, III-A e V à Lei nº 10.483…". Tomá-los por título de anexo
+ * mandaria metade do ato para depois das assinaturas, já que é o primeiro anexo
+ * que marca onde a parte final do documento começa. É por isso que a designação
+ * é **uma palavra só**: o que vier depois precisa de travessão.
+ *
+ * "ANEXO ÚNICO" custou uma revisão inteira para aparecer — é a forma corrente
+ * no ato que tem um anexo só, e a medida antiga, que exigia romano ou algarismo,
+ * o deixava de fora sem que nenhum arquivo de prova acusasse.
+ */
+export const TITULO_DE_ANEXO =
+  /^ANEXOS?(\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ\d][A-ZÁÉÍÓÚÂÊÔÃÕÇ\d.\-]*)?(\s+[-–—](\s+.*)?)?$/i;
+
+/**
  * Verifica se a linha inicia um novo dispositivo legislativo.
  */
 function isNewDeviceStart(line: string): boolean {
   const clean = line.replace(/^##[A-Z]{3}\s*/, '').trim();
   return (
-    /^Art\.\s*\d+[ºo]?/i.test(clean) ||
-    /^(Parágrafo\s+único|\§\s*\d+[ºo]?)/i.test(clean) ||
-    /^[IVXLCDM]+\s*[-–—]/i.test(clean) ||
+    new RegExp(`^Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}`, 'i').test(clean) ||
+    new RegExp(`^(Parágrafo\\s+único|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO})`, 'i').test(clean) ||
+    new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*[-–—]`, 'i').test(clean) ||
     /^[a-z](?:-[A-Z]+)?\)/.test(clean) ||
     /^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(clean) ||
     /^CAPÍTULO|^SEÇÃO|^LIVRO|^TÍTULO|^PARTE|^ANEXO/i.test(clean) ||
@@ -333,25 +425,51 @@ function isNewDeviceStart(line: string): boolean {
 
 /**
  * Extrai rótulo e tipo do dispositivo com limpeza automática de aspas.
+ *
+ * O "(NR)" volta como marca (`novaRedacao`), e não como texto: ele não é
+ * redação do dispositivo, é o sinal de que aquela é a nova redação dele. Sem
+ * essa devolução ele era simplesmente apagado — cinquenta e oito vezes na
+ * medida provisória de `docs/file-tests/`, dezenove no decreto.
  */
-export function identifyBlockType(line: string): { type: BlockType; numberLabel?: string; cleanText: string } {
+export function identifyBlockType(line: string): {
+  type: BlockType;
+  numberLabel?: string;
+  cleanText: string;
+  novaRedacao?: boolean;
+} {
   let clean = line.replace(/^##[A-Z]{3}\s*/, '').trim();
 
+  const novaRedacao = /\(\s*NR\s*\)$/i.test(clean) || undefined;
   const isAlteration = /^“|^"|”\s*\(NR\)$/i.test(clean);
   if (isAlteration) {
     clean = sanitizeQuoteText(clean);
+  } else if (novaRedacao) {
+    // "(NR)" sem as aspas de fechamento acontece na linha pontilhada que encerra
+    // a alteração: ".......................... (NR)".
+    clean = clean.replace(/\s*\(\s*NR\s*\)$/i, '').trim();
   }
 
-  if (/^Art\.\s*\d+[ºo]?/i.test(clean)) {
-    const m = clean.match(/^(Art\.\s*\d+[ºo]?\.?)\s*(.*)/i);
+  const classificado = classificarDispositivo(clean, isAlteration);
+  return novaRedacao ? { ...classificado, novaRedacao } : classificado;
+}
+
+/** O tipo e o rótulo, já sem as aspas e sem o "(NR)". */
+function classificarDispositivo(
+  clean: string,
+  isAlteration: boolean
+): { type: BlockType; numberLabel?: string; cleanText: string } {
+  if (new RegExp(`^Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}`, 'i').test(clean)) {
+    const m = clean.match(new RegExp(`^(Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i'));
     return { type: isAlteration ? 'ALTERACAO' : 'ARTIGO', numberLabel: m ? m[1] : '', cleanText: m ? m[2] : clean };
   }
-  if (/^(Parágrafo\s+único|\§\s*\d+[ºo]?)/i.test(clean)) {
-    const m = clean.match(/^(Parágrafo\s+único\.?|\§\s*\d+[ºo]?\.?)\s*(.*)/i);
+  if (new RegExp(`^(Parágrafo\\s+único|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO})`, 'i').test(clean)) {
+    const m = clean.match(
+      new RegExp(`^(Parágrafo\\s+único\\.?|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i')
+    );
     return { type: isAlteration ? 'ALTERACAO' : 'PARAGRAFO', numberLabel: m ? m[1] : '', cleanText: m ? m[2] : clean };
   }
-  if (/^[IVXLCDM]+\s*[-–—]/i.test(clean)) {
-    const m = clean.match(/^([IVXLCDM]+)\s*[-–—]\s*(.*)/i);
+  if (new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*[-–—]`, 'i').test(clean)) {
+    const m = clean.match(new RegExp(`^([IVXLCDM]+${SUFIXO_DE_INCLUSAO})\\s*[-–—]\\s*(.*)`, 'i'));
     return { type: isAlteration ? 'ALTERACAO' : 'INCISO', numberLabel: m ? `${m[1]} -` : '', cleanText: m ? m[2] : clean };
   }
   if (/^[a-z](?:-[A-Z]+)?\)/.test(clean)) {
@@ -362,7 +480,7 @@ export function identifyBlockType(line: string): { type: BlockType; numberLabel?
     const m = clean.match(/^(\d+)\.\s*(.*)/);
     return { type: isAlteration ? 'ALTERACAO' : 'ITEM', numberLabel: m ? `${m[1]}.` : '', cleanText: m ? m[2] : clean };
   }
-  if (/^ANEXO\s+[IVXLCDM\d]*/i.test(clean)) {
+  if (TITULO_DE_ANEXO.test(clean)) {
     return { type: 'ANEXO', cleanText: clean };
   }
   if (/^CAPÍTULO|^SEÇÃO|^LIVRO|^TÍTULO|^PARTE/i.test(clean)) {
@@ -390,10 +508,18 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
   let fechoLines: string[] = [];
   let assinaturaLines: string[] = [];
 
-  let state: 'INITIAL' | 'EPIGRAFE' | 'EMENTA' | 'PREAMBULO' | 'BODY' | 'FECHO' | 'ASSINATURA' = 'INITIAL';
+  let state:
+    | 'INITIAL'
+    | 'EPIGRAFE'
+    | 'EMENTA'
+    | 'PREAMBULO'
+    | 'BODY'
+    | 'FECHO'
+    | 'ASSINATURA'
+    | 'ANEXO' = 'INITIAL';
 
   const blocks: LegislativeBlock[] = [];
-  let currentBlock: { type: BlockType; label?: string; text: string } | null = null;
+  let currentBlock: { type: BlockType; label?: string; text: string; novaRedacao?: boolean } | null = null;
 
   // Processamento de Tabelas RTF (\cell / \row com suporte a mesclagem)
   interface CellTokenData {
@@ -409,27 +535,35 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
   let currentRawTableRow: CellTokenData[] = [];
   let currentTableCellText = '';
   let currentCellFlags = { clmgf: false, clmrg: false, clvmgf: false, clvmrg: false };
-  let inTableMode = false;
   let tableRowOpen = false;
 
   let artCounter = 0;
 
-  function flushCurrentBlock() {
-    if (!currentBlock) return;
+  function pushBlock(type: BlockType, label: string | undefined, text: string, novaRedacao?: boolean) {
     let linkName: string | undefined;
-    if (currentBlock.type === 'ARTIGO') {
+    if (type === 'ARTIGO') {
       artCounter++;
       linkName = `art${artCounter}`;
     }
-    const sanitizedText = sanitizeQuoteText(currentBlock.text);
     blocks.push({
       id: `block-${blocks.length + 1}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      type: currentBlock.type,
-      numberLabel: currentBlock.label,
-      content: sanitizedText,
-      rawText: sanitizedText,
+      type,
+      numberLabel: label,
+      content: text,
+      rawText: text,
       linkName,
+      novaRedacao,
     });
+  }
+
+  function flushCurrentBlock() {
+    if (!currentBlock) return;
+    pushBlock(
+      currentBlock.type,
+      currentBlock.label,
+      sanitizeQuoteText(currentBlock.text),
+      currentBlock.novaRedacao
+    );
     currentBlock = null;
   }
 
@@ -460,7 +594,7 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
       let previousRight = 0;
 
       row.forEach((cellData, cIdx) => {
-        const text = cellData.text.replace(/^-70\s*/, '').trim();
+        const text = cellData.text.trim();
         const endColumn = usesCellGeometry ? columnBoundaries.indexOf(cellData.cellRight!) : cIdx;
         const startColumn = usesCellGeometry
           ? previousRight === 0
@@ -519,7 +653,7 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
   function flushTable() {
     if (currentTableCellText.trim()) {
       currentRawTableRow.push({
-        text: currentTableCellText.trim().replace(/^-70\s*/, ''),
+        text: currentTableCellText.trim(),
         ...currentCellFlags,
       });
       currentTableCellText = '';
@@ -544,7 +678,6 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
       });
       currentRawTableRows = [];
     }
-    inTableMode = false;
     tableRowOpen = false;
   }
 
@@ -553,15 +686,13 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
       if (tok.rowIndex === 0 && !tableRowOpen && currentRawTableRows.length > 0 && currentRawTableRow.length === 0) {
         flushTable();
       }
-      inTableMode = true;
       tableRowOpen = true;
       return;
     }
 
     if (tok.type === 'cell') {
-      inTableMode = true;
       currentRawTableRow.push({
-        text: currentTableCellText.trim().replace(/^-70\s*/, ''),
+        text: currentTableCellText.trim(),
         clmgf: tok.clmgf,
         clmrg: tok.clmrg,
         clvmgf: tok.clvmgf,
@@ -573,11 +704,8 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
     }
 
     if (tok.type === 'row') {
-      inTableMode = true;
       if (currentTableCellText.trim()) {
-        currentRawTableRow.push({
-          text: currentTableCellText.trim().replace(/^-70\s*/, ''),
-        });
+        currentRawTableRow.push({ text: currentTableCellText.trim() });
         currentTableCellText = '';
       }
       if (currentRawTableRow.length > 0) {
@@ -589,65 +717,89 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
     }
 
     if (tok.type === 'text' && tok.val) {
-      const clean = tok.val.replace(/^##[A-Z]{3}\s*/, '').replace(/^-70\s*/, '').trim();
+      const marca = tok.val.match(/^##([A-Z]{3})/)?.[1];
+      const clean = tok.val.replace(/^##[A-Z]{3}\s*/, '').trim();
       if (!clean) return;
 
-      if (/^ANEXO\s+[IVXLCDM\d]*/i.test(clean) || /^QUADRO\s+RESUMO/i.test(clean)) {
-        flushTable();
-        inTableMode = false;
-      }
-
-      // Se estamos em modo tabela ou acumulando celula
-      if (tableRowOpen || currentRawTableRow.length > 0 || currentTableCellText.length > 0) {
+      /*
+       * Conteúdo de célula. Quem diz é o `\intbl` do próprio arquivo; o estado
+       * da linha aberta fica como segunda leitura, para o RTF de gerador que
+       * não marca o parágrafo da célula.
+       */
+      if (tok.intbl || tableRowOpen || currentRawTableRow.length > 0 || currentTableCellText.length > 0) {
         currentTableCellText += (currentTableCellText ? ' ' : '') + clean;
         return;
       }
 
-      if (tok.val.startsWith('##ATO') || (state === 'INITIAL' && /^DECRETO|^LEI|^MEDIDA PROVISÓRIA/i.test(clean))) {
-        flushTable();
+      /*
+       * Daqui para baixo o parágrafo é do documento, e não da tabela: a tabela
+       * pendente se fecha agora. É isto que põe o título de tabela depois da
+       * tabela anterior, e não na frente dela — `flushTable` grava o bloco da
+       * tabela, e o parágrafo que chega depois só é gravado adiante.
+       */
+      flushTable();
+
+      if (marca === 'ATO' || (state === 'INITIAL' && /^DECRETO|^LEI|^MEDIDA PROVISÓRIA/i.test(clean))) {
         state = 'EPIGRAFE';
         epigrafeLines.push(clean);
         return;
       }
 
-      if (tok.val.startsWith('##EME') || (state === 'EPIGRAFE' && /^Altera|^Dispõe|^Aprova|^Institui/i.test(clean))) {
-        flushTable();
+      if (marca === 'EME' || (state === 'EPIGRAFE' && /^Altera|^Dispõe|^Aprova|^Institui/i.test(clean))) {
         state = 'EMENTA';
         ementaLines.push(clean);
         return;
       }
 
-      if (tok.val.startsWith('##TEX') || (state === 'EMENTA' && /^O PRESIDENTE DA REPÚBLICA|^O MINISTRO/i.test(clean))) {
-        flushTable();
+      if (marca === 'TEX' || (state === 'EMENTA' && /^O PRESIDENTE DA REPÚBLICA|^O MINISTRO/i.test(clean))) {
         state = 'PREAMBULO';
         preambuloLines.push(clean);
         return;
       }
 
       if (/^(DECRETA|RESOLVE):?$/i.test(clean)) {
-        flushTable();
         state = 'BODY';
         ordemExecucao = clean;
         return;
       }
 
-      if (/^(Brasília|Rio de Janeiro),\s*\d+\s+de/i.test(clean)) {
-        flushTable();
+      // "Brasília, 1º de agosto de 2026": o ato assinado no primeiro dia do mês
+      // escreve o dia em ordinal, e sem isso o fecho não era reconhecido — o
+      // estado nunca chegava a FECHO e os signatários viravam dispositivos.
+      if (/^(Brasília|Rio de Janeiro),\s*\d+[ºo°]?\s+de/i.test(clean)) {
         flushCurrentBlock();
         state = 'FECHO';
         fechoLines.push(clean);
         return;
       }
 
-      // Fix #3: Captura de assinaturas — aceita nomes em maiúsculas puras (Presidente + Ministros)
-      // Excluí: cabeçalhos de Anexo, rótulos de tabela e siglas soltas
-      // Também continua capturando no estado ASSINATURA para múltiplos signatários
+      /*
+       * O anexo abre depois das assinaturas, e a partir dele nada mais é
+       * signatário. Ter o estado próprio é o que permite acolher "REMANEJAMENTO
+       * DE CARGOS COMISSIONADOS…" — uma linha inteira em maiúsculas — sem que
+       * ela entre na lista de quem assina o ato.
+       */
+      if (marca === 'ANE' || ((state === 'FECHO' || state === 'ASSINATURA') && /^ANEXO/i.test(clean))) {
+        flushCurrentBlock();
+        state = 'ANEXO';
+      }
+
+      /*
+       * Quem assina. A marca da CEJ é quem diz, e por isso o ministro que
+       * assina em caixa mista — "Esther Dweck" — chega à lista de assinaturas
+       * em vez de sumir. Sem marca, vale a linha em maiúsculas depois do fecho,
+       * com a ressalva dos cabeçalhos de anexo e de tabela, que também são
+       * linhas em maiúsculas.
+       */
       const isAnexoOrTableHeader = /^ANEXO|^CÓDIGO|^UNIDADE|^QUADRO|^REMANEJAMENTO|^TRANSFORMA|^SIGLA|^CARGO|^FCE|^CCE|^\d/.test(clean);
       if (
-        !isAnexoOrTableHeader &&
-        (state === 'FECHO' || state === 'ASSINATURA') &&
-        /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][A-ZÁÉÍÓÚÂÊÔÃÕÇ\s']{3,}$/.test(clean)
+        marca === 'APR' ||
+        marca === 'AMI' ||
+        (!isAnexoOrTableHeader &&
+          (state === 'FECHO' || state === 'ASSINATURA') &&
+          /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][A-ZÁÉÍÓÚÂÊÔÃÕÇ\s']{3,}$/.test(clean))
       ) {
+        flushCurrentBlock();
         state = 'ASSINATURA';
         assinaturaLines.push(clean);
         return;
@@ -670,19 +822,51 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
 
       if (state === 'BODY') {
         if (isNewDeviceStart(tok.val)) {
-          flushTable();
           flushCurrentBlock();
           const parsed = identifyBlockType(tok.val);
-          currentBlock = { type: parsed.type, label: parsed.numberLabel, text: parsed.cleanText };
+          currentBlock = {
+            type: parsed.type,
+            label: parsed.numberLabel,
+            text: parsed.cleanText,
+            novaRedacao: parsed.novaRedacao,
+          };
         } else {
           // Fix #2: linhas sem marcador de bloco SEMPRE acumulam no bloco corrente
           // (evita alíneas truncadas quando o RTF quebra a linha no meio do conteúdo)
           if (currentBlock) {
             currentBlock.text = smartJoin(currentBlock.text, clean);
+            // O "(NR)" pode chegar na continuação do dispositivo, e não na
+            // linha que o abriu; a marca é do dispositivo de qualquer modo.
+            if (/\(\s*NR\s*\)$/i.test(clean)) currentBlock.novaRedacao = true;
           } else {
             currentBlock = { type: 'TEXTO_LIVRE', text: clean };
           }
         }
+        return;
+      }
+
+      /*
+       * Nenhum trecho de texto fica sem destino.
+       *
+       * Este ramo faltava, e era por onde o anexo inteiro do decreto se perdia:
+       * uma vez no fecho, o estado nunca voltava ao corpo, e todo parágrafo dali
+       * em diante — o título do anexo, a denominação, os títulos das tabelas —
+       * caía fora de todos os `if` sem deixar rastro. Duzentos e doze trechos,
+       * quatrocentas e quarenta e uma palavras, num decreto só.
+       *
+       * Aqui cada parágrafo é um bloco próprio, e não se cola no anterior como
+       * no corpo: fora do corpo o `\par` separa coisas distintas — o título do
+       * anexo não é continuação da linha que veio antes dele.
+       */
+      flushCurrentBlock();
+      const parsed = identifyBlockType(tok.val);
+      if (parsed.cleanText) {
+        pushBlock(parsed.type, parsed.numberLabel, parsed.cleanText, parsed.novaRedacao);
+      } else {
+        // A higienização pode não deixar texto algum: é o caso do `” (NR)` que
+        // fecha, sozinho num parágrafo, a citação do anexo. Aí o parágrafo fica
+        // como o arquivo o escreveu — bloco vazio é conteúdo perdido.
+        pushBlock('TEXTO_LIVRE', undefined, clean);
       }
     }
   });

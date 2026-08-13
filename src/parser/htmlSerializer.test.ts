@@ -47,6 +47,22 @@ describe('ordem de execução', () => {
   });
 });
 
+describe('ementa', () => {
+  /*
+   * A ementa não é texto corrido: no arquivo ela é a segunda coluna de uma
+   * tabela de duas, e o parágrafo que a contém nunca levou recuo de primeira
+   * linha. A folha desenhava um, e era só dela — quem manda é o arquivo.
+   */
+  it('sai sem recuo de primeira linha, porque é coluna de tabela e não texto corrido', () => {
+    const html = serializeToPlanaltoHtml(doc);
+    const paragrafo = html.match(/<p align="[^"]*">\s*<span style="[^"]*#800000">[\s\S]*?<\/p>/)?.[0];
+
+    expect(paragrafo).toBeDefined();
+    expect(paragrafo).toContain(doc.ementa);
+    expect(paragrafo).not.toContain('text-indent');
+  });
+});
+
 /*
  * A remissão precisa parecer uma remissão em qualquer ato aberto, inclusive nos
  * que trazem a cor por dentro do link — herança do corpus legado do Planalto.
@@ -167,5 +183,83 @@ describe('abertura de ato publicado', () => {
     expect(voltou?.numberLabel).toBe('Art. 1º');
     expect(voltou?.content).toContain('<a name="art1">');
     expect(voltou?.content).toContain('href="#art2"');
+  });
+});
+
+describe('o anexo se lê depois das assinaturas', () => {
+  const comAnexo: LegislativeDocument = {
+    ...doc,
+    assinaturas: ['LUIZ INÁCIO LULA DA SILVA'],
+    blocks: [
+      { id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: 'Ficam remanejados os cargos.', rawText: 'Ficam remanejados os cargos.' },
+      { id: 'b2', type: 'ANEXO', content: 'ANEXO I', rawText: 'ANEXO I' },
+      { id: 'b3', type: 'TEXTO_LIVRE', content: 'REMANEJAMENTO DE CARGOS', rawText: 'REMANEJAMENTO DE CARGOS' },
+    ],
+  };
+
+  const html = serializeToPlanaltoHtml(comAnexo);
+
+  it('escreve o anexo depois do fecho e das assinaturas', () => {
+    expect(html.indexOf('Ficam remanejados')).toBeLessThan(html.indexOf('Brasília, 4 de agosto'));
+    expect(html.indexOf('LUIZ INÁCIO LULA DA SILVA')).toBeLessThan(html.indexOf('ANEXO I'));
+    expect(html.indexOf('ANEXO I')).toBeLessThan(html.indexOf('REMANEJAMENTO DE CARGOS'));
+  });
+
+  it('desenha o título do anexo centralizado e em negrito, como o agrupador', () => {
+    const anexo = serializeBlockToHtml(comAnexo.blocks[1]);
+
+    expect(anexo).toContain('align="center"');
+    expect(anexo).toContain('<b>');
+  });
+
+  it('mantém o anexo no fim quando o arquivo exportado é reaberto', () => {
+    const voltou = deserializePlanaltoHtmlToDocument(html);
+    const tipos = voltou.blocks.map((block) => block.type);
+
+    expect(voltou.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA']);
+    // O anexo volta ao fim da lista, que é de onde o serializador o tira.
+    expect(tipos.indexOf('ANEXO')).toBe(tipos.length - 2);
+    expect(voltou.blocks.at(-1)?.rawText).toBe('REMANEJAMENTO DE CARGOS');
+  });
+
+  it('não pendura travessão no anexo que ainda não tem denominação', () => {
+    /*
+     * É o caminho normal de quem cria um anexo pela barra: o dispositivo nasce
+     * vazio (invariante 2) e só depois recebe o nome. Saindo como "ANEXO I - ",
+     * ele voltava da releitura como linha sem formatação, e a região inteira do
+     * anexo subia para o corpo do ato.
+     */
+    const semDenominacao: LegislativeDocument = {
+      ...comAnexo,
+      blocks: [
+        comAnexo.blocks[0],
+        { id: 'b2', type: 'ANEXO', numberLabel: 'ANEXO I', content: '', rawText: '' },
+        comAnexo.blocks[2],
+      ],
+    };
+    const exportado = serializeToPlanaltoHtml(semDenominacao);
+
+    expect(exportado).not.toContain('ANEXO I - <');
+    expect(deserializePlanaltoHtmlToDocument(exportado).blocks.some((b) => b.type === 'ANEXO')).toBe(true);
+  });
+
+  it('para de recolher assinatura no primeiro parágrafo que não é nome', () => {
+    /*
+     * As assinaturas são contíguas ao fecho. Sem esse freio, a forma de nome
+     * próprio — duas a seis palavras capitalizadas — recolhia meio anexo para a
+     * lista de signatários: "Quadro Demonstrativo de Cargos" tem essa forma.
+     */
+    const lido = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+        <p>Brasília, 31 de dezembro de 2024.</p>
+        <p>LUIZ INÁCIO LULA DA SILVA</p>
+        <p>Cristina Kiomi Mori</p>
+        <p>Este texto não substitui o publicado no DOU de 31.12.2024.</p>
+        <p>Quadro Demonstrativo de Cargos</p>
+      </body></html>`
+    );
+
+    expect(lido.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA', 'Cristina Kiomi Mori']);
+    expect(lido.blocks.some((block) => block.rawText === 'Quadro Demonstrativo de Cargos')).toBe(true);
   });
 });

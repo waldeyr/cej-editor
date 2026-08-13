@@ -1,5 +1,5 @@
-import { BlockAlign, BlockType, LegislativeDocument } from '../types/legislative';
-import { isAgrupador } from './rank';
+import { BlockAlign, BlockType, LegislativeBlock, LegislativeDocument } from '../types/legislative';
+import { desenhaComoTitulo } from './rank';
 
 /**
  * Endereçamento dos campos editáveis do canvas.
@@ -16,6 +16,42 @@ export const EDITABLE_SELECTOR = `[${EDITABLE_TARGET_ATTR}]`;
 
 /** Partes fixas do ato, fora da lista de dispositivos. */
 export type DocPart = 'epigrafe' | 'ementa' | 'preambulo' | 'ordemExecucao' | 'fecho';
+
+/**
+ * As partes que abrem o ato (Decreto nº 12.002/2024, art. 4º), e as únicas que
+ * trocam texto entre si e com os dispositivos.
+ *
+ * A ordem de execução e o fecho ficam de fora de propósito: uma parte fixa que
+ * perde o texto some da folha, e um clique com o cursor pousado em "DECRETA:"
+ * apagaria a ordem de execução do ato sem que o redator tivesse selecionado
+ * nada nem entendido o que sumiu.
+ */
+export const PARTES_PRELIMINARES: readonly DocPart[] = ['epigrafe', 'ementa', 'preambulo'];
+
+/** Nome de cada parte na língua do redator — nomeia o botão e o recado. */
+export const NOME_DA_PARTE: Readonly<Record<DocPart, string>> = {
+  epigrafe: 'Epígrafe',
+  ementa: 'Ementa',
+  preambulo: 'Preâmbulo',
+  ordemExecucao: 'Ordem de execução',
+  fecho: 'Fecho',
+};
+
+/**
+ * Gênero de cada parte, que em português é também o artigo definido dela:
+ * "a ementa", "o preâmbulo", "substituída", "substituído".
+ *
+ * Existe porque o recado da barra de estado é lido por quem redige, e um
+ * programa que escreve "Preâmbulo substituída" perde a autoridade de apontar
+ * erro de redação no ato.
+ */
+export const GENERO_DA_PARTE: Readonly<Record<DocPart, 'a' | 'o'>> = {
+  epigrafe: 'a',
+  ementa: 'a',
+  preambulo: 'o',
+  ordemExecucao: 'a',
+  fecho: 'o',
+};
 
 export const blockTarget = (id: string): string => `block:${id}`;
 export const partTarget = (part: DocPart): string => `part:${part}`;
@@ -101,6 +137,122 @@ export function applyHtmlToTarget(
   }
 }
 
+/**
+ * Faz do texto em jogo a epígrafe, a ementa ou o preâmbulo do ato.
+ *
+ * É o mesmo gesto dos botões de estrutura, um degrau ao lado: seleciona-se o
+ * texto e diz-se o que ele é. A diferença é que a parte fixa não tem tipo —
+ * ela é um campo do documento, e não um dispositivo —, de modo que o trecho
+ * **sai** da lista e passa a morar no campo. Deixá-lo nos dois lugares poria a
+ * mesma frase duas vezes no ato.
+ *
+ * Existe por uma falta concreta: a parte fixa só é desenhada quando tem texto.
+ * Um ato importado sem ementa — o caso de todo `.docx`, e de todo arquivo em
+ * que a marcação não a entrega — não tinha onde se clicar para escrevê-la, e
+ * não havia comando algum que a criasse.
+ *
+ * A origem pode ser um dispositivo ou outra parte fixa: quem importa um ato com
+ * a ementa dentro da epígrafe conserta selecionando e clicando. `origens` vem na
+ * ordem da folha, e é nela que os trechos se juntam.
+ */
+export function moverParaParte(
+  doc: LegislativeDocument,
+  part: DocPart,
+  origens: readonly string[]
+): LegislativeDocument {
+  const destino = partTarget(part);
+
+  /*
+   * A parte de destino entra na conta quando o redator a selecionou junto: ele
+   * arrastou do meio da ementa até o fim do parágrafo seguinte para juntar os
+   * dois, e descartar a metade que já morava no campo apagaria texto que ele
+   * tinha na tela.
+   */
+  const fontes = origens.filter(
+    (alvo) =>
+      (alvo.startsWith('block:') && podeVirarParte(blocoDe(doc, alvo))) ||
+      (alvo.startsWith('part:') && ehParteTrocavel(alvo.slice('part:'.length) as DocPart))
+  );
+  if (fontes.length === 0) return doc;
+
+  const texto = fontes.map((alvo) => htmlDaFonte(doc, alvo)).filter(Boolean).join(' ');
+  if (!texto || texto === doc[part]) return doc;
+
+  const idsPromovidos = new Set(
+    fontes.filter((alvo) => alvo.startsWith('block:')).map((alvo) => alvo.slice('block:'.length))
+  );
+
+  // As partes de origem ficam vazias, e uma parte vazia some da folha — é o
+  // mesmo efeito do botão que apaga a parte, e `Ctrl+Z` devolve as duas. O
+  // destino não se esvazia: ele é reescrito logo abaixo.
+  const semAsFontes = fontes
+    .filter((alvo) => alvo.startsWith('part:') && alvo !== destino)
+    .reduce(
+      (acumulado, alvo) => applyHtmlToTarget(acumulado, alvo, ''),
+      { ...doc, blocks: doc.blocks.filter((bloco) => !idsPromovidos.has(bloco.id)) }
+    );
+
+  return applyHtmlToTarget(semAsFontes, destino, texto);
+}
+
+const blocoDe = (doc: LegislativeDocument, alvo: string): LegislativeBlock | undefined =>
+  doc.blocks.find((candidato) => blockTarget(candidato.id) === alvo);
+
+/** Só as três partes que abrem o ato trocam texto entre si e com os dispositivos. */
+const ehParteTrocavel = (part: DocPart): boolean => PARTES_PRELIMINARES.includes(part);
+
+/**
+ * O dispositivo pode virar texto de uma parte fixa?
+ *
+ * Dois não podem, e o motivo é o mesmo nos dois casos: eles não são texto.
+ *
+ * A **tabela** posta num campo de parte fixa é desfeita na gravação — o campo é
+ * relido como parágrafo — e ainda reaparece como bloco de tabela ao abrir o
+ * arquivo, porque o leitor varre `table.MsoTableGrid` onde quer que ela esteja.
+ * O mesmo conteúdo em dois lugares, e a tabela destruída num deles.
+ *
+ * O **anexo** é o bloco que marca onde o anexo começa (`inicioDoAnexo`). Tirá-lo
+ * da lista faz todo o conteúdo do anexo voltar para o corpo do ato, calado —
+ * é a mesma fronteira que as setas de mover se recusam a atravessar.
+ */
+export function podeVirarParte(bloco: LegislativeBlock | undefined): boolean {
+  if (!bloco) return false;
+  return bloco.type !== 'TABELA' && bloco.type !== 'ANEXO';
+}
+
+/** O texto de uma origem, na forma em que a folha o mostra. */
+function htmlDaFonte(doc: LegislativeDocument, alvo: string): string {
+  if (alvo.startsWith('part:')) return doc[alvo.slice('part:'.length) as DocPart] || '';
+
+  const bloco = blocoDe(doc, alvo);
+  if (!bloco || isEmptyHtml(bloco.content)) return '';
+
+  /*
+   * O ponto de ancoragem vem junto, escrito no HTML.
+   *
+   * No dispositivo ele mora em `linkName`, e é o serializador que o desenha; a
+   * parte fixa não tem esse campo. Sem trazê-lo para dentro do texto, toda
+   * remissão que apontava para o artigo promovido passaria a apontar para um
+   * destino que o arquivo salvo não conhece mais.
+   */
+  const ancora = bloco.linkName ? `<a name="${bloco.linkName}"></a>` : '';
+
+  /*
+   * As aspas e o "(NR)" da citação vêm do tipo do bloco, e é a folha que os
+   * desenha. Fora do dispositivo não há tipo, então eles viram texto — ou
+   * sumiriam da tela sem que ninguém tivesse mandado apagá-los.
+   *
+   * O **rótulo**, ao contrário, fica para trás: "Art. 1º" não foi escrito pelo
+   * redator, é consequência da posição do dispositivo na lista. Levá-lo faria a
+   * ementa começar por "Art. 1º", que é justamente o que quem promove um
+   * parágrafo mal classificado está tentando desfazer.
+   */
+  if (bloco.type === 'ALTERACAO') {
+    return `${ancora}“${bloco.content}”${bloco.novaRedacao ? ' (NR)' : ''}`;
+  }
+  return `${ancora}${bloco.content}`;
+}
+
 /** Envolve a ordem de execução na marca de "sem formatação" quando ela ficou sem etiquetas. */
 export function markOrdemExecucaoAsPlain(html: string): string {
   if (/<[a-z][^>]*>/i.test(html)) return html;
@@ -134,9 +286,9 @@ export const PART_ALIGN_DEFAULTS: Readonly<Record<string, BlockAlign>> = {
 /** Assinaturas nascem centralizadas, uma sob a outra ao pé do ato. */
 export const ASSINATURA_ALIGN_DEFAULT: BlockAlign = 'center';
 
-/** Agrupadores são centralizados; os demais dispositivos, justificados. */
+/** Agrupadores e título de anexo são centralizados; os demais, justificados. */
 export function defaultAlignForBlockType(type: BlockType): BlockAlign {
-  return isAgrupador(type) ? 'center' : 'justify';
+  return desenhaComoTitulo(type) ? 'center' : 'justify';
 }
 
 /**

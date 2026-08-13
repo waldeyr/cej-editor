@@ -144,10 +144,35 @@ body {
   color: var(--cej-link-hover) !important;
 }
 
+/*
+ * O ponto de ancoragem se anuncia por um ícone minúsculo de âncora à sua
+ * esquerda, e não só pelo realce do trecho marcado.
+ *
+ * O realce sozinho não bastava porque o ponto de ancoragem do ato publicado
+ * quase nunca tem texto dentro: ele chega como `<a name="art1"></a>`, colado à
+ * frente do artigo, e um elemento vazio ocupa zero pixel — não há o que realçar.
+ * As 217 âncoras da medida provisória de docs/file-tests/ estavam na folha sem
+ * que nada na tela as anunciasse. O desenho é o mesmo da âncora que a barra e o
+ * menu do botão direito usam (lucide `Anchor`): mesma figura, mesma coisa.
+ *
+ * O ícone entra pelo recuo do próprio `<a>`, e não por um `::before`, porque a
+ * caixa autônoma de um pseudoelemento abre oportunidade de quebra de linha e
+ * deixaria o ícone órfão no fim de uma linha, longe do trecho que ele marca. É
+ * também por isso que o `box-decoration-break` volta ao `slice` de origem: com
+ * `clone`, o recuo — e o ícone com ele — se repetiria a cada linha do trecho.
+ *
+ * A tinta é a do selo, escurecida para se ler sobre o papel branco. Ela vai
+ * escrita dentro do SVG porque data: URI não enxerga variável de CSS: mudou
+ * --color-selo, confira aqui.
+ */
 .folha a[name] {
+  padding-left: 1em;
   background-color: color-mix(in srgb, var(--color-selo) 24%, transparent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a6410' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22V8'/%3E%3Cpath d='M5 12H2a10 10 0 0 0 20 0h-3'/%3E%3Ccircle cx='12' cy='5' r='3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 0.1em center;
+  background-size: 0.72em 0.72em;
   border-radius: 2px;
-  box-decoration-break: clone;
 }
 
 /* Barras de rolagem discretas sobre o chrome escuro. */
