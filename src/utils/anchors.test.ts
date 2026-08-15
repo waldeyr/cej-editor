@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { BlockType, LegislativeBlock, LegislativeDocument } from '../types/legislative';
-import { ancorarDispositivos, collectAnchorPoints, createAnchorName, findAnchorBlock } from './anchors';
+import {
+  ancorarDispositivos,
+  collectAnchorPoints,
+  createAnchorName,
+  findAnchorBlock,
+  renumerarDispositivos,
+  semPontosDeAncoragem,
+} from './anchors';
 import { serializeToPlanaltoHtml } from '../parser/htmlSerializer';
 
 const block = (partial: Partial<LegislativeBlock> & { id: string }): LegislativeBlock => ({
@@ -89,6 +96,36 @@ describe('pontos de ancoragem do ato', () => {
       label: 'Cargos Comissionados',
       location: 'Art. 2º',
     });
+  });
+
+  it('lista o nome repetido uma vez só, e é a primeira ocorrência que vale', () => {
+    // Duplicar um dispositivo levava o endereço junto. Dois destinos de mesmo
+    // nome na lista, e o navegador parando no primeiro: metade das remissões
+    // apontaria para o dispositivo errado.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 2º', linkName: 'art2' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 2º', linkName: 'art2' })
+    );
+
+    const pontos = collectAnchorPoints(doc);
+    expect(pontos.map((ponto) => ponto.name)).toEqual(['art2']);
+    expect(pontos[0].blockId).toBe('b1');
+  });
+
+  it('cita o dispositivo pela cadeia em que ele está, e não só pelo rótulo', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ANEXO', numberLabel: 'ANEXO I', linkName: 'anexoi' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'anexoiart1' }),
+      block({ id: 'b3', type: 'INCISO', numberLabel: 'II -', linkName: 'anexoiart1ii' }),
+      block({ id: 'b4', type: 'ALINEA', numberLabel: 'a)', linkName: 'anexoiart1iia' })
+    );
+
+    expect(collectAnchorPoints(doc).map((ponto) => ponto.location)).toEqual([
+      'ANEXO I',
+      'ANEXO I, Art. 1º',
+      'ANEXO I, Art. 1º, II',
+      'ANEXO I, Art. 1º, II, a)',
+    ]);
   });
 
   it('localiza o dispositivo que responde por um nome', () => {
@@ -232,9 +269,94 @@ describe('criação automática dos pontos de ancoragem', () => {
     ).toEqual(['art1', 'art1ii', undefined, 'art1iic']);
   });
 
+  it('endereça o dispositivo que a cópia deixou sem endereço', () => {
+    // O gesto de "Duplicar Bloco": a cópia chega sem `linkName` e sem as âncoras
+    // do conteúdo, e é aqui que ela ganha endereço próprio.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'art1' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 2º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', 'art2']);
+  });
+
   it('devolve o mesmo documento quando não há endereço a acrescentar', () => {
     const doc = ancorarDispositivos(ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'I -']));
     expect(ancorarDispositivos(doc)).toBe(doc);
+  });
+});
+
+describe('renumerar', () => {
+  it('leva o endereço junto com o número, para ele não ficar no artigo errado', () => {
+    // Um artigo entrou entre o 1º e o 2º: o antigo "Art. 2º" passa a 3º, e o
+    // endereço dele tem de passar a `art3`. Deixá-lo em `art2` faria o arquivo
+    // sair com `<a name="art2">` no artigo numerado 3º.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'art1' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b3', type: 'ARTIGO', numberLabel: 'Art. 2º', linkName: 'art2' })
+    );
+
+    const { doc: depois, renumerados } = renumerarDispositivos(doc);
+    expect(depois.blocks.map((bloco) => [bloco.numberLabel, bloco.linkName])).toEqual([
+      ['Art. 1º', 'art1'],
+      ['Art. 2º', 'art2'],
+      ['Art. 3º', 'art3'],
+    ]);
+    expect(renumerados).toBe(2);
+  });
+
+  it('leva junto o endereço dos dispositivos que pendem do artigo renumerado', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'art1' }),
+      block({ id: 'b3', type: 'INCISO', numberLabel: 'I -', linkName: 'art1i' })
+    );
+
+    const { doc: depois } = renumerarDispositivos(doc);
+    expect(depois.blocks.map((bloco) => bloco.linkName)).toEqual(['art1', 'art2', 'art2i']);
+  });
+
+  it('não toca no endereço que veio dentro do conteúdo do ato publicado', () => {
+    // Ele é o que as remissões já publicadas citam: o rótulo se move, o endereço
+    // fica. É a diferença entre `linkName`, que este programa derivou, e o
+    // `<a name>` que o arquivo trouxe.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º', content: '<a name="art1"></a>Fica' })
+    );
+
+    const { doc: depois } = renumerarDispositivos(doc);
+    expect(depois.blocks[1].numberLabel).toBe('Art. 2º');
+    expect(depois.blocks[1].content).toContain('<a name="art1">');
+    expect(depois.blocks[1].linkName).toBeUndefined();
+  });
+
+  it('devolve o mesmo documento quando a numeração já acompanha a ordem', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'art1' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 2º', linkName: 'art2' })
+    );
+
+    const resultado = renumerarDispositivos(doc);
+    expect(resultado.renumerados).toBe(0);
+    expect(resultado.doc).toBe(doc);
+  });
+});
+
+describe('conteúdo copiado', () => {
+  it('perde os pontos de ancoragem e guarda o texto e as remissões', () => {
+    expect(semPontosDeAncoragem('<a name="art5"></a>Fica instituído')).toBe('Fica instituído');
+    expect(semPontosDeAncoragem('os <a name="cargos">Cargos</a> criados')).toBe(
+      'os <a>Cargos</a> criados'
+    );
+    expect(semPontosDeAncoragem('ver a <a href="l1.htm#art2" name="ida">Lei</a>')).toBe(
+      'ver a <a href="l1.htm#art2">Lei</a>'
+    );
+  });
+
+  it('não mexe em conteúdo que não tem ponto de ancoragem', () => {
+    const html = 'Fica <b>instituído</b> o <a href="#art9">Programa</a>';
+    expect(semPontosDeAncoragem(html)).toBe(html);
   });
 });
 

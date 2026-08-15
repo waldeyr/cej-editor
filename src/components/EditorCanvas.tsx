@@ -20,7 +20,13 @@ import { desenhaComoTitulo } from '../utils/rank';
 import { Editable } from './Editable';
 import { CanvasContextMenu, CanvasMenuState } from './CanvasContextMenu';
 import { CanvasHint, CanvasHintState } from './CanvasHint';
-import { LINK_INK, LINK_INK_HOVER, describeBlock, findAnchorBlock } from '../utils/anchors';
+import {
+  LINK_INK,
+  LINK_INK_HOVER,
+  describeBlock,
+  findAnchorBlock,
+  semPontosDeAncoragem,
+} from '../utils/anchors';
 import {
   EDITABLE_SELECTOR,
   EDITABLE_TARGET_ATTR,
@@ -49,6 +55,16 @@ import { inicioDoAnexo, numberLabelForTypeAt } from '../utils/blockTypes';
 interface EditorCanvasProps {
   doc: LegislativeDocument;
   onUpdateDoc: (doc: LegislativeDocument) => void;
+  /**
+   * Devolve o ato quando a **lista de dispositivos** mudou — nasceu, sumiu,
+   * duplicou ou trocou de lugar —, e não quando só o texto de um deles mudou.
+   *
+   * A diferença existe porque é aqui que o dispositivo novo ganha o seu ponto de
+   * ancoragem (invariante 12), e passar o ato inteiro por essa conta a cada
+   * tecla custaria 168 ms numa medida provisória de 1.873 dispositivos, medidos.
+   * Estrutura muda por gesto; texto muda por caractere.
+   */
+  onUpdateStructure: (doc: LegislativeDocument) => void;
   selectedBlockId?: string;
   onSelectBlock: (id: string) => void;
   issues: ValidationIssue[];
@@ -71,6 +87,7 @@ const newBlockId = (prefix = 'block') =>
 export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   doc,
   onUpdateDoc,
+  onUpdateStructure,
   selectedBlockId,
   onSelectBlock,
   onNavigateAnchor,
@@ -271,16 +288,25 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     newBlocks[index] = newBlocks[targetIndex];
     newBlocks[targetIndex] = temp;
 
-    onUpdateDoc({ ...doc, blocks: newBlocks });
+    onUpdateStructure({ ...doc, blocks: newBlocks });
   };
 
   const handleDuplicateBlock = (block: LegislativeBlock, e: React.MouseEvent) => {
     e.stopPropagation();
     const index = doc.blocks.findIndex((b) => b.id === block.id);
+    /*
+     * A cópia nasce **sem** endereço, e ganha o seu em `onUpdateStructure`.
+     *
+     * Levar o `linkName` junto punha dois `<a name="art2">` no mesmo arquivo:
+     * o navegador para no primeiro, de modo que metade das remissões apontava
+     * para o dispositivo errado sem que nada na tela denunciasse. Endereço é
+     * identidade — duas cópias de um artigo são dois artigos.
+     */
     const newBlock: LegislativeBlock = {
       ...block,
       id: newBlockId(),
-      content: block.content,
+      linkName: undefined,
+      content: semPontosDeAncoragem(block.content),
       rawText: block.rawText,
     };
 
@@ -290,13 +316,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     } else {
       newBlocks.push(newBlock);
     }
-    onUpdateDoc({ ...doc, blocks: newBlocks });
+    onUpdateStructure({ ...doc, blocks: newBlocks });
   };
 
   const handleDeleteBlock = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newBlocks = doc.blocks.filter((b) => b.id !== id);
-    onUpdateDoc({ ...doc, blocks: newBlocks });
+    onUpdateStructure({ ...doc, blocks: newBlocks });
   };
 
   const handleAddBlockBelow = (index: number, type: BlockType, e: React.MouseEvent) => {
@@ -323,7 +349,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
     const newBlocks = [...doc.blocks];
     newBlocks.splice(index + 1, 0, newBlock);
-    onUpdateDoc({ ...doc, blocks: newBlocks });
+    onUpdateStructure({ ...doc, blocks: newBlocks });
     onSelectBlock(newBlock.id);
     focusEditableTarget(blockTarget(newBlock.id));
   };
@@ -362,7 +388,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     blocks[index] = { ...blocks[index], content: head, rawText: htmlToPlainText(head) };
     blocks.splice(index + 1, 0, newBlock);
 
-    onUpdateDoc({ ...doc, blocks });
+    onUpdateStructure({ ...doc, blocks });
     onSelectBlock(newBlock.id);
     focusEditableTarget(blockTarget(newBlock.id));
   };
@@ -383,7 +409,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       content: '',
       rawText: '',
     };
-    onUpdateDoc({ ...doc, blocks: [newBlock, ...doc.blocks] });
+    onUpdateStructure({ ...doc, blocks: [newBlock, ...doc.blocks] });
     onSelectBlock(newBlock.id);
     focusEditableTarget(blockTarget(newBlock.id));
   };

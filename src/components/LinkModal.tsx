@@ -69,6 +69,16 @@ export const LinkModal: React.FC<LinkModalProps> = ({
   const filtered = encontrados.slice(0, TETO_DA_LISTA);
   const ocultos = encontrados.length - filtered.length;
 
+  /** A mesma busca e o mesmo teto, para os pontos de ancoragem de outro ato. */
+  const ancorasDe = (ato: AtoAberto) => {
+    const encontradas = ato.ancoras.filter(
+      (ancora) =>
+        ancora.label.toLowerCase().includes(term) || ancora.name.toLowerCase().includes(term)
+    );
+    const visiveis = encontradas.slice(0, TETO_DA_LISTA);
+    return { encontradas, visiveis, ocultos: encontradas.length - visiveis.length };
+  };
+
   const outrosAtos = atosAbertos.filter(
     (ato) =>
       ato.rotulo.toLowerCase().includes(term) ||
@@ -220,6 +230,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
               {outrosAtos.map((ato) => {
                 const expandido = atoAberto === ato.id;
                 const disponivel = conheceCaminhos && atoTemArquivo && Boolean(ato.caminho);
+                const lista = ancorasDe(ato);
 
                 return (
                   <div key={ato.id} className="rounded-lg border border-slate-800 overflow-hidden">
@@ -264,7 +275,20 @@ export const LinkModal: React.FC<LinkModalProps> = ({
 
                     {expandido && (
                       <div className="max-h-40 overflow-y-auto divide-y divide-slate-800/60">
-                        {ato.ancoras.map((ancora) => (
+                        {/*
+                          A busca e o teto valem aqui também. Sem eles, expandir
+                          um ato de porte montava quinhentos e tantos botões numa
+                          caixa de dez linhas de altura, e o termo já digitado
+                          era ignorado justamente onde mais falta faz.
+                        */}
+                        {lista.ocultos > 0 && (
+                          <div className="px-3 py-1.5 text-[11px] text-slate-400">
+                            {lista.encontradas.length} pontos neste ato; listados os{' '}
+                            {lista.visiveis.length} primeiros. Escreva acima para achar os outros{' '}
+                            {lista.ocultos}.
+                          </div>
+                        )}
+                        {lista.visiveis.map((ancora) => (
                           <button
                             type="button"
                             key={ancora.name}

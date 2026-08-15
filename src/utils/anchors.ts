@@ -1,6 +1,7 @@
 import { LegislativeBlock, LegislativeDocument } from '../types/legislative';
 import { htmlToPlainText } from './docTargets';
-import { RANK_NONE, isAgrupador, ordemDoAgrupador, rankOf } from './rank';
+import { RANK_NONE, TOTAL_DE_AGRUPADORES, isAgrupador, ordemDoAgrupador, rankOf } from './rank';
+import { renumberBlocks } from './blockTypes';
 
 /**
  * Pontos de ancoragem e remissões.
@@ -150,7 +151,13 @@ export function collectAnchorPoints(doc: LegislativeDocument): AnchorPoint[] {
 
     const location = citacaoDe(block, cadeia);
 
-    if (block.linkName) {
+    /*
+     * O nome repetido entra uma vez só, e a primeira ocorrência é que vale —
+     * é ela que `findAnchorBlock` e o navegador encontram no arquivo. Duplicar
+     * a entrada dava dois destinos de mesmo nome na caixa de remissão, um deles
+     * levando a lugar nenhum, e uma `key` repetida na lista do React.
+     */
+    if (block.linkName && !points.some((point) => point.name === block.linkName)) {
       points.push({ name: block.linkName, label: location, location, blockId: block.id });
     }
 
@@ -167,6 +174,26 @@ export function collectAnchorPoints(doc: LegislativeDocument): AnchorPoint[] {
   });
 
   return points;
+}
+
+/**
+ * O mesmo conteúdo, sem ponto de ancoragem algum — para quem **copia** um
+ * dispositivo.
+ *
+ * Endereço é identidade: duas cópias de um artigo são dois artigos, e não dois
+ * dispositivos respondendo pelo mesmo `#art5`. O arquivo salvo com o nome
+ * repetido não acusa nada, e o navegador simplesmente para no primeiro, de modo
+ * que metade das remissões passa a levar ao dispositivo errado.
+ *
+ * O `name` some; o texto marcado e o `href` ficam. A âncora que só tinha o nome
+ * sai inteira, para não deixar um `<a>` vazio e sem serventia no meio do texto.
+ */
+export function semPontosDeAncoragem(html: string): string {
+  if (!html || !html.includes('name=')) return html;
+
+  return html
+    .replace(/<a\b[^>]*\bname=["'][^"']*["'][^>]*>\s*<\/a>/gi, '')
+    .replace(/(<a\b[^>]*?)\s+name=["'][^"']*["']/gi, '$1');
 }
 
 /**
@@ -364,7 +391,7 @@ interface Encaixe {
 /** Degraus da profundidade: o anexo, os oito agrupadores e a articulação. */
 const PROFUNDIDADE_DO_ANEXO = 0;
 const PROFUNDIDADE_DOS_AGRUPADORES = 1;
-const PROFUNDIDADE_DA_ARTICULACAO = PROFUNDIDADE_DOS_AGRUPADORES + 8;
+const PROFUNDIDADE_DA_ARTICULACAO = PROFUNDIDADE_DOS_AGRUPADORES + TOTAL_DE_AGRUPADORES;
 
 /** A posição do degrau mais fundo já aberto acima deste, se algum está. */
 function paiEntre(degraus: readonly number[]): number | undefined {
@@ -531,6 +558,44 @@ export function ancorarDispositivos(doc: LegislativeDocument): LegislativeDocume
       nomes[posicao] && !encaixes[posicao]?.jaTem ? { ...block, linkName: nomes[posicao] } : block
     ),
   };
+}
+
+/**
+ * Renumera os dispositivos e refaz os endereços que o editor derivou.
+ *
+ * As duas coisas são um gesto só, e separá-las foi um defeito: renumerar diz
+ * "os rótulos passam a seguir a ordem", e o dispositivo que passou de "Art. 2º"
+ * a "Art. 3º" saía do arquivo com `<a name="art2">` — quem citasse `#art2`
+ * cairia no artigo errado, que é o que o invariante 12 proíbe.
+ *
+ * **Refaz-se o ato inteiro, e não só o que foi renumerado.** Consertar apenas os
+ * dispositivos de rótulo alterado deixava o inciso para trás: "I -" continua "I
+ * -" quando o artigo passa de 1º a 2º, de modo que ele não entra na conta da
+ * renumeração e ficava endereçado em `art1i`, pendurado num artigo que agora é
+ * `art2`. Endereço é a cadeia inteira; quem move o pai move os filhos.
+ *
+ * Refazer tudo é seguro porque **só o `linkName` se apaga**: o endereço do ato
+ * publicado chega dentro do conteúdo do dispositivo (`<a name="art1"></a>`) e
+ * não se toca — é o que as remissões já publicadas citam, e é ele que sobrevive
+ * a esta operação. `linkName` é sempre endereço que este programa derivou da
+ * posição, e derivado da posição ele volta a ser.
+ *
+ * `ids` limita a renumeração a alguns dispositivos; sem ele, o ato inteiro.
+ */
+export function renumerarDispositivos(
+  doc: LegislativeDocument,
+  ids?: ReadonlySet<string>
+): { doc: LegislativeDocument; renumerados: number } {
+  const blocks = renumberBlocks(doc.blocks, ids);
+  const renumerados = blocks.filter((block, index) => block !== doc.blocks[index]).length;
+
+  if (renumerados === 0) return { doc, renumerados: 0 };
+
+  const semEndereco = blocks.map((block) =>
+    block.linkName ? { ...block, linkName: undefined } : block
+  );
+
+  return { doc: ancorarDispositivos({ ...doc, blocks: semEndereco }), renumerados };
 }
 
 /** Dispositivo em que um ponto de ancoragem está, se ele existir no ato. */

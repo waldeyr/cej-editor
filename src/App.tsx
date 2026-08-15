@@ -52,6 +52,7 @@ import {
   collectAnchorPoints,
   createAnchorName,
   findAnchorBlock,
+  renumerarDispositivos,
 } from './utils/anchors';
 import {
   DocPart,
@@ -88,7 +89,6 @@ import {
   blockTypeName,
   inicioDoAnexo,
   numberLabelForTypeAt,
-  renumberBlocks,
 } from './utils/blockTypes';
 import mammoth from 'mammoth';
 
@@ -619,8 +619,26 @@ export const App: React.FC = () => {
      * que vieram do arquivo ficam como estão — são o endereço que as remissões
      * já publicadas citam.
      */
-    const prepared: LegislativeDocument = ancorarDispositivos({ ...loaded, ...IMPORT_ENCODING });
-    despachar({ tipo: 'abrir', aba: criarAba(prepared, { arquivo }) });
+    const lido: LegislativeDocument = { ...loaded, ...IMPORT_ENCODING };
+    const prepared = ancorarDispositivos(lido);
+
+    /*
+     * Endereço criado é trabalho não salvo, e a aba tem de dizer isso.
+     *
+     * O ato na folha passou a ter dispositivos que o arquivo no disco não
+     * endereça, e a caixa de remissão já os oferece como destino de **outro**
+     * ato. Uma aba que se declarasse limpa deixaria o redator fechar o programa
+     * achando que gravou, e a remissão do ato vizinho nasceria apontando para um
+     * `#art173§1` que a árvore publicada não tem — quebrada em silêncio.
+     *
+     * O ato publicado que já chega inteiramente endereçado não sofre nada disto:
+     * `ancorarDispositivos` devolve o mesmo objeto, e a aba abre limpa.
+     */
+    const ganhouEndereco = prepared !== lido;
+    despachar({
+      tipo: 'abrir',
+      aba: criarAba(prepared, { arquivo, ...(ganhouEndereco ? { limpo: false } : {}) }),
+    });
   };
 
   /**
@@ -1300,17 +1318,20 @@ export const App: React.FC = () => {
       .filter((target) => target.startsWith('block:'))
       .map((target) => target.slice('block:'.length));
 
-    const blocks = renumberBlocks(base.blocks, selected.length > 0 ? new Set(selected) : undefined);
-    const changed = blocks.filter((block, index) => block !== base.blocks[index]).length;
+    // O endereço acompanha a renumeração; o porquê está em `renumerarDispositivos`.
+    const { doc: renumerado, renumerados } = renumerarDispositivos(
+      base,
+      selected.length > 0 ? new Set(selected) : undefined
+    );
 
-    if (changed === 0) {
+    if (renumerados === 0) {
       setNotice('A numeração já acompanha a ordem dos dispositivos.');
       return;
     }
 
-    setDoc({ ...base, blocks });
+    setDoc(renumerado);
     setNotice(
-      changed === 1 ? '1 dispositivo renumerado.' : `${changed} dispositivos renumerados.`
+      renumerados === 1 ? '1 dispositivo renumerado.' : `${renumerados} dispositivos renumerados.`
     );
   };
 
@@ -1736,6 +1757,7 @@ export const App: React.FC = () => {
           rolagemRef={rolagemRef}
           doc={doc}
           onUpdateDoc={setDoc}
+          onUpdateStructure={(proximo) => setDoc(ancorarDispositivos(proximo))}
           selectedBlockId={selectedBlockId}
           onSelectBlock={setSelectedBlockId}
           issues={issues}

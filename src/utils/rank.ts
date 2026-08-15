@@ -83,6 +83,14 @@ export function rankOf(type: BlockType): number {
 }
 
 /**
+ * Quantos degraus de encaixe os agrupadores têm. Quem empilha os agrupadores
+ * numa escala própria — o nome do ponto de ancoragem — precisa saber onde ela
+ * acaba, e ler isto é o que impede que um agrupador novo colida em silêncio com
+ * o degrau seguinte da escala de quem a consome.
+ */
+export const TOTAL_DE_AGRUPADORES = AGRUPADORES.length;
+
+/**
  * Ordem de encaixe entre agrupadores — parte, livro, título, capítulo, seção,
  * subseção (LC 95/1998, art. 10, IV), que é a ordem em que `AGRUPADORES` está
  * escrito. Devolve RANK_NONE para o que não é agrupador.
