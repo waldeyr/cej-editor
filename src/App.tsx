@@ -48,6 +48,7 @@ import {
   AnchorPoint,
   AtoAberto,
   LinkChoice,
+  ancorarDispositivos,
   collectAnchorPoints,
   createAnchorName,
   findAnchorBlock,
@@ -611,7 +612,14 @@ export const App: React.FC = () => {
    * pergunta ficou só para quem fecha.
    */
   const loadDocument = (loaded: LegislativeDocument, arquivo: ArquivoDoAto | null = null) => {
-    const prepared: LegislativeDocument = { ...loaded, ...IMPORT_ENCODING };
+    /*
+     * O ato chega endereçado: cada dispositivo ganha o seu ponto de ancoragem no
+     * padrão do Planalto, e é isso que faz a caixa "Inserir Link" oferecer o ato
+     * inteiro como destino em vez do punhado de âncoras que o arquivo trouxe. As
+     * que vieram do arquivo ficam como estão — são o endereço que as remissões
+     * já publicadas citam.
+     */
+    const prepared: LegislativeDocument = ancorarDispositivos({ ...loaded, ...IMPORT_ENCODING });
     despachar({ tipo: 'abrir', aba: criarAba(prepared, { arquivo }) });
   };
 
@@ -1111,7 +1119,8 @@ export const App: React.FC = () => {
   ) => {
     const blocks = [...base.blocks];
     blocks.splice(insertionIndexIn(base, targets), 0, newBlock);
-    setDoc({ ...base, blocks });
+    // O dispositivo nasce endereçado, como o que veio do arquivo.
+    setDoc(ancorarDispositivos({ ...base, blocks }));
     setSelectedBlockId(newBlock.id);
   };
 
@@ -1182,7 +1191,9 @@ export const App: React.FC = () => {
       return;
     }
 
-    setDoc({ ...base, blocks });
+    // O trecho que acabou de virar dispositivo ganha endereço junto com o tipo:
+    // é aqui que ele passa a ter rótulo, e é do rótulo que sai o nome da âncora.
+    setDoc(ancorarDispositivos({ ...base, blocks }));
     if (!ids.has(selectedBlockId || '')) setSelectedBlockId(converted[0].id);
   };
 

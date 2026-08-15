@@ -51,12 +51,23 @@ export const LinkModal: React.FC<LinkModalProps> = ({
   if (!isOpen) return null;
 
   const term = search.toLowerCase();
-  const filtered = anchors.filter(
+  const encontrados = anchors.filter(
     (anchor) =>
       anchor.label.toLowerCase().includes(term) ||
       anchor.name.toLowerCase().includes(term) ||
       anchor.location.toLowerCase().includes(term)
   );
+
+  /*
+   * Desde que cada dispositivo passou a nascer com o seu ponto de ancoragem, um
+   * decreto grande oferece milhares de destinos, e a lista inteira na tela não
+   * ajuda ninguém a achar o art. 137: rolar mil linhas é pior que digitar três
+   * letras. Mostra-se o começo e diz-se quantos ficaram de fora, com o gesto que
+   * os alcança.
+   */
+  const TETO_DA_LISTA = 60;
+  const filtered = encontrados.slice(0, TETO_DA_LISTA);
+  const ocultos = encontrados.length - filtered.length;
 
   const outrosAtos = atosAbertos.filter(
     (ato) =>
@@ -121,29 +132,46 @@ export const LinkModal: React.FC<LinkModalProps> = ({
         {/* Pontos de ancoragem do ato */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2 divide-y divide-slate-800/50">
           {filtered.length > 0 ? (
-            filtered.map((anchor) => (
-              <div
-                key={anchor.name}
-                onClick={() => choose({ kind: 'anchor', name: anchor.name })}
-                className="pt-2 first:pt-0 p-3 rounded-lg hover:bg-amber-950/40 border border-transparent hover:border-amber-800/50 cursor-pointer transition flex items-center justify-between gap-3 group"
-              >
-                <div className="flex flex-col gap-0.5 min-w-0">
-                  <div className="font-semibold text-slate-200 group-hover:text-amber-300 text-sm flex items-center gap-2 min-w-0">
-                    <span className="px-2 py-0.5 rounded bg-slate-800 group-hover:bg-amber-900/60 text-xs font-mono text-amber-400 shrink-0">
-                      #{anchor.name}
-                    </span>
-                    <span className="truncate">{anchor.label}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 flex items-center gap-1">
-                    <Anchor size={11} className="shrink-0" />
-                    <span className="truncate">em {anchor.location}</span>
-                  </div>
+            <>
+              {ocultos > 0 && (
+                <div className="pb-2 text-xs text-slate-400">
+                  {encontrados.length} pontos de ancoragem neste ato. Estão listados os {filtered.length}{' '}
+                  primeiros — escreva acima o dispositivo procurado, como{' '}
+                  <strong className="text-slate-300">Art. 12</strong> ou{' '}
+                  <strong className="text-slate-300">Anexo I</strong>, para achar os outros {ocultos}.
                 </div>
-                <button className="text-xs px-2.5 py-1 rounded bg-amber-500/20 group-hover:bg-amber-500 text-amber-300 group-hover:text-black font-semibold transition flex items-center gap-1 shrink-0">
-                  <Check size={12} /> Selecionar
-                </button>
-              </div>
-            ))
+              )}
+              {filtered.map((anchor) => (
+                <div
+                  key={anchor.name}
+                  onClick={() => choose({ kind: 'anchor', name: anchor.name })}
+                  className="pt-2 first:pt-0 p-3 rounded-lg hover:bg-amber-950/40 border border-transparent hover:border-amber-800/50 cursor-pointer transition flex items-center justify-between gap-3 group"
+                >
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <div className="font-semibold text-slate-200 group-hover:text-amber-300 text-sm flex items-center gap-2 min-w-0">
+                      <span className="px-2 py-0.5 rounded bg-slate-800 group-hover:bg-amber-900/60 text-xs font-mono text-amber-400 shrink-0">
+                        #{anchor.name}
+                      </span>
+                      <span className="truncate">{anchor.label}</span>
+                    </div>
+                    {/*
+                      O ponto de ancoragem do próprio dispositivo se chama pelo
+                      lugar em que está: repetir "II - em Art. 1º, II" não conta
+                      nada que a primeira linha já não diga.
+                    */}
+                    {anchor.label !== anchor.location && (
+                      <div className="text-xs text-slate-400 flex items-center gap-1">
+                        <Anchor size={11} className="shrink-0" />
+                        <span className="truncate">em {anchor.location}</span>
+                      </div>
+                    )}
+                  </div>
+                  <button className="text-xs px-2.5 py-1 rounded bg-amber-500/20 group-hover:bg-amber-500 text-amber-300 group-hover:text-black font-semibold transition flex items-center gap-1 shrink-0">
+                    <Check size={12} /> Selecionar
+                  </button>
+                </div>
+              ))}
+            </>
           ) : (
             <div className="py-8 px-4 text-center text-slate-400 text-sm leading-relaxed">
               {anchors.length === 0 ? (

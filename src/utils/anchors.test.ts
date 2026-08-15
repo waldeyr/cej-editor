@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { LegislativeBlock, LegislativeDocument } from '../types/legislative';
-import { collectAnchorPoints, createAnchorName, findAnchorBlock } from './anchors';
+import { BlockType, LegislativeBlock, LegislativeDocument } from '../types/legislative';
+import { ancorarDispositivos, collectAnchorPoints, createAnchorName, findAnchorBlock } from './anchors';
 import { serializeToPlanaltoHtml } from '../parser/htmlSerializer';
 
 const block = (partial: Partial<LegislativeBlock> & { id: string }): LegislativeBlock => ({
@@ -97,10 +97,166 @@ describe('pontos de ancoragem do ato', () => {
   });
 });
 
+/** Ato compacto: cada dispositivo pelo tipo e pelo rótulo que ele exibe. */
+const ato = (...dispositivos: [BlockType, string][]): LegislativeDocument =>
+  docWith(
+    ...dispositivos.map(([type, numberLabel], i) => block({ id: `b${i}`, type, numberLabel }))
+  );
+
+/** Os endereços do ato depois da criação automática, na ordem em que ele se lê. */
+const enderecos = (doc: LegislativeDocument): (string | undefined)[] =>
+  ancorarDispositivos(doc).blocks.map((bloco) => bloco.linkName);
+
+describe('criação automática dos pontos de ancoragem', () => {
+  it('endereça o dispositivo pela posição dele, na forma do ato publicado', () => {
+    expect(
+      enderecos(
+        ato(
+          ['ARTIGO', 'Art. 5º'],
+          ['PARAGRAFO', '§ 1º'],
+          ['INCISO', 'II -'],
+          ['ALINEA', 'a)'],
+          ['ITEM', '1.']
+        )
+      )
+    ).toEqual(['art5', 'art5§1', 'art5§1ii', 'art5§1iia', 'art5§1iia1']);
+  });
+
+  it('pendura o inciso do caput no artigo quando não há parágrafo entre os dois', () => {
+    expect(enderecos(ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'I -']))).toEqual(['art1', 'art1i']);
+  });
+
+  it('escreve o parágrafo único como "p" e o sufixo "-A" como letra colada', () => {
+    expect(
+      enderecos(ato(['ARTIGO', 'Art. 5º-A'], ['PARAGRAFO', 'Parágrafo único'], ['INCISO', 'III-A -']))
+    ).toEqual(['art5a', 'art5ap', 'art5apiiia']);
+  });
+
+  it('encaixa a seção no capítulo, e deixa o artigo fora dos dois', () => {
+    expect(
+      enderecos(ato(['CAPITULO', 'CAPÍTULO I'], ['SECAO', 'Seção I'], ['ARTIGO', 'Art. 1º']))
+    ).toEqual(['capituloi', 'capituloisecaoi', 'art1']);
+  });
+
+  it('prefixa com o anexo tudo o que vem depois dele (LC 95/1998, art. 11)', () => {
+    expect(
+      enderecos(
+        ato(['ARTIGO', 'Art. 1º'], ['ANEXO', 'ANEXO I'], ['ARTIGO', 'Art. 1º'], ['INCISO', 'I -'])
+      )
+    ).toEqual(['art1', 'anexoi', 'anexoiart1', 'anexoiart1i']);
+  });
+
+  it('lê a designação do anexo importado, que traz a linha inteira no conteúdo', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ANEXO', content: 'ANEXO II - DAS COMPETÊNCIAS', rawText: 'ANEXO II - DAS COMPETÊNCIAS' })
+    );
+    expect(enderecos(doc)).toEqual(['anexoii']);
+  });
+
+  it('não toca na âncora que o arquivo trouxe, e pendura os filhos dela', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: '<a name="topo"></a>Fica instituído' }),
+      block({ id: 'b2', type: 'INCISO', numberLabel: 'I -' })
+    );
+    // A âncora do ato publicado vem colada à frente do rótulo, dentro do
+    // conteúdo: ela é o endereço do artigo, e não se duplica em `linkName`.
+    expect(enderecos(doc)).toEqual([undefined, 'topoi']);
+  });
+
+  it('mantém o endereço do dispositivo depois de o redator escrever antes dele', () => {
+    // Escrever no começo do artigo empurra a âncora vazia para o meio do texto.
+    // Vazia ela não marca trecho nenhum, então continua sendo o endereço — e os
+    // incisos continuam pendurados nele.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: 'Fica <a name="art1"></a>instituído' }),
+      block({ id: 'b2', type: 'INCISO', numberLabel: 'I -' })
+    );
+    expect(enderecos(doc)).toEqual([undefined, 'art1i']);
+  });
+
+  it('não confunde com endereço a âncora que marca um trecho no meio do texto', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: 'Ficam os <a name="cargos">cargos</a> criados' }),
+      block({ id: 'b2', type: 'INCISO', numberLabel: 'I -' })
+    );
+    // O artigo ganha endereço próprio, e o inciso pende dele — não de "cargos".
+    expect(enderecos(doc)).toEqual(['art1', 'art1i']);
+  });
+
+  it('não sombreia um nome que já pertence a outro trecho do ato', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b2', type: 'TEXTO_LIVRE', content: 'na forma do <a name="art2">segundo artigo</a>' }),
+      block({ id: 'b3', type: 'ARTIGO', numberLabel: 'Art. 2º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', undefined, undefined]);
+  });
+
+  it('deixa sem endereço o artigo citado dentro da alteração, que recomeça a série', () => {
+    expect(
+      enderecos(
+        ato(['ARTIGO', 'Art. 1º'], ['ARTIGO', 'Art. 2º'], ['ARTIGO', 'Art. 3º'], ['ARTIGO', 'Art. 2º-A'])
+      )
+    ).toEqual(['art1', 'art2', 'art3', undefined]);
+  });
+
+  it('para a cadeia no degrau que se perdeu, em vez de saltar para o de cima', () => {
+    // O inciso pende do parágrafo, e o rótulo do parágrafo não se deixa ler:
+    // chamá-lo "art1i" o faria inciso do caput, que é outro dispositivo.
+    expect(
+      enderecos(ato(['ARTIGO', 'Art. 1º'], ['PARAGRAFO', 'Parágrafo'], ['INCISO', 'I -']))
+    ).toEqual(['art1', undefined, undefined]);
+  });
+
+  it('dá o nome ao inciso, e não à alínea que chega antes dele no ato', () => {
+    // "art1" + inciso "i" + alínea "i" também dá "art1ii". Quem cita um ato cita
+    // o inciso II, e é dele o endereço canônico; a alínea perde e fica sem.
+    expect(
+      enderecos(
+        ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'I -'], ['ALINEA', 'i)'], ['INCISO', 'II -'])
+      )
+    ).toEqual(['art1', 'art1i', undefined, 'art1ii']);
+  });
+
+  it('não endereça o dispositivo citado dentro da alteração, que é de outro ato', () => {
+    expect(
+      enderecos(
+        ato(['ARTIGO', 'Art. 2º'], ['ALTERACAO', 'Art. 7º'], ['INCISO', 'I -'], ['ARTIGO', 'Art. 3º'])
+      )
+    ).toEqual(['art2', undefined, undefined, 'art3']);
+  });
+
+  it('atravessa a linha de pontos, que conta omissão e não fim de dispositivo', () => {
+    expect(
+      enderecos(ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'II -'], ['OMISSIS', ''], ['ALINEA', 'c)']))
+    ).toEqual(['art1', 'art1ii', undefined, 'art1iic']);
+  });
+
+  it('devolve o mesmo documento quando não há endereço a acrescentar', () => {
+    const doc = ancorarDispositivos(ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'I -']));
+    expect(ancorarDispositivos(doc)).toBe(doc);
+  });
+});
+
 describe('arquivo salvo', () => {
   it('leva o ponto de ancoragem junto com o conteúdo do dispositivo', () => {
     const exported = serializeToPlanaltoHtml(anexoMarcado());
     expect(exported).toContain('<a name="anexoi">ANEXO I</a>');
+  });
+
+  it('grava o endereço criado sozinho, e ele não veste azul de link', () => {
+    const doc = ancorarDispositivos(
+      docWith(
+        block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: 'Fica instituído o Programa.', rawText: 'Fica instituído o Programa.' })
+      )
+    );
+    const exported = serializeToPlanaltoHtml(doc);
+
+    // No navegador o ponto de ancoragem é destino, não caminho: ele é um `<a>`
+    // vazio e sem `href`, e a folha de estilo só pinta quem tem para onde levar.
+    expect(exported).toContain('<a name="art1"></a>');
+    expect(exported).toMatch(/a\[href\][^{]*\{ color:/);
+    expect(exported).not.toMatch(/^\s*a \{/m);
   });
 
   it('só veste de link o que tem destino — o ponto de ancoragem é texto comum', () => {

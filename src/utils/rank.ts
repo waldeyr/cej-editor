@@ -82,6 +82,21 @@ export function rankOf(type: BlockType): number {
   return rank === undefined ? RANK_NONE : rank;
 }
 
+/**
+ * Ordem de encaixe entre agrupadores — parte, livro, título, capítulo, seção,
+ * subseção (LC 95/1998, art. 10, IV), que é a ordem em que `AGRUPADORES` está
+ * escrito. Devolve RANK_NONE para o que não é agrupador.
+ *
+ * É mais fina que `rankOf`, e de propósito: a escala de `rankOf` achata capítulo,
+ * seção e subseção num degrau só porque a rampa visual não distingue mais que
+ * isso. Quem precisa saber que a seção pende do capítulo — o nome do ponto de
+ * ancoragem, que no ato publicado é "capituloisecaoi" — não pode ler dali.
+ */
+export function ordemDoAgrupador(type: BlockType): number {
+  const ordem = AGRUPADORES.indexOf(type);
+  return ordem === -1 ? RANK_NONE : ordem;
+}
+
 /** Agrupadores são centralizados e em caixa alta no documento e na lista. */
 export function isAgrupador(type: BlockType): boolean {
   return AGRUPADORES.includes(type);

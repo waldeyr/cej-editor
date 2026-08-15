@@ -175,6 +175,63 @@ body {
   border-radius: 2px;
 }
 
+/*
+ * A âncora **vazia** sai do texto e vai para a margem do dispositivo.
+ *
+ * Vazia ela não marca trecho nenhum: ela endereça o dispositivo inteiro, e é
+ * essa a forma que o ato publicado usa e a que o editor cria sozinho, uma por
+ * dispositivo. Deixá-la no fluxo custava caro em duas frentes, e as duas só
+ * ficaram visíveis quando passaram a valer para o ato inteiro em vez de meia
+ * dúzia de artigos:
+ *
+ *   · o recuo de 1em deslocava o texto do papel, que existe para espelhar o
+ *     arquivo salvo — uma marca do editor mexendo na geometria do documento
+ *     (invariante 1), agora em todo parágrafo de um ato reaberto;
+ *   · uma coluna de ícones alinhada na margem se lê como coluna; entremeada no
+ *     texto, cada ícone empurra a primeira palavra do seu parágrafo.
+ *
+ * Tirar do fluxo, porém, é desenho e não edição: quem impede o cursor de
+ * **entrar** na âncora é o `user-modify: read-only` abaixo. Sem ele, escrever no
+ * começo de um dispositivo punha o texto dentro do ponto de ancoragem —
+ * `<a name="art1">Fica instituído…</a>` —, e o endereço do artigo virava trecho
+ * marcado sem que nada avisasse.
+ *
+ * `user-modify` é a saída certa aqui por ser **só desenho**:
+ * `contenteditable="false"` no `<a>` faria o `innerHTML` da folha divergir para
+ * sempre do conteúdo guardado no documento, e `Editable` reescreve o campo
+ * justamente quando os dois diferem — a folha se reescreveria a cada render,
+ * levando junto a seleção do redator (ver o cabeçalho de `Editable.tsx`).
+ *
+ * E não se perde nada: o Backspace já não apagava a âncora vazia antes da regra
+ * — medido nos dois estados —, e selecionar o dispositivo inteiro e apagar
+ * continua limpando tudo, âncora incluída.
+ *
+ * Sem `top`, ela fica na altura estática que teria no fluxo — isto é, alinhada
+ * à primeira linha do dispositivo, sem que ninguém precise medir a linha. Foi
+ * essa medição que fez a solução parecer impossível da primeira vez; a resposta
+ * era não medir.
+ *
+ * A âncora **com texto** continua exatamente onde estava, pela mesma razão de
+ * antes: ela marca aquele trecho, e a margem mentiria sobre o que está marcado.
+ */
+.folha a[name]:empty {
+  position: absolute;
+  left: 0;
+  width: 0.72em;
+  height: 1.1em;
+  padding: 0;
+  background-color: transparent;
+  background-position: left center;
+  opacity: 0.55;
+  -webkit-user-modify: read-only;
+  -moz-user-modify: read-only;
+  user-modify: read-only;
+}
+
+.folha a[name]:empty:hover {
+  opacity: 1;
+}
+
 /* Barras de rolagem discretas sobre o chrome escuro. */
 * {
   scrollbar-width: thin;
