@@ -1,13 +1,21 @@
 import React from 'react';
 import { AlertCircle, Save, Trash2, X } from 'lucide-react';
 
+/**
+ * A pergunta que se faz quando há trabalho a perder.
+ *
+ * Desde que o editor abre vários atos em abas, ela só aparece ao **fechar**:
+ * abrir um arquivo não descarta mais nada, porque o ato anterior continua na
+ * aba dele. Os rótulos dizem "fechar" por isso — um botão que promete
+ * "continuar" não diz ao redator o que vai acontecer com o ato que ele vê.
+ */
 interface ConfirmModalProps {
   isOpen: boolean;
   title: string;
   message: string;
-  /** Salva o ato em edição e só então executa a ação pedida. */
+  /** Salva o ato e só então o fecha. */
   onSaveAndContinue: () => void;
-  /** Descarta as alterações e executa a ação pedida. */
+  /** Fecha o ato, descartando as alterações. */
   onDiscardAndContinue: () => void;
   onCancel: () => void;
 }
@@ -34,7 +42,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <button
             onClick={onCancel}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-            title="Fechar"
+            title="Cancelar — o ato continua aberto"
           >
             <X size={18} />
           </button>
@@ -59,7 +67,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-800 transition order-2"
           >
             <Trash2 size={14} />
-            Continuar sem salvar
+            Fechar sem salvar
           </button>
 
           <button
@@ -67,7 +75,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition order-1 sm:order-3 font-semibold"
           >
             <Save size={14} />
-            Salvar e continuar
+            Salvar e fechar
           </button>
         </div>
       </div>

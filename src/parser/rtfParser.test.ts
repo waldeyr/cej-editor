@@ -231,6 +231,37 @@ describe('RTF Legislative Parser & HTML Serializer', () => {
     expect(doc.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA']);
   });
 
+  it('deixa em branco a parte que o arquivo não traz, em vez de inventar um ato', () => {
+    /*
+     * Quem importa o que não é ato — uma exposição de motivos, um fragmento —
+     * recebia na folha um decreto completo de mentira: número, data, fecho e
+     * "LUIZ INÁCIO LULA DA SILVA" como signatário, vindos de valores de reserva
+     * que ninguém escreveu, e podia salvá-lo assim.
+     */
+    const rtf = `{\\rtf1 Senhor Presidente da Rep\\'fablica,\\par Submeto \\'e0 sua aprecia\\'e7\\'e3o a proposta anexa.}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.epigrafe).toBe('');
+    expect(doc.ementa).toBe('');
+    expect(doc.fecho).toBe('');
+    expect(doc.assinaturas).toEqual([]);
+    // O texto do arquivo continua chegando inteiro: o que sai é a invenção.
+    expect(doc.blocks.map((b) => b.rawText).join(' ')).toContain('Submeto à sua apreciação');
+  });
+
+  it('não toma por omissis o formulário em branco, que também é pontilhado', () => {
+    // Decreto nº 12.002/2024, art. 14, VIII: a linha pontilhada indica texto
+    // suprimido. Onde há texto entre os pontos, o texto é do ato — e o omissis,
+    // que se normaliza para a linha canônica, o apagaria.
+    expect(identifyBlockType('..........................................').type).toBe('OMISSIS');
+    expect(identifyBlockType('........$..........').type).not.toBe('OMISSIS');
+    expect(identifyBlockType('........$..........').cleanText).toBe('........$..........');
+
+    const dataEmBranco = '..... (nome da localidade) ....... de .... de 192 .....';
+    expect(identifyBlockType(dataEmBranco).type).not.toBe('OMISSIS');
+    expect(identifyBlockType(dataEmBranco).cleanText).toBe(dataEmBranco);
+  });
+
   it('escreve os sinais que o Windows-1252 guarda entre 0x80 e 0x9F', () => {
     // Fora dessa faixa CP1252 e Latin-1 coincidem; dentro dela, não — e o
     // código cru saía da importação como caractere de controle invisível.

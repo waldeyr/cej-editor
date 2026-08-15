@@ -8,7 +8,12 @@ import {
   indentForAlign,
   resolvedAlignForTarget,
 } from '../utils/docTargets';
-import { EPIGRAFE_PATTERN, identifyBlockType } from './rtfParser';
+import {
+  EPIGRAFE_PATTERN,
+  centralizarDenominacaoDeAgrupador,
+  identifyBlockType,
+  pareceNomeDeSignatario,
+} from './rtfParser';
 import { sanitizeInlineHtml, stripVisibleEdges, visibleTextOfHtml } from './inlineHtml';
 
 /**
@@ -253,27 +258,6 @@ function acharEpigrafeNoDom(parsedDoc: Document): string {
   return '';
 }
 
-/** Palavras que ligam um nome próprio brasileiro e não vêm em maiúscula. */
-const CONECTIVOS_DE_NOME = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
-
-/**
- * O parágrafo tem a forma de um nome de pessoa?
- *
- * Ministro assina em caixa mista — "Esther Dweck", "Fernando Haddad" —, e a
- * regra da caixa alta, feita para o Presidente, o deixava de fora: ele chegava
- * à folha como dispositivo do ato, e no arquivo salvo subia para cima do fecho.
- * A medida é curta de propósito: nome de pessoa não tem algarismo, não termina
- * em pontuação e não passa de meia dúzia de palavras.
- */
-function pareceNomeDeSignatario(texto: string): boolean {
-  if (/[0-9]/.test(texto) || /[.;:,]$/.test(texto)) return false;
-  const palavras = texto.split(/\s+/);
-  if (palavras.length < 2 || palavras.length > 6) return false;
-  return palavras.every(
-    (palavra) => CONECTIVOS_DE_NOME.has(palavra) || /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-zàáâãéêíóôõúç'’-]+$/.test(palavra)
-  );
-}
-
 /**
  * As assinaturas são contíguas: vêm logo depois do fecho, uma sob a outra, e
  * acabam no primeiro parágrafo que não é nome.
@@ -289,6 +273,19 @@ function aindaSeAssina(doc: LegislativeDocument, blocosNoFecho: number): boolean
 }
 
 /**
+ * Quais partes fixas já foram reconhecidas — cada uma existe uma vez só no ato.
+ *
+ * A epígrafe e a ementa saem do DOM antes da varredura; o sinalizador delas diz
+ * se o parágrafo de origem já foi descartado.
+ */
+interface PartesJaLidas {
+  epigrafe: boolean;
+  ementa: boolean;
+  fecho: boolean;
+  ordemExecucao: boolean;
+}
+
+/**
  * Absorve um parágrafo do arquivo: parte fixa do ato ou dispositivo.
  *
  * O conteúdo guardado é HTML, e não texto: é dentro do parágrafo que moram a
@@ -298,10 +295,41 @@ function absorverParagrafo(
   doc: LegislativeDocument,
   interiorBruto: string,
   indice: number,
-  blocosNoFecho: number
+  blocosNoFecho: number,
+  jaLidas: PartesJaLidas
 ): void {
-  const interior = sanitizeInlineHtml(interiorBruto);
-  const texto = visibleTextOfHtml(interior);
+  let interior = sanitizeInlineHtml(interiorBruto);
+  let texto = visibleTextOfHtml(interior);
+
+  /*
+   * As marcas com que o gabarito da CEJ divide a minuta — ##ATO, ##EME, ##TEX,
+   * ##APR, ##AMI — valem também no caminho do Word: a minuta é distribuída em
+   * `.docx` com as mesmas marcas do RTF, e o leitor de RTF as honra. Sem elas,
+   * a epígrafe abria vazia, o "##TEX" vazava para dentro do preâmbulo e os
+   * signatários — que só a marca identifica quando assinam em caixa mista antes
+   * de qualquer fecho — viravam dispositivos do ato.
+   */
+  const marcaDaCej = texto.match(/^##([A-Z]{3})\s*/)?.[1];
+  if (marcaDaCej) {
+    interior = interior.replace(/##[A-Z]{3}\s*/, '');
+    texto = visibleTextOfHtml(interior);
+    if (marcaDaCej === 'ATO' && !doc.epigrafe) {
+      doc.epigrafe = textoCorrido(texto);
+      return;
+    }
+    if (marcaDaCej === 'EME' && !doc.ementa) {
+      doc.ementa = textoCorrido(interior);
+      return;
+    }
+    if (marcaDaCej === 'TEX' && !doc.preambulo) {
+      doc.preambulo = interior;
+      return;
+    }
+    if (marcaDaCej === 'APR' || marcaDaCej === 'AMI') {
+      doc.assinaturas.push(textoCorrido(texto));
+      return;
+    }
+  }
 
   /*
    * O cabeçalho do brasão — "Presidência da República / Casa Civil / …" — não é
@@ -323,11 +351,27 @@ function absorverParagrafo(
   // o ato tanto quanto a palavra, e descartá-la por não ter texto a perderia.
   if (!texto && !/<img\b/i.test(interior)) return;
 
-  // A epígrafe e a ementa já têm campo próprio na folha; sem esta guarda, o
-  // parágrafo de onde saíram voltava a aparecer como dispositivo, e o ato
-  // abria com a ementa escrita duas vezes.
-  if (doc.epigrafe && texto.includes(doc.epigrafe)) return;
-  if (doc.ementa && texto.includes(doc.ementa)) return;
+  /*
+   * A parte fixa existe **uma vez só**, e só o parágrafo de onde ela saiu é
+   * descartado; a repetição é texto do ato.
+   *
+   * A epígrafe e a ementa já têm campo próprio na folha, e sem a guarda o
+   * parágrafo de origem voltava como dispositivo — o ato abria com a ementa
+   * escrita duas vezes. Mas descartar **toda** ocorrência apagava o que o ato
+   * de verdade repete: o Decreto nº 61.100/1967 escreve a ementa duas vezes (no
+   * cabeçalho e como título interno) e a segunda sumia. Vale o mesmo para o
+   * fecho, que se sobrescrevia: o Decreto nº 17.464/1926 fecha o ato e mais
+   * três anexos, cada um com sua data e seu ministro, e só o último sobrevivia
+   * — cento e noventa e uma palavras apagadas sem aviso.
+   */
+  if (doc.epigrafe && texto.includes(doc.epigrafe) && !jaLidas.epigrafe) {
+    jaLidas.epigrafe = true;
+    return;
+  }
+  if (doc.ementa && texto.includes(doc.ementa) && !jaLidas.ementa) {
+    jaLidas.ementa = true;
+    return;
+  }
 
   if (texto.includes('PRESIDENTE DA REPÚBLICA') && !doc.preambulo) {
     // O negrito da autoridade é do padrão Planalto, e o preâmbulo sai daqui
@@ -337,13 +381,15 @@ function absorverParagrafo(
     return;
   }
 
-  if (/^(DECRETA|RESOLVE):?$/i.test(texto)) {
+  if (/^(DECRETA|RESOLVE):?$/i.test(texto) && !jaLidas.ordemExecucao) {
     doc.ordemExecucao = texto;
+    jaLidas.ordemExecucao = true;
     return;
   }
 
-  if (/^(Brasília|Rio de Janeiro),/i.test(texto)) {
+  if (/^(Brasília|Rio de Janeiro),/i.test(texto) && !jaLidas.fecho) {
     doc.fecho = texto;
+    jaLidas.fecho = true;
     return;
   }
 
@@ -455,6 +501,7 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
 
   // Quantos dispositivos havia quando o fecho apareceu — ver `aindaSeAssina`.
   let blocosNoFecho = -1;
+  const jaLidas: PartesJaLidas = { epigrafe: false, ementa: false, fecho: false, ordemExecucao: false };
 
   paragraphs.forEach((p, indice) => {
     if (p.tagName.toLowerCase() === 'table') {
@@ -476,11 +523,12 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
     if (p.closest('table.MsoTableGrid')) return;
 
     const tinhaFecho = Boolean(doc.fecho);
-    absorverParagrafo(doc, p.innerHTML, indice, blocosNoFecho);
+    absorverParagrafo(doc, p.innerHTML, indice, blocosNoFecho, jaLidas);
     if (!tinhaFecho && doc.fecho) blocosNoFecho = doc.blocks.length;
   });
 
   doc.titleIsManual = Boolean(declaredTitle) && declaredTitle !== doc.epigrafe.trim();
+  doc.blocks = centralizarDenominacaoDeAgrupador(doc.blocks);
 
   return doc;
 }

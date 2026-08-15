@@ -165,6 +165,105 @@ describe('abertura de ato publicado', () => {
     expect(comTitulos.blocks[0].content).toContain('<a name="cap9">');
   });
 
+  it('honra as marcas do gabarito da CEJ, que a minuta em Word traz como texto', () => {
+    // O mammoth não escreve a tabela da ementa nem o azul da epígrafe: numa
+    // minuta da CEJ salva como .docx, quem diz o que é cada parte são as
+    // marcas ##ATO/##EME/##TEX/##APR/##AMI — as mesmas que o leitor de RTF já
+    // honrava. E elas são estrutura, não texto: nenhuma pode vazar para o ato.
+    const minuta = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p>##ATO DECRETO Nº 13.090, DE 4 DE AGOSTO DE 2026</p>
+      <p>##EME Altera o Decreto nº 11.353, de 1º de janeiro de 2023.</p>
+      <p><strong>##TEX O PRESIDENTE DA REPÚBLICA</strong>, no uso da atribuição,</p>
+      <p>DECRETA:</p>
+      <p>Art. 1º Ficam remanejados os cargos.</p>
+      <p>Brasília, 4 de agosto de 2026; 205º da Independência e 138º da República.</p>
+      <p>##APR LUIZ INÁCIO LULA DA SILVA</p>
+      <p>##AMI Esther Dweck</p>
+      </body></html>`
+    );
+
+    expect(minuta.epigrafe).toBe('DECRETO Nº 13.090, DE 4 DE AGOSTO DE 2026');
+    expect(minuta.ementa).toBe('Altera o Decreto nº 11.353, de 1º de janeiro de 2023.');
+    expect(minuta.preambulo).toContain('<strong>O PRESIDENTE DA REPÚBLICA</strong>');
+    expect(minuta.assinaturas).toEqual(['LUIZ INÁCIO LULA DA SILVA', 'Esther Dweck']);
+    const tudo = JSON.stringify(minuta);
+    expect(tudo).not.toContain('##');
+  });
+
+  it('centraliza a denominação do agrupador junto com ele', () => {
+    /*
+     * Parte, Livro, Título, Subtítulo, Capítulo, Seção e Subseção são
+     * centralizados, e o título descritivo que os acompanha é a segunda metade
+     * do mesmo título — no ato publicado as duas linhas vêm centralizadas. A
+     * denominação não casa com forma nenhuma de dispositivo e caía em
+     * TEXTO_LIVRE, que nasce justificado e com recuo: o título do capítulo
+     * aparecia partido na folha, metade centralizada e metade como corpo.
+     */
+    const comTitulos = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p align="center">CAPÍTULO II</p>
+      <p align="center">DOS EMPREGADOS REINTEGRADOS AO QUADRO</p>
+      <p>Art. 5º Texto do artigo.</p>
+      <p align="center">Seção I</p>
+      <p align="center">Disposições Gerais</p>
+      <p>Art. 6º Outro texto.</p>
+      </body></html>`
+    );
+
+    const porTexto = (t: string) => comTitulos.blocks.find((b) => b.rawText.startsWith(t));
+    // A caixa mista é a forma corrente no acervo — quatro vezes mais frequente
+    // que a caixa alta —, e vale tanto quanto ela.
+    expect(porTexto('DOS EMPREGADOS')?.align).toBe('center');
+    expect(porTexto('Disposições Gerais')?.align).toBe('center');
+    // O artigo é corpo do ato: continua justificado.
+    expect(porTexto('Texto do artigo')?.align).toBeUndefined();
+    // E a denominação não vira agrupador: a hierarquia teria dois capítulos.
+    expect(porTexto('DOS EMPREGADOS')?.type).toBe('TEXTO_LIVRE');
+  });
+
+  it('não centraliza o que vem depois do agrupador que já traz sua denominação', () => {
+    // "CAPÍTULO I - DAS DISPOSIÇÕES" já é o título inteiro, e é assim que este
+    // editor o escreve: o parágrafo seguinte é corpo do ato.
+    const comDenominacaoJunta = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p align="center">CAPÍTULO I - DAS DISPOSIÇÕES PRELIMINARES</p>
+      <p>ESTE TEXTO EM CAIXA ALTA É CORPO DO ATO</p>
+      </body></html>`
+    );
+
+    expect(comDenominacaoJunta.blocks[1].align).toBeUndefined();
+  });
+
+  it('guarda a repetição da parte fixa como texto do ato, e não a descarta', () => {
+    /*
+     * A parte fixa existe uma vez só, e só o parágrafo de onde ela saiu é
+     * descartado. O ato de verdade repete: o Decreto nº 61.100/1967 escreve a
+     * ementa duas vezes (no cabeçalho e como título interno) e a segunda sumia;
+     * o Decreto nº 17.464/1926 fecha o ato e mais três anexos, cada um com sua
+     * data e seu ministro, e só o último sobrevivia ao `doc.fecho =`.
+     */
+    const comRepeticao = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p align="center"><font color="#000080">DECRETO Nº 61.100, DE 28 DE JULHO DE 1967</font></p>
+      <table><tr><td><p align="justify"><span>Aprova o Regimento Interno.</span></p></td></tr></table>
+      <p>Art. 1º Fica aprovado o Regimento.</p>
+      <p>Rio de Janeiro, 28 de julho de 1967; 146º da Independência.</p>
+      <p>ARTHUR DA COSTA E SILVA</p>
+      <p>ANEXO</p>
+      <p>Aprova o Regimento Interno.</p>
+      <p>Rio de Janeiro, 28 de julho de 1967. – Annibal Freire da Fonseca.</p>
+      </body></html>`
+    );
+
+    const textos = comRepeticao.blocks.map((b) => visibleTextOfHtml(b.content));
+    expect(comRepeticao.ementa).toBe('Aprova o Regimento Interno.');
+    expect(comRepeticao.fecho).toContain('146º da Independência');
+    // A segunda ementa e o fecho do anexo são texto do ato, e ficam nele.
+    expect(textos.filter((t) => t === 'Aprova o Regimento Interno.')).toHaveLength(1);
+    expect(textos.some((t) => t.includes('Annibal Freire da Fonseca'))).toBe(true);
+  });
+
   it('só toma por assinatura a linha em maiúsculas que vem depois do fecho', () => {
     const comFecho = deserializePlanaltoHtmlToDocument(
       '<html><body><p>DISPOSIÇÕES FINAIS</p><p>Brasília, 31 de dezembro de 2024.</p><p>LUIZ INÁCIO LULA DA SILVA</p></body></html>'

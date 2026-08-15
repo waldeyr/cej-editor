@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useCallback } from 'react';
 import { Toolbar, TextCommand } from './components/Toolbar';
+import { BarraDeAbas } from './components/BarraDeAbas';
 import { SidebarTree } from './components/SidebarTree';
 import { EditorCanvas } from './components/EditorCanvas';
 import { StatusBar } from './components/StatusBar';
@@ -17,12 +18,31 @@ import {
   BlockAlign,
 } from './types/legislative';
 import { parseRtfToLegislativeDocument } from './parser/rtfParser';
+import { ehArquivoCfb, parseDocBinarioToLegislativeDocument } from './parser/docParser';
 import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './parser/htmlSerializer';
 import { completarEmentaDoDocx, prepararHtmlDoDocx } from './parser/docxHtml';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
-import { useHistory } from './hooks/useHistory';
-import { clearDraft, readDraft, writeDraft } from './utils/draft';
+import { Aba, EstadoDasAbas, estaSuja } from './types/abas';
+import {
+  abaAtiva,
+  criarAba,
+  reduzirAbas,
+  rotuloDaAba,
+} from './utils/abas';
+import { podeDesfazer, podeRefazer } from './utils/historico';
+import {
+  INTERVALO_DE_PULSO,
+  adotarSessao,
+  descartarRascunho,
+  gravarRascunho,
+  gravarSessao,
+  lerRascunho,
+  lerSessao,
+  migrarRascunhoLegado,
+  pulsar,
+  sessaoParaAdotar,
+} from './utils/rascunhos';
 import {
   AnchorPoint,
   LinkChoice,
@@ -97,12 +117,21 @@ const OPENING_PART_TARGETS: readonly string[] = (
   ['epigrafe', 'ementa', 'preambulo', 'ordemExecucao'] as const
 ).map(partTarget);
 
-/** Ação de arquivo que só pode prosseguir depois de decidir o destino do trabalho em curso. */
+/**
+ * Ação de arquivo — hoje, sempre uma aba nova.
+ *
+ * Não passa mais por pergunta alguma: abrir um ato deixou de descartar o que
+ * estava na folha. O que ainda exige decidir o destino do trabalho é fechar
+ * (ver `FechamentoPendente`).
+ */
 type PendingAction =
   | { kind: 'new' }
   | { kind: 'openHtml'; file: File }
   | { kind: 'openUrl'; url: string; bytes: Uint8Array }
   | { kind: 'importDoc'; file: File };
+
+/** Aba que não pode ser fechada antes de se decidir o que fazer com o que ela tem. */
+type FechamentoPendente = { abaId: string; rotulo: string };
 
 const createEmptyTableHtml = (rows: number, columns: number): string => {
   const headerCells = Array.from(
@@ -182,18 +211,108 @@ const INITIAL_DOC: LegislativeDocument = {
   declaredEncoding: 'ISO-8859-1',
 };
 
+const CHAVE_DA_JANELA = 'cej.janela.v1';
+
 /**
- * Documento com que o editor abre, e se ele traz trabalho da sessão anterior.
+ * Quem é esta janela, e se ela está abrindo ou apenas recarregando.
  *
- * O rascunho recuperado evita a perda de dados ao recarregar a página com
- * Ctrl+R. Distinguir o que veio dele do exemplo de partida importa depois: um
- * rascunho é trabalho que nunca chegou a um arquivo, e o editor precisa saber
- * disso para não descartá-lo calado quando pedirem um documento novo.
+ * A identidade mora em `sessionStorage`, que é por janela e sobrevive ao
+ * Ctrl+R: achá-la já gravada significa recarregamento, e não achá-la significa
+ * janela nova — a distinção que decide se as abas da sessão anterior voltam
+ * aqui ou continuam com quem as tem.
  */
-const openingDocument = (): { doc: LegislativeDocument; restored: boolean } => {
-  const draft = readDraft();
-  if (draft) return { doc: { ...draft, ...IMPORT_ENCODING }, restored: true };
-  return { doc: INITIAL_DOC, restored: false };
+const identificarJanela = (): { id: string; recarregada: boolean } => {
+  try {
+    const guardado = sessionStorage.getItem(CHAVE_DA_JANELA);
+    if (guardado) return { id: guardado, recarregada: true };
+
+    const novo = `janela-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    sessionStorage.setItem(CHAVE_DA_JANELA, novo);
+    return { id: novo, recarregada: false };
+  } catch {
+    // Navegação anônima barra o armazenamento; a janela ainda precisa de nome.
+    return { id: `janela-${Math.random().toString(36).slice(2, 8)}`, recarregada: false };
+  }
+};
+
+const janela = identificarJanela();
+
+/** Ato em branco do comando "Novo" — e o que toma o lugar da última aba fechada. */
+const documentoEmBranco = (): LegislativeDocument => ({
+  title: 'NOVO DECRETO',
+  epigrafe: 'DECRETO Nº 0.000, DE 1 DE JANEIRO DE 2026',
+  ementa: 'Dispõe sobre ato normativo.',
+  preambulo: '<b>O PRESIDENTE DA REPÚBLICA</b>, no uso da atribuição que lhe confere a Constituição,',
+  ordemExecucao: '<b>DECRETA</b>:',
+  blocks: [
+    {
+      // Sufixo aleatório porque duas abas novas podem nascer no mesmo
+      // milissegundo, e dois dispositivos com o mesmo id se sobrescrevem.
+      id: `block-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      type: 'ARTIGO',
+      numberLabel: 'Art. 1º',
+      content: 'Texto do primeiro artigo.',
+      rawText: 'Texto do primeiro artigo.',
+      linkName: 'art1',
+    },
+  ],
+  fecho: 'Brasília, 1 de janeiro de 2026; 205º da Independência e 138º da República.',
+  assinaturas: ['LUIZ INÁCIO LULA DA SILVA'],
+  ...IMPORT_ENCODING,
+});
+
+/**
+ * Com que atos a janela abre.
+ *
+ * Recarregar traz de volta exatamente as abas desta janela. Abrir o programa
+ * traz as da última sessão encerrada — mas abrir uma **segunda** janela não
+ * traz nada, senão ela roubaria as abas da primeira, que continua aberta. Quem
+ * separa os dois casos é o pulso de `utils/rascunhos.ts`.
+ *
+ * Roda dentro do inicializador de `useReducer`, e o `StrictMode` a invoca duas
+ * vezes em desenvolvimento: tudo aqui dentro precisa ser idempotente.
+ */
+/**
+ * Quantos atos a sessão prometia e o rascunho não tinha.
+ *
+ * Um ato que passa da cota do armazenamento — a TIPI, com seus 2.854
+ * dispositivos — fica sem rascunho, e ao recarregar a aba dele simplesmente não
+ * volta. Sumir calado é o que a doutrina não admite: o número sai daqui e vira
+ * recado na barra de estado.
+ */
+let atosNaoRecuperados = 0;
+
+const estadoInicialDasAbas = (): EstadoDasAbas => {
+  // Grava antes de devolver, justamente para sobreviver à segunda invocação.
+  migrarRascunhoLegado();
+
+  let sessao = janela.recarregada ? lerSessao(janela.id) : null;
+  if (!sessao) {
+    const candidata = sessaoParaAdotar(Date.now());
+    if (candidata) sessao = adotarSessao(candidata.janelaId, janela.id);
+  }
+
+  /*
+   * Rascunho recuperado nasce sujo: é trabalho que não chegou a arquivo nenhum,
+   * e tratá-lo como salvo o faria sumir sem pergunta na primeira troca.
+   */
+  const prometidas = sessao?.abas ?? [];
+  const recuperadas = prometidas
+    .map((abaId) => lerRascunho(abaId))
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .map((r) =>
+      criarAba({ ...r.doc, ...IMPORT_ENCODING }, { id: r.abaId, arquivo: r.arquivo, limpo: false })
+    );
+
+  atosNaoRecuperados = prometidas.length - recuperadas.length;
+
+  if (recuperadas.length === 0) {
+    const primeira = criarAba(INITIAL_DOC);
+    return { abas: [primeira], ativa: primeira.id };
+  }
+
+  const ativa = recuperadas.some((a) => a.id === sessao?.ativa) ? sessao!.ativa : recuperadas[0].id;
+  return { abas: recuperadas, ativa };
 };
 
 /** Traduz a posição selecionada na tela para o endereço do campo correspondente. */
@@ -216,33 +335,58 @@ const targetsInPlay = (): string[] => {
 };
 
 export const App: React.FC = () => {
-  /* Lido uma única vez: daí em diante quem manda é o documento em memória. */
-  const [opening] = useState(openingDocument);
-  const { state: doc, setState: setDoc, resetState: resetDoc, undo, redo, canUndo, canRedo } = useHistory(opening.doc);
-  const [selectedBlockId, setSelectedBlockId] = useState<string | undefined>(doc.blocks[0]?.id);
-  const [issues, setIssues] = useState<ValidationIssue[]>([]);
+  /*
+   * Os atos abertos. Só um deles se desenha por vez: a aba inativa vive neste
+   * registro, e não no DOM. É essa escolha que preserva as consultas globais de
+   * que o editor depende — duas folhas na mesma página duplicariam
+   * `data-cej-target`, e o campo com o foco passaria a ser devolvido ao
+   * documento errado.
+   */
+  const [estado, despachar] = useReducer(reduzirAbas, undefined, estadoInicialDasAbas);
+  const aba = abaAtiva(estado);
+
+  const doc = aba.doc;
+  const selectedBlockId = aba.selectedBlockId;
+  const isDirty = estaSuja(aba);
+  const canUndo = podeDesfazer(aba);
+  const canRedo = podeRefazer(aba);
+  const justSaved = aba.acabouDeSalvar;
+
+  /*
+   * As ações vão sem `id` de propósito: quem resolve a aba é o redutor, no
+   * instante em que aplica a ação. Fechar sobre `aba.id` aqui daria a aba de
+   * quando o retorno de chamada nasceu, que nem sempre é a que está na folha.
+   */
+  const setDoc = useCallback(
+    (proximo: LegislativeDocument | ((atual: LegislativeDocument) => LegislativeDocument)) =>
+      despachar({ tipo: 'alterar', doc: proximo }),
+    []
+  );
+  const setSelectedBlockId = useCallback(
+    (blocoId?: string) => despachar({ tipo: 'selecionar', blocoId }),
+    []
+  );
+  const undo = useCallback(() => despachar({ tipo: 'desfazer' }), []);
+  const redo = useCallback(() => despachar({ tipo: 'refazer' }), []);
+
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [justSaved, setJustSaved] = useState<boolean>(false);
+  /** Aba que o redator mandou fechar e ainda tem trabalho a perder. */
+  const [fechamentoPendente, setFechamentoPendente] = useState<FechamentoPendente | null>(null);
   const [activeFormats, setActiveFormats] = useState<InlineFormat[]>([]);
   const [activeTargets, setActiveTargets] = useState<string[]>([]);
   /** Recado passageiro na barra de estado — uma remissão sem destino, por exemplo. */
   const [notice, setNotice] = useState<string>('');
 
-  /*
-   * Última versão gravada ou aberta. A comparação é por identidade porque
-   * useHistory devolve o mesmo objeto quando nada mudou de fato — é o que
-   * permite perguntar sobre salvar apenas quando há trabalho a perder.
-   *
-   * Um rascunho recuperado começa sem versão limpa (`null`): ele é justamente
-   * o trabalho que a sessão anterior não gravou em lugar nenhum, e tratá-lo
-   * como já salvo faria o editor trocá-lo de documento sem perguntar nada.
-   */
-  const [cleanDoc, setCleanDoc] = useState<LegislativeDocument | null>(opening.restored ? null : opening.doc);
-  const isDirty = doc !== cleanDoc;
-
   const docRef = useRef(doc);
   docRef.current = doc;
+
+  /** A folha, para guardar e repor a rolagem de cada aba. */
+  const rolagemRef = useRef<HTMLElement>(null);
+
+  /** Abas já avisadas de que não cabem no rascunho — o recado é uma vez, não a cada tecla. */
+  const avisadasDeCota = useRef<Set<string>>(new Set());
+
+  const issues: ValidationIssue[] = useMemo(() => validateLegislativeDocument(doc), [doc]);
 
   /** Trecho selecionado no momento em que uma caixa de diálogo é aberta. */
   const heldSegmentsRef = useRef<EditableSegment[]>([]);
@@ -293,6 +437,33 @@ export const App: React.FC = () => {
         return;
       }
 
+      /*
+       * Abas. Cada um destes tem equivalente visível na tira — o `+`, o `×` e a
+       * própria aba —, como manda a doutrina de não haver atalho sem comando à
+       * vista. No navegador Ctrl+T e Ctrl+W pertencem à janela e nunca chegam
+       * aqui; no aplicativo de mesa, chegam.
+       */
+      if (key === 't') {
+        e.preventDefault();
+        executeNewDoc();
+        return;
+      }
+
+      if (key === 'w') {
+        e.preventDefault();
+        fecharAba(estado.ativa);
+        return;
+      }
+
+      if (e.key === 'Tab' && estado.abas.length > 1) {
+        e.preventDefault();
+        const atual = estado.abas.findIndex((a) => a.id === estado.ativa);
+        const passo = e.shiftKey ? -1 : 1;
+        const proxima = (atual + passo + estado.abas.length) % estado.abas.length;
+        ativarAba(estado.abas[proxima].id);
+        return;
+      }
+
       const shortcut: Record<string, InlineFormat> = { b: 'bold', i: 'italic', u: 'underline' };
       if (shortcut[key] && !e.shiftKey && !e.altKey) {
         e.preventDefault();
@@ -305,23 +476,88 @@ export const App: React.FC = () => {
   });
 
   /*
-   * Persistência automática em localStorage ao modificar o documento.
+   * Rascunho de cada aba, com folga entre uma gravação e outra.
    *
-   * O documento de abertura não é gravado: rascunho é trabalho em curso, e
-   * gravar o exemplo de partida intacto criaria, no acesso seguinte, um
-   * rascunho recuperado que ninguém escreveu — e com ele a pergunta sobre
-   * salvar um ato que continua exatamente como nasceu.
+   * A folga é nova e necessária: antes a gravação era a cada alteração, com um
+   * documento só. Com vários atos abertos, serializar o ato inteiro a cada
+   * tecla se paga em travamento na folha.
+   *
+   * O exemplo de partida não é gravado: rascunho é trabalho em curso, e gravar
+   * o exemplo intacto criaria, no acesso seguinte, um rascunho recuperado que
+   * ninguém escreveu — e com ele a pergunta sobre salvar um ato que continua
+   * exatamente como nasceu.
    */
   useEffect(() => {
-    if (doc === opening.doc) return;
-    writeDraft(doc);
-  }, [doc, opening.doc]);
+    if (aba.doc === INITIAL_DOC) return;
 
-  // Validação em Tempo Real
+    const timer = setTimeout(() => {
+      const resultado = gravarRascunho({
+        abaId: aba.id,
+        doc: aba.doc,
+        // O handle da web não atravessa JSON; o caminho e o nome, sim.
+        arquivo: aba.arquivo ? { ...aba.arquivo, handle: undefined } : null,
+        rotulo: rotuloDaAba(aba),
+        gravadoEm: Date.now(),
+      });
+
+      /*
+       * A TIPI passa de qualquer cota de navegador. Antes isso virava um aviso
+       * no console que ninguém lê; agora o redator sabe que aquele ato está sem
+       * rede, e o recado sai uma vez por aba, não a cada tecla.
+       */
+      if (resultado === 'cheio' && !avisadasDeCota.current.has(aba.id)) {
+        avisadasDeCota.current.add(aba.id);
+        setNotice(
+          `“${rotuloDaAba(aba)}” é grande demais para a recuperação automática. Salve-o em arquivo.`
+        );
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [aba.id, aba.doc, aba.arquivo]);
+
+  /*
+   * Que abas esta janela tem, para que reabrir o programa as traga de volta.
+   *
+   * O exemplo de partida fica de fora: ele não tem rascunho, de propósito, e
+   * prometê-lo na sessão faria a recuperação seguinte contá-lo como ato perdido.
+   */
   useEffect(() => {
-    const currentIssues = validateLegislativeDocument(doc);
-    setIssues(currentIssues);
-  }, [doc]);
+    gravarSessao(janela.id, {
+      abas: estado.abas.filter((a) => a.doc !== INITIAL_DOC).map((a) => a.id),
+      ativa: estado.ativa,
+      gravadaEm: Date.now(),
+    });
+  }, [estado.abas, estado.ativa]);
+
+  /*
+   * O ato que não coube no rascunho não volta ao recarregar, e o redator precisa
+   * saber disso — senão ele procura na tira uma aba que o programa engoliu.
+   */
+  useEffect(() => {
+    if (atosNaoRecuperados <= 0) return;
+    setNotice(
+      atosNaoRecuperados === 1
+        ? 'Um ato da sessão anterior não pôde ser recuperado: era grande demais para a recuperação automática. Abra-o de novo pelo arquivo.'
+        : `${atosNaoRecuperados} atos da sessão anterior não puderam ser recuperados: eram grandes demais para a recuperação automática. Abra-os de novo pelo arquivo.`
+    );
+    atosNaoRecuperados = 0;
+  }, []);
+
+  /*
+   * O pulso que distingue "o programa reabriu" de "abriram outra janela".
+   * Sem ele, a janela nova adotaria as abas da janela que continua aberta.
+   */
+  useEffect(() => {
+    pulsar(janela.id, Date.now());
+    const timer = setInterval(() => pulsar(janela.id, Date.now()), INTERVALO_DE_PULSO);
+    return () => clearInterval(timer);
+  }, []);
+
+  /* Cada aba volta onde estava, e não ao topo do ato. */
+  useLayoutEffect(() => {
+    if (rolagemRef.current) rolagemRef.current.scrollTop = aba.rolagem;
+  }, [estado.ativa]);
 
   /*
    * A barra de comandos acompanha a seleção viva: os botões de formato acendem
@@ -343,9 +579,9 @@ export const App: React.FC = () => {
   // O aviso "Salvo" na barra de estado responde ao botão "Salvar".
   useEffect(() => {
     if (!justSaved) return;
-    const timer = setTimeout(() => setJustSaved(false), 2500);
+    const timer = setTimeout(() => despachar({ tipo: 'limparAvisoDeSalvo', id: aba.id }), 2500);
     return () => clearTimeout(timer);
-  }, [justSaved]);
+  }, [justSaved, aba.id]);
 
   // Recados da barra de estado se apagam sozinhos: são resposta a um gesto, não estado.
   useEffect(() => {
@@ -354,12 +590,17 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  /**
+   * Adota um ato recém-aberto — numa aba nova.
+   *
+   * Antes isto substituía o documento em edição, e por isso toda porta de
+   * entrada precisava perguntar antes sobre o trabalho não salvo. Agora abrir
+   * um arquivo não descarta nada: o ato anterior continua na aba dele, e a
+   * pergunta ficou só para quem fecha.
+   */
   const loadDocument = (loaded: LegislativeDocument) => {
     const prepared: LegislativeDocument = { ...loaded, ...IMPORT_ENCODING };
-    setDoc(prepared);
-    resetDoc(prepared);
-    setCleanDoc(prepared);
-    setSelectedBlockId(prepared.blocks[0]?.id);
+    despachar({ tipo: 'abrir', aba: criarAba(prepared) });
   };
 
   // Importa RTF e DOCX, preservando o fluxo de classificacao legislativa existente.
@@ -401,10 +642,21 @@ export const App: React.FC = () => {
       return;
     }
 
-    const decoded = detectAndDecode(new Uint8Array(buffer));
+    /*
+     * O `.doc` de verdade é um contêiner OLE, e é a assinatura dos bytes quem
+     * diz — não a extensão: a CEJ distribui RTF com extensão .doc, e os dois
+     * caminhos convergem para a mesma classificação legislativa.
+     */
+    const bytes = new Uint8Array(buffer);
+    if (extension === 'doc' && ehArquivoCfb(bytes)) {
+      loadDocument(parseDocBinarioToLegislativeDocument(bytes));
+      return;
+    }
+
+    const decoded = detectAndDecode(bytes);
     if (extension === 'doc' && !decoded.text.trimStart().startsWith('{\\rtf')) {
       throw new Error(
-        'Este arquivo .doc é do Word antigo, que o editor não lê. Abra-o no Word e salve como .docx ou .rtf.'
+        'Este arquivo .doc não é um documento do Word que o editor reconheça. Abra-o no Word e salve como .docx ou .rtf.'
       );
     }
 
@@ -454,17 +706,10 @@ export const App: React.FC = () => {
   };
 
   /*
-   * Toda porta de entrada de documento passa por aqui. Antes, só o botão "Novo"
-   * perguntava sobre salvar: abrir um HTML ou importar um RTF descartava em
-   * silêncio o ato em edição.
+   * Toda porta de entrada de documento passa por aqui, e nenhuma pergunta mais
+   * nada: o ato que estava na folha continua aberto, na aba dele.
    */
-  const requestAction = (action: PendingAction) => {
-    if (isDirty) {
-      setPendingAction(action);
-      return;
-    }
-    runAction(action);
-  };
+  const requestAction = (action: PendingAction) => runAction(action);
 
   const handleImportRtf = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -530,7 +775,13 @@ export const App: React.FC = () => {
     const bytes = encodeToBytes(htmlContent, targetEncoding, snapshot.hasBom);
     const defaultName = suggestedName || suggestedFileName(snapshot.title);
 
-    const markSaved = () => setCleanDoc(snapshot);
+    /*
+     * O que fica limpo é o que foi para o disco — e não o `doc` da aba: quem
+     * salva lê antes o campo com o foco, e essa leitura é um documento mais
+     * novo. Marcar o outro deixaria a aba com a marca de não salvo acesa logo
+     * depois de salvar.
+     */
+    const markSaved = () => despachar({ tipo: 'salvo', id: aba.id, doc: snapshot });
 
     // 1. Salvamento Nativo Electron (se executando no Desktop App)
     if (window.electronAPI) {
@@ -597,8 +848,7 @@ export const App: React.FC = () => {
 
   // Salvar HTML (sobrescreve com o nome atual)
   const handleSave = async () => {
-    const saved = await performSaveFile();
-    if (saved) setJustSaved(true);
+    await performSaveFile();
   };
 
   /*
@@ -611,8 +861,7 @@ export const App: React.FC = () => {
    */
   const handleSaveAs = async () => {
     if (window.electronAPI || 'showSaveFilePicker' in window) {
-      const saved = await performSaveFile();
-      if (saved) setJustSaved(true);
+      await performSaveFile();
       return;
     }
 
@@ -620,45 +869,77 @@ export const App: React.FC = () => {
   };
 
   const handleSaveAsName = async (fileName: string) => {
-    const saved = await performSaveFile(fileName);
-    if (saved) setJustSaved(true);
+    await performSaveFile(fileName);
   };
 
-  // Executa a criação de um Novo Documento Limpo
-  const executeNewDoc = () => {
-    clearDraft();
-    loadDocument({
-      title: 'NOVO DECRETO',
-      epigrafe: 'DECRETO Nº 0.000, DE 1 DE JANEIRO DE 2026',
-      ementa: 'Dispõe sobre ato normativo.',
-      preambulo: '<b>O PRESIDENTE DA REPÚBLICA</b>, no uso da atribuição que lhe confere a Constituição,',
-      ordemExecucao: '<b>DECRETA</b>:',
-      blocks: [
-        {
-          id: `block-${Date.now()}`,
-          type: 'ARTIGO',
-          numberLabel: 'Art. 1º',
-          content: 'Texto do primeiro artigo.',
-          rawText: 'Texto do primeiro artigo.',
-          linkName: 'art1',
-        },
-      ],
-      fecho: 'Brasília, 1 de janeiro de 2026; 205º da Independência e 138º da República.',
-      assinaturas: ['LUIZ INÁCIO LULA DA SILVA'],
-      ...IMPORT_ENCODING,
-    });
+  // Um ato em branco, numa aba nova.
+  const executeNewDoc = () => loadDocument(documentoEmBranco());
+
+  /*
+   * ---------------------------------------------------------------------------
+   * As abas
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * Troca o ato que está na folha.
+   *
+   * A descarga do campo com o foco vem primeiro, e não é zelo: a folha desmonta
+   * ao trocar de aba, e o campo só devolve o texto ao documento quando perde o
+   * foco. Sem esta linha, trocar de aba no meio de uma frase come a frase.
+   */
+  const ativarAba = (id: string) => {
+    if (id === estado.ativa) return;
+
+    currentDoc();
+    despachar({ tipo: 'guardarRolagem', rolagem: rolagemRef.current?.scrollTop ?? 0 });
+
+    // Os dois retêm intervalos vivos de um DOM que vai deixar de existir, e os
+    // dois estados de seleção descrevem uma seleção que acabou.
+    heldSegmentsRef.current = [];
+    heldInsertionTargetsRef.current = null;
+    setActiveFormats([]);
+    setActiveTargets([]);
+
+    despachar({ tipo: 'ativar', id });
   };
 
-  const handleConfirmSaveAndContinue = async () => {
-    const action = pendingAction;
-    const saved = await performSaveFile();
-    if (saved && action) runAction(action);
-    setPendingAction(null);
+  const executarFechamento = (id: string) => {
+    descartarRascunho(id);
+    avisadasDeCota.current.delete(id);
+    despachar({ tipo: 'fechar', id, vazio: criarAba(documentoEmBranco()) });
   };
 
-  const handleConfirmDiscardAndContinue = () => {
-    if (pendingAction) runAction(pendingAction);
-    setPendingAction(null);
+  /**
+   * Fecha uma aba, perguntando quando há trabalho a perder.
+   *
+   * A aba suja é trazida para a folha **antes** da pergunta: decidir descartar
+   * um ato que não se está vendo é decidir no escuro — e "Salvar" grava o que
+   * está na folha, de modo que sem isto a pergunta salvaria o ato errado.
+   */
+  const fecharAba = (id: string) => {
+    const alvo = estado.abas.find((a) => a.id === id);
+    if (!alvo) return;
+
+    if (!estaSuja(alvo)) {
+      executarFechamento(id);
+      return;
+    }
+
+    ativarAba(id);
+    setFechamentoPendente({ abaId: id, rotulo: rotuloDaAba(alvo) });
+  };
+
+  const handleSalvarEFechar = async () => {
+    const pendente = fechamentoPendente;
+    const salvou = await performSaveFile();
+    if (salvou && pendente) executarFechamento(pendente.abaId);
+    setFechamentoPendente(null);
+  };
+
+  const handleFecharSemSalvar = () => {
+    if (fechamentoPendente) executarFechamento(fechamentoPendente.abaId);
+    setFechamentoPendente(null);
   };
 
   /**
@@ -1197,25 +1478,6 @@ export const App: React.FC = () => {
     return undefined;
   }, [selectedBlockId, doc.blocks]);
 
-  const pendingCopy: Record<PendingAction['kind'], { title: string; message: string }> = {
-    new: {
-      title: 'Criar novo documento',
-      message: 'O ato em edição tem alterações não salvas. Deseja salvá-las antes de começar um documento novo?',
-    },
-    openHtml: {
-      title: 'Abrir outro documento',
-      message: 'O ato em edição tem alterações não salvas. Deseja salvá-las antes de abrir o arquivo escolhido?',
-    },
-    openUrl: {
-      title: 'Abrir documento baixado',
-      message: 'O ato em edição tem alterações não salvas. Deseja salvá-las antes de abrir o documento baixado?',
-    },
-    importDoc: {
-      title: 'Importar documento',
-      message: 'O ato em edição tem alterações não salvas. Deseja salvá-las antes de importar o arquivo escolhido?',
-    },
-  };
-
   return (
     <div className="w-screen h-screen flex flex-col bg-tinta overflow-hidden select-none">
       {/* Barra de Comandos */}
@@ -1244,6 +1506,15 @@ export const App: React.FC = () => {
         canRedo={canRedo}
       />
 
+      {/* Os atos abertos */}
+      <BarraDeAbas
+        abas={estado.abas}
+        ativa={estado.ativa}
+        onAtivar={ativarAba}
+        onFechar={fecharAba}
+        onNova={executeNewDoc}
+      />
+
       {/* Área Central: Árvore + Canvas */}
       <div className="flex-1 flex overflow-hidden w-full select-text">
         <SidebarTree
@@ -1260,6 +1531,14 @@ export const App: React.FC = () => {
         />
 
         <EditorCanvas
+          /*
+           * A chave por aba força a folha a remontar ao trocar de ato. Sem ela,
+           * o `useLayoutEffect` de `Editable` reaproveitaria os campos do ato
+           * anterior — e o `innerHTML` de um dispositivo pousaria no
+           * dispositivo de outro documento que calhasse de ocupar a posição.
+           */
+          key={estado.ativa}
+          rolagemRef={rolagemRef}
           doc={doc}
           onUpdateDoc={setDoc}
           selectedBlockId={selectedBlockId}
@@ -1281,14 +1560,18 @@ export const App: React.FC = () => {
         notice={notice}
       />
 
-      {/* Confirmação antes de trocar o documento em edição */}
+      {/* Confirmação antes de fechar um ato com trabalho a perder */}
       <ConfirmModal
-        isOpen={pendingAction !== null}
-        title={pendingAction ? pendingCopy[pendingAction.kind].title : ''}
-        message={pendingAction ? pendingCopy[pendingAction.kind].message : ''}
-        onSaveAndContinue={handleConfirmSaveAndContinue}
-        onDiscardAndContinue={handleConfirmDiscardAndContinue}
-        onCancel={() => setPendingAction(null)}
+        isOpen={fechamentoPendente !== null}
+        title="Fechar o ato"
+        message={
+          fechamentoPendente
+            ? `“${fechamentoPendente.rotulo}” tem alterações não salvas. Deseja salvá-las antes de fechar?`
+            : ''
+        }
+        onSaveAndContinue={handleSalvarEFechar}
+        onDiscardAndContinue={handleFecharSemSalvar}
+        onCancel={() => setFechamentoPendente(null)}
       />
 
       {/* O <title> do arquivo salvo */}

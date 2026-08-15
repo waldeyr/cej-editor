@@ -5,7 +5,8 @@ import { LegislativeDocument } from '../types/legislative';
 import { detectAndDecode } from '../utils/encoding';
 import { htmlToPlainText } from '../utils/docTargets';
 import mammoth from 'mammoth';
-import { parseRtfTokens, parseRtfToLegislativeDocument } from './rtfParser';
+import { parseRtfTokens, parseRtfToLegislativeDocument, parseTokensToLegislativeDocument } from './rtfParser';
+import { extrairTokensDoDoc } from './docParser';
 import { deserializePlanaltoHtmlToDocument } from './htmlSerializer';
 import { sanitizeInlineHtml, visibleTextOfHtml } from './inlineHtml';
 import { completarEmentaDoDocx, prepararHtmlDoDocx } from './docxHtml';
@@ -56,10 +57,14 @@ function palavras(texto: string): Map<string, number> {
     .toLowerCase();
 
   for (const bruta of limpo.split(' ')) {
-    // O hífen das pontas é do rótulo, não da palavra: o ato publicado escreve
+    // O traço das pontas é do rótulo, não da palavra: o ato publicado escreve
     // "III-" onde a forma canônica é "III -". O de dentro fica, porque é ele
     // que distingue "art. 35-b-b" de "art. 35".
-    const palavra = bruta.replace(/^-+|-+$/g, '');
+    //
+    // O travessão conta como traço. O leitor normaliza para o hífen canônico o
+    // separador do inciso, e um ato que escreve "I – texto" — como o Decreto nº
+    // 17.464/1926, 43 vezes — acusava 43 palavras perdidas que nunca existiram.
+    const palavra = bruta.replace(/^[-–—]+|[-–—]+$/g, '');
     if (!palavra || DESENHADAS_PELA_FOLHA.has(palavra)) continue;
     conta.set(palavra, (conta.get(palavra) || 0) + 1);
   }
@@ -154,6 +159,48 @@ describe('a importação não perde conteúdo do ato', () => {
       // branco do próprio arquivo; as 229 que se perdiam eram conteúdo.
       expect(celulas.length).toBe(1749);
       expect(vazias).toBeLessThanOrEqual(225);
+    });
+  });
+
+  describe('Word binário (DEC11158.doc)', () => {
+    /*
+     * O Decreto nº 11.158/2022 aprova a TIPI: 71 mil parágrafos, uma tabela de
+     * 16.984 linhas depois das assinaturas e nenhum título "ANEXO" — o arquivo
+     * mais hostil que o leitor de Word binário enfrenta. A extração (contêiner
+     * OLE, piece table, PAPX) devolve os mesmos tokens do RTF, e é sobre eles
+     * que a conta de palavras se faz, como no caso do RTF.
+     */
+    const tokens = extrairTokensDoDoc(arquivoDeProva('DEC11158.doc'));
+    const doc = parseTokensToLegislativeDocument(tokens);
+
+    it('leva ao ato toda palavra que o arquivo mostra', () => {
+      const noArquivo = palavras(
+        tokens
+          .filter((token) => token.type === 'text' && token.val)
+          .map((token) => token.val)
+          .join(' ')
+      );
+
+      expect(palavrasPerdidas(noArquivo, palavras(textoDoDocumento(doc)))).toEqual([]);
+    });
+
+    it('lê epígrafe, ementa e fecho dos parágrafos do Word, sem marca da CEJ', () => {
+      expect(doc.epigrafe).toBe('DECRETO Nº 11.158, DE 29 DE JULHO DE 2022');
+      expect(doc.ementa).toBe(
+        'Aprova a Tabela de Incidência do Imposto sobre Produtos Industrializados - TIPI.'
+      );
+      expect(doc.fecho).toBe('Brasília, 29 de julho de 2022; 201º da Independência e 134º da República.');
+    });
+
+    it('encerra a lista de signatários no primeiro parágrafo que não é nome', () => {
+      // "SUMÁRIO" e as seções da TIPI vêm logo depois de quem assina, em
+      // maiúsculas — e não assinam o decreto.
+      expect(doc.assinaturas).toEqual(['JAIR MESSIAS BOLSONARO', 'Paulo Guedes']);
+    });
+
+    it('traz as 16.984 linhas da TIPI como linhas de tabela, nenhuma como texto solto', () => {
+      const linhas = doc.blocks.reduce((soma, bloco) => soma + (bloco.tableRows?.length || 0), 0);
+      expect(linhas).toBe(16984);
     });
   });
 

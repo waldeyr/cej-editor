@@ -1,4 +1,5 @@
 import { LegislativeBlock, LegislativeDocument, BlockType } from '../types/legislative';
+import { isAgrupador } from '../utils/rank';
 
 /**
  * A linha de supressão, sempre com esta medida.
@@ -12,6 +13,22 @@ export const OMISSIS_LINE =
   '.......................................................................................................';
 
 /**
+ * A linha pontilhada é **só** pontos e espaço (Decreto nº 12.002/2024, art. 14,
+ * VIII).
+ *
+ * A medida antiga aceitava qualquer linha *começada* por quatro pontos, e com
+ * isso engolia o formulário em branco, que também é pontilhado mas tem texto no
+ * meio: o Decreto nº 17.464/1926 traz 86 deles — "........$.........." para o
+ * valor em mil-réis e "..... (nome da localidade) ..... de .... de 192 ....."
+ * para a data. Como o omissis se normaliza para `OMISSIS_LINE`, cada um desses
+ * campos perdia o que tinha dentro, sem aviso. Omissis é ausência de texto; onde
+ * há texto entre os pontos, o texto é do ato.
+ *
+ * O "(NR)" não atrapalha: `identifyBlockType` já o recortou antes de classificar.
+ */
+const LINHA_PONTILHADA = /^[.\s]{5,}$/;
+
+/**
  * A faixa em que CP1252 difere de Latin-1: 0x80 a 0x9F.
  *
  * Fora dela os dois são o mesmo, e `String.fromCharCode` basta. Dentro dela,
@@ -22,7 +39,7 @@ export const OMISSIS_LINE =
  * inteira porque o buraco parcial é pior que a ausência: dá a impressão de que
  * o assunto está resolvido.
  */
-const CP1252_MAP: Record<number, string> = {
+export const CP1252_MAP: Record<number, string> = {
   0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡',
   0x88: 'ˆ', 0x89: '‰', 0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž',
   0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•', 0x96: '–', 0x97: '—',
@@ -42,7 +59,7 @@ const SIMBOLOS: Record<string, string> = {
   ldblquote: '“', rdblquote: '”', tab: '\t', emspace: ' ', enspace: ' ',
 };
 
-interface RtfToken {
+export interface RtfToken {
   type: 'text' | 'cell' | 'row' | 'par' | 'trowd';
   val?: string;
   /**
@@ -385,6 +402,15 @@ export const EPIGRAFE_PATTERN =
 const SUFIXO_DE_INCLUSAO = /(?:-[A-Za-z]+)*/.source;
 
 /**
+ * O travessão que separa o rótulo do inciso é seguido de espaço — ou fecha a
+ * linha. O ato publicado escreve "III-" e "III-A -", e as duas formas passam;
+ * o que não pode passar é o hífen de dentro de uma palavra que começa com
+ * letra romana: "D-APROVA TABELA TIPI", anotação de minuta que vem no `.doc`
+ * da TIPI, virava inciso "D" com o rótulo recortado no meio da palavra.
+ */
+const SEPARADOR_DE_INCISO = /[-–—](?=\s|$)/.source;
+
+/**
  * O título que abre um anexo — e só ele.
  *
  * Aceita "ANEXO", "ANEXOS", "ANEXO I", "ANEXO III-A", "ANEXO ÚNICO", "ANEXO A"
@@ -405,22 +431,170 @@ const SUFIXO_DE_INCLUSAO = /(?:-[A-Za-z]+)*/.source;
 export const TITULO_DE_ANEXO =
   /^ANEXOS?(\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ\d][A-ZÁÉÍÓÚÂÊÔÃÕÇ\d.\-]*)?(\s+[-–—](\s+.*)?)?$/i;
 
+/** Palavras que ligam um nome próprio brasileiro e não vêm em maiúscula. */
+const CONECTIVOS_DE_NOME = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+/**
+ * O parágrafo tem a forma de um nome de pessoa?
+ *
+ * Ministro assina em caixa mista — "Esther Dweck", "Fernando Haddad" —, e a
+ * regra da caixa alta, feita para o Presidente, o deixava de fora: ele chegava
+ * à folha como dispositivo do ato, e no arquivo salvo subia para cima do fecho.
+ * A medida é curta de propósito: nome de pessoa não tem algarismo, não termina
+ * em pontuação e não passa de meia dúzia de palavras.
+ */
+export function pareceNomeDeSignatario(texto: string): boolean {
+  if (/[0-9]/.test(texto) || /[.;:,]$/.test(texto)) return false;
+  const palavras = texto.split(/\s+/);
+  if (palavras.length < 2 || palavras.length > 6) return false;
+  return palavras.every(
+    (palavra) => CONECTIVOS_DE_NOME.has(palavra) || /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-zàáâãéêíóôõúç'’-]+$/.test(palavra)
+  );
+}
+
+/**
+ * O nome em caixa alta com que o Presidente assina.
+ *
+ * De duas a seis palavras, como o nome em caixa mista: a linha inteira em
+ * maiúsculas de uma palavra só — "SUMÁRIO", que abre o anexo da TIPI — não é
+ * ninguém assinando, e entrava na lista de signatários por uma medida que só
+ * olhava o alfabeto e o comprimento.
+ */
+function pareceNomeEmCaixaAlta(texto: string): boolean {
+  if (!/^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][A-ZÁÉÍÓÚÂÊÔÃÕÇ\s']{3,}$/.test(texto)) return false;
+  const palavras = texto.split(/\s+/).length;
+  return palavras >= 2 && palavras <= 6;
+}
+
 /**
  * Verifica se a linha inicia um novo dispositivo legislativo.
+ *
+ * A medida do pontilhado aqui é mais larga do que a de `LINHA_PONTILHADA`, e é
+ * de propósito: são duas perguntas diferentes. Aqui se pergunta se o parágrafo
+ * começa um bloco — e começa, mesmo quando os pontos vêm seguidos das aspas que
+ * fecham a citação (`.........” (NR)`, cinco vezes no decreto de
+ * `docs/file-tests/`). Lá se pergunta se o bloco **é** um omissis, cujo conteúdo
+ * se normaliza para a linha canônica; e aí só pontos valem, senão o formulário
+ * em branco perde o que tem dentro. Estreitar as duas de uma vez colou essas
+ * cinco linhas no dispositivo anterior.
  */
 function isNewDeviceStart(line: string): boolean {
   const clean = line.replace(/^##[A-Z]{3}\s*/, '').trim();
   return (
     new RegExp(`^Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}`, 'i').test(clean) ||
     new RegExp(`^(Parágrafo\\s+único|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO})`, 'i').test(clean) ||
-    new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*[-–—]`, 'i').test(clean) ||
+    new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*${SEPARADOR_DE_INCISO}`, 'i').test(clean) ||
     /^[a-z](?:-[A-Z]+)?\)/.test(clean) ||
     /^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(clean) ||
     /^CAPÍTULO|^SEÇÃO|^LIVRO|^TÍTULO|^PARTE|^ANEXO/i.test(clean) ||
     /^“|^"/i.test(clean) ||
-    /^(\.|\s){5,}$/.test(clean) ||
+    /^[.\s]{5,}$/.test(clean) ||
     /^\.{4,}/.test(clean)
   );
+}
+
+/**
+ * O agrupador escrito sozinho, sem a denominação na mesma linha.
+ *
+ * "CAPÍTULO II", "Seção I", "TÍTULO III-A" — a designação e o número, e nada
+ * mais. É o que distingue o agrupador cuja denominação vem no parágrafo
+ * seguinte daquele que já a traz consigo ("CAPÍTULO I - DAS DISPOSIÇÕES", que é
+ * como este editor a escreve, e "PARTE GERAL").
+ */
+const DESIGNACAO_SOZINHA =
+  /^(PARTE|LIVRO|T[ÍI]TULO|SUBT[ÍI]TULO|CAP[ÍI]TULO|SE[ÇC][ÃA]O|SUBSE[ÇC][ÃA]O)(\s+[IVXLCDM\d][IVXLCDM\d\-A-Z]*)?\.?$/i;
+
+/** Texto em caixa alta: tem letra, e nenhuma delas é minúscula. */
+function ehCaixaAlta(texto: string): boolean {
+  const limpo = (texto || '').trim();
+  if (!limpo) return false;
+  if (/[a-zàáâãéêíóôõúüç]/.test(limpo)) return false;
+  return /[A-ZÁÉÍÓÚÂÊÔÃÕÜÇ]/.test(limpo);
+}
+
+/**
+ * Tem forma de título, e não de parágrafo do ato.
+ *
+ * Título não é frase: não termina em ponto, ponto e vírgula ou dois pontos. É
+ * esta a medida que separa a denominação do agrupador — "Disposições Gerais" —
+ * do texto de corpo que porventura venha logo abaixo de um agrupador sem
+ * denominação.
+ */
+function temFormaDeTitulo(texto: string): boolean {
+  const limpo = (texto || '').trim();
+  return limpo.length > 0 && limpo.length <= 160 && !/[.;:]$/.test(limpo);
+}
+
+/**
+ * A denominação do agrupador se centraliza com ele.
+ *
+ * Parte, Livro, Título, Subtítulo, Capítulo, Seção e Subseção são
+ * centralizados, e no ato publicado vêm quase sempre acompanhados do título
+ * descritivo em caixa alta, num parágrafo próprio logo abaixo:
+ *
+ *     CAPÍTULO II
+ *     DOS EMPREGADOS REINTEGRADOS AO QUADRO DE PESSOAL DO BANCO CENTRAL
+ *
+ * As duas linhas são um título só, e o arquivo publicado centraliza as duas. O
+ * leitor centralizava apenas a primeira — a segunda não casa com forma nenhuma
+ * de dispositivo e caía em `TEXTO_LIVRE`, que nasce justificado e com recuo de
+ * primeira linha: na folha o título do capítulo aparecia partido, metade
+ * centralizada e metade como parágrafo de corpo, e o arquivo salvo gravava
+ * assim. Marcar a denominação com `align` resolve a folha e o arquivo de uma
+ * vez, porque os dois leem esse campo.
+ *
+ * A denominação continua em bloco próprio, e não é fundida ao agrupador: no ato
+ * publicado ela é um parágrafo à parte, e juntá-las mudaria o desenho do ato
+ * para uma linha só (invariante 1). Ela também não vira agrupador — seria um
+ * degrau a mais na hierarquia, e a Vista do Ato mostraria dois capítulos onde
+ * há um.
+ *
+ * Só entra aqui o que o classificador não reconheceu como dispositivo: onde ele
+ * achou artigo, inciso ou alínea, o parágrafo é do corpo do ato, e não título.
+ * A denominação pode ocupar mais de uma linha — "PRODUTOS DAS INDÚSTRIAS
+ * QUÍMICAS" e "OU DAS INDÚSTRIAS CONEXAS", na TIPI —, e por isso vale a
+ * sequência inteira, até a primeira linha que não seja caixa alta.
+ */
+export function centralizarDenominacaoDeAgrupador(blocks: LegislativeBlock[]): LegislativeBlock[] {
+  /** Quantas linhas de denominação ainda podem vir: 0 = fora de um título. */
+  let primeiraLinha = false;
+  let sobTitulo = false;
+
+  return blocks.map((bloco) => {
+    if (isAgrupador(bloco.type)) {
+      sobTitulo = DESIGNACAO_SOZINHA.test((bloco.rawText || '').trim());
+      primeiraLinha = sobTitulo;
+      return bloco;
+    }
+
+    if (!sobTitulo) return bloco;
+
+    /*
+     * A primeira linha é a denominação, na caixa em que o ato a escreveu — a
+     * mista é a forma corrente ("Seção I / Disposições Gerais"), e no acervo do
+     * Planalto ela é quatro vezes mais frequente que a caixa alta. Da segunda
+     * em diante só a caixa alta continua o título: nela a denominação quebra em
+     * duas linhas com naturalidade ("PRODUTOS DAS INDÚSTRIAS QUÍMICAS" / "OU
+     * DAS INDÚSTRIAS CONEXAS"), enquanto uma sequência em caixa mista não se
+     * distingue do corpo do ato.
+     *
+     * O alinhamento que veio do arquivo manda: se ele já disse como a linha se
+     * desenha, não é este palpite que vai contradizê-lo.
+     */
+    const continua =
+      bloco.type === 'TEXTO_LIVRE' &&
+      !bloco.align &&
+      temFormaDeTitulo(bloco.rawText) &&
+      (primeiraLinha || ehCaixaAlta(bloco.rawText));
+
+    primeiraLinha = false;
+    if (!continua) {
+      sobTitulo = false;
+      return bloco;
+    }
+
+    return { ...bloco, align: 'center' as const };
+  });
 }
 
 /**
@@ -468,8 +642,8 @@ function classificarDispositivo(
     );
     return { type: isAlteration ? 'ALTERACAO' : 'PARAGRAFO', numberLabel: m ? m[1] : '', cleanText: m ? m[2] : clean };
   }
-  if (new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*[-–—]`, 'i').test(clean)) {
-    const m = clean.match(new RegExp(`^([IVXLCDM]+${SUFIXO_DE_INCLUSAO})\\s*[-–—]\\s*(.*)`, 'i'));
+  if (new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*${SEPARADOR_DE_INCISO}`, 'i').test(clean)) {
+    const m = clean.match(new RegExp(`^([IVXLCDM]+${SUFIXO_DE_INCLUSAO})\\s*${SEPARADOR_DE_INCISO}\\s*(.*)`, 'i'));
     return { type: isAlteration ? 'ALTERACAO' : 'INCISO', numberLabel: m ? `${m[1]} -` : '', cleanText: m ? m[2] : clean };
   }
   if (/^[a-z](?:-[A-Z]+)?\)/.test(clean)) {
@@ -489,7 +663,7 @@ function classificarDispositivo(
   if (isAlteration) {
     return { type: 'ALTERACAO', cleanText: clean };
   }
-  if (/^(\.|\s){5,}$/.test(clean) || /^\.{4,}/.test(clean)) {
+  if (LINHA_PONTILHADA.test(clean)) {
     return { type: 'OMISSIS', cleanText: OMISSIS_LINE };
   }
   return { type: 'TEXTO_LIVRE', cleanText: clean };
@@ -499,8 +673,19 @@ function classificarDispositivo(
  * Converte arquivo RTF com suporte nativo a tabelas, resiliência legislativa e higienização de aspas.
  */
 export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocument {
-  const tokens = parseRtfTokens(rtfInput);
+  return parseTokensToLegislativeDocument(parseRtfTokens(rtfInput));
+}
 
+/**
+ * A máquina de estados que faz de uma sequência de parágrafos um ato.
+ *
+ * Ela é separada do tokenizador de propósito: o leitor de Word binário
+ * (`docParser.ts`) produz estes mesmos tokens a partir do arquivo `.doc`, e é
+ * por entrar aqui que ele classifica o ato exatamente como o RTF — mesma
+ * epígrafe, mesmos estados, mesmas tabelas. Divergência de precisão entre os
+ * dois formatos passa a ser impossível por construção.
+ */
+export function parseTokensToLegislativeDocument(tokens: RtfToken[]): LegislativeDocument {
   let epigrafeLines: string[] = [];
   let ementaLines: string[] = [];
   let preambuloLines: string[] = [];
@@ -797,13 +982,22 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
         marca === 'AMI' ||
         (!isAnexoOrTableHeader &&
           (state === 'FECHO' || state === 'ASSINATURA') &&
-          /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ][A-ZÁÉÍÓÚÂÊÔÃÕÇ\s']{3,}$/.test(clean))
+          (pareceNomeEmCaixaAlta(clean) || pareceNomeDeSignatario(clean)))
       ) {
         flushCurrentBlock();
         state = 'ASSINATURA';
         assinaturaLines.push(clean);
         return;
       }
+
+      /*
+       * As assinaturas são contíguas: vêm logo depois do fecho, uma sob a
+       * outra, e acabam no primeiro parágrafo que não é nome — a mesma regra
+       * do leitor de HTML. Sem este fecho de lista, tudo o que no anexo tem
+       * forma de nome — "SEÇÃO I", os títulos de seção da TIPI — continuava
+       * entrando na lista de signatários até o fim do arquivo.
+       */
+      if (state === 'FECHO' || state === 'ASSINATURA') state = 'ANEXO';
 
       if (state === 'EPIGRAFE') {
         epigrafeLines.push(clean);
@@ -883,14 +1077,28 @@ export function parseRtfToLegislativeDocument(rtfInput: string): LegislativeDocu
   const fullPreambulo = joinLines(preambuloLines);
   const fullFecho = joinLines(fechoLines);
 
+  /*
+   * Campo que o arquivo não traz nasce **vazio**, e não preenchido por um ato
+   * de exemplo.
+   *
+   * Aqui havia um jogo de valores de reserva — "DECRETO Nº 13.090, DE 4 DE
+   * AGOSTO DE 2026", "Brasília, 4 de agosto de 2026", "LUIZ INÁCIO LULA DA
+   * SILVA" — que entrava sempre que a classificação não achasse a parte. Quem
+   * importasse o que não é ato (uma exposição de motivos, um fragmento) recebia
+   * na folha um decreto com número, data e signatário que ninguém escreveu, e
+   * podia salvá-lo assim. Inventar identidade de ato é pior que campo em
+   * branco: a folha já desenha a frase de espera pelo CSS (invariante 2), e o
+   * leitor de HTML sempre devolveu vazio — os dois caminhos agora dizem o
+   * mesmo.
+   */
   return {
     title: fullEpigrafe || 'Ato Normativo Importado',
-    epigrafe: fullEpigrafe || 'DECRETO Nº 13.090, DE 4 DE AGOSTO DE 2026',
-    ementa: fullEmenta || 'Dispõe sobre ato normativo.',
-    preambulo: fullPreambulo || 'O PRESIDENTE DA REPÚBLICA, no uso da atribuição que lhe confere a Constituição,',
+    epigrafe: fullEpigrafe,
+    ementa: fullEmenta,
+    preambulo: fullPreambulo,
     ordemExecucao,
-    blocks,
-    fecho: fullFecho || 'Brasília, 4 de agosto de 2026; 205º da Independência e 138º da República.',
-    assinaturas: assinaturaLines.length > 0 ? assinaturaLines : ['LUIZ INÁCIO LULA DA SILVA'],
+    blocks: centralizarDenominacaoDeAgrupador(blocks),
+    fecho: fullFecho,
+    assinaturas: assinaturaLines,
   };
 }

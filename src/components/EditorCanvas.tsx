@@ -56,6 +56,13 @@ interface EditorCanvasProps {
   onNavigateAnchor: (name: string) => void;
   onInsertAnchor: () => void;
   onInsertLink: () => void;
+  /**
+   * A área rolável, para que cada aba volte onde estava.
+   *
+   * Vem de fora porque quem guarda a rolagem é o registro da aba, e a folha
+   * desmonta ao trocar de ato — medir aqui dentro seria medir tarde demais.
+   */
+  rolagemRef?: React.Ref<HTMLElement>;
 }
 
 const newBlockId = (prefix = 'block') =>
@@ -69,6 +76,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onNavigateAnchor,
   onInsertAnchor,
   onInsertLink,
+  rolagemRef,
 }) => {
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
   /** Remissão sob o ponteiro, cujo destino a etiqueta mostra. */
@@ -958,6 +966,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
 
   return (
     <main
+      ref={rolagemRef}
       className="flex-1 h-full bg-tinta overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-selo/40 selection:text-black"
       onKeyDown={handleCanvasKeyDown}
       /*

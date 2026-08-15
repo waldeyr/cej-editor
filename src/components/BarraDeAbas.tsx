@@ -1,0 +1,90 @@
+import React from 'react';
+import { Plus, X } from 'lucide-react';
+import { Aba, estaSuja } from '../types/abas';
+import { dicaDaAba, rotuloDaAba } from '../utils/abas';
+
+interface BarraDeAbasProps {
+  abas: readonly Aba[];
+  ativa: string;
+  onAtivar: (id: string) => void;
+  onFechar: (id: string) => void;
+  onNova: () => void;
+}
+
+/**
+ * Os atos abertos, um por aba.
+ *
+ * Fica entre a barra de comandos e a folha, e não como quarta linha da barra:
+ * é onde o FrontPage a punha, e é a leitura natural — os comandos agem sobre o
+ * ato, e o ato é o que a aba escolhe. A aba ativa toma a cor da área de baixo,
+ * de modo que ela e a folha formem uma superfície só.
+ */
+export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
+  abas,
+  ativa,
+  onAtivar,
+  onFechar,
+  onNova,
+}) => (
+  <div
+    role="tablist"
+    aria-label="Atos abertos"
+    className="w-full shrink-0 h-8 flex items-stretch gap-px bg-tinta-alta border-b border-rule/60 overflow-x-auto select-none"
+  >
+    {abas.map((aba) => {
+      const selecionada = aba.id === ativa;
+      const rotulo = rotuloDaAba(aba);
+
+      return (
+        <div
+          key={aba.id}
+          className={`group flex items-center gap-1 pl-2.5 pr-1 min-w-32 max-w-52 shrink-0 border-r border-rule/40 transition-colors ${
+            selecionada ? 'bg-tinta' : 'bg-tinta-alta hover:bg-rule/40'
+          }`}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={selecionada}
+            onClick={() => onAtivar(aba.id)}
+            title={dicaDaAba(aba)}
+            className={`flex items-center gap-1.5 min-w-0 flex-1 h-full text-comando text-left truncate ${
+              selecionada ? 'text-texto' : 'text-legenda'
+            }`}
+          >
+            {/*
+              A marca de trabalho não salvo é um ponto, e não um asterisco no
+              nome: o nome da aba é o nome do arquivo, e enfeitá-lo faria o
+              redator procurar no disco um arquivo que não se chama assim.
+            */}
+            <span
+              aria-hidden="true"
+              className={`size-1.5 rounded-full shrink-0 ${estaSuja(aba) ? 'bg-selo' : 'bg-transparent'}`}
+            />
+            <span className="truncate">{rotulo}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onFechar(aba.id)}
+            title={`Fechar “${rotulo}”`}
+            aria-label={`Fechar “${rotulo}”`}
+            className="inline-flex items-center justify-center size-5 rounded shrink-0 text-legenda hover:text-texto hover:bg-rule/70 transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      );
+    })}
+
+    <button
+      type="button"
+      onClick={onNova}
+      title="Abrir um ato novo em outra aba (Ctrl+T)"
+      aria-label="Abrir um ato novo em outra aba"
+      className="inline-flex items-center justify-center size-7 my-0.5 ml-1 rounded shrink-0 text-legenda hover:text-texto hover:bg-rule/70 transition-colors"
+    >
+      <Plus size={15} />
+    </button>
+  </div>
+);
