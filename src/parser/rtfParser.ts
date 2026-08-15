@@ -1,5 +1,6 @@
-import { LegislativeBlock, LegislativeDocument, BlockType } from '../types/legislative';
+import { LegislativeBlock, LegislativeDocument, BlockType, PosicaoNaCitacao } from '../types/legislative';
 import { isAgrupador } from '../utils/rank';
+import { preencherCitacoes } from '../utils/citacoes';
 
 /**
  * A linha de supressão, sempre com esta medida.
@@ -365,6 +366,51 @@ export function convertTableMatrixToHtml(matrix: TableCellInput[][]): string {
   return `<table border="1" cellpadding="4" cellspacing="0" class="MsoTableGrid" style="border-collapse: collapse; width: 100%; margin: 15px 0;"><tbody>\n${rowsHtml}\n</tbody></table>`;
 }
 
+/** A linha começa pelas aspas que abrem a citação. */
+const ABERTURA_DE_CITACAO = /^["“]/;
+
+/** A linha termina pelas aspas que fecham a citação, com ou sem o "(NR)". */
+const FECHAMENTO_DE_CITACAO = /["”]\s*(?:\(\s*NR\s*\))?$/i;
+
+/**
+ * A aspa do fim da linha fecha a citação, ou é de uma palavra citada dentro
+ * dela?
+ *
+ * Quem responde é a conta: a citação fecha com uma aspa **sem par** na linha. O
+ * decreto de `docs/file-tests/` escreve "a) as alíneas “d” e “e” do inciso I" —
+ * duas aberturas e dois fechamentos, todos emparelhados —, e tomar aquele "”"
+ * final por fim da citação faria a alteração inteira que vem depois voltar à
+ * margem do ato alterador.
+ *
+ * A aspa reta não diz de que lado está, e para ela só resta a paridade: uma
+ * quantidade ímpar quer dizer que sobrou uma, e a que sobra é a que fecha.
+ */
+function fechaACitacao(corpo: string): boolean {
+  if (!FECHAMENTO_DE_CITACAO.test(corpo)) return false;
+
+  const abertas = (corpo.match(/“/g) || []).length;
+  const fechadas = (corpo.match(/”/g) || []).length;
+  if (fechadas !== abertas) return fechadas > abertas;
+  if (abertas > 0) return false;
+
+  return (corpo.match(/"/g) || []).length % 2 === 1;
+}
+
+/**
+ * As aspas que a linha traz — a marca de onde a citação do ato alterado abre e
+ * onde ela fecha. O que corre entre uma e outra é deduzido depois, sobre o ato
+ * inteiro (ver `utils/citacoes.ts`).
+ */
+function aspasDaLinha(linha: string): PosicaoNaCitacao | undefined {
+  const texto = linha.replace(/^##[A-Z]{3}\s*/, '').trim();
+  const abre = ABERTURA_DE_CITACAO.test(texto);
+  const fecha = fechaACitacao(abre ? texto.slice(1) : texto);
+
+  if (abre && fecha) return 'unica';
+  if (abre) return 'abre';
+  return fecha ? 'fecha' : undefined;
+}
+
 /**
  * Limpa aspas redundantes em trechos de alteração (ex: transforma `“Art. 1º ... ” (NR)` em texto limpo ajustado).
  */
@@ -610,11 +656,13 @@ export function identifyBlockType(line: string): {
   numberLabel?: string;
   cleanText: string;
   novaRedacao?: boolean;
+  aspas?: PosicaoNaCitacao;
 } {
   let clean = line.replace(/^##[A-Z]{3}\s*/, '').trim();
 
   const novaRedacao = /\(\s*NR\s*\)$/i.test(clean) || undefined;
-  const isAlteration = /^“|^"|”\s*\(NR\)$/i.test(clean);
+  const aspas = aspasDaLinha(clean);
+  const isAlteration = aspas !== undefined;
   if (isAlteration) {
     clean = sanitizeQuoteText(clean);
   } else if (novaRedacao) {
@@ -624,7 +672,7 @@ export function identifyBlockType(line: string): {
   }
 
   const classificado = classificarDispositivo(clean, isAlteration);
-  return novaRedacao ? { ...classificado, novaRedacao } : classificado;
+  return { ...classificado, ...(novaRedacao ? { novaRedacao } : {}), ...(aspas ? { aspas } : {}) };
 }
 
 /** O tipo e o rótulo, já sem as aspas e sem o "(NR)". */
@@ -704,7 +752,13 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
     | 'ANEXO' = 'INITIAL';
 
   const blocks: LegislativeBlock[] = [];
-  let currentBlock: { type: BlockType; label?: string; text: string; novaRedacao?: boolean } | null = null;
+  let currentBlock: {
+    type: BlockType;
+    label?: string;
+    text: string;
+    novaRedacao?: boolean;
+    aspas?: PosicaoNaCitacao;
+  } | null = null;
 
   // Processamento de Tabelas RTF (\cell / \row com suporte a mesclagem)
   interface CellTokenData {
@@ -724,7 +778,13 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
 
   let artCounter = 0;
 
-  function pushBlock(type: BlockType, label: string | undefined, text: string, novaRedacao?: boolean) {
+  function pushBlock(
+    type: BlockType,
+    label: string | undefined,
+    text: string,
+    novaRedacao?: boolean,
+    citacao?: PosicaoNaCitacao
+  ) {
     let linkName: string | undefined;
     if (type === 'ARTIGO') {
       artCounter++;
@@ -738,6 +798,7 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
       rawText: text,
       linkName,
       novaRedacao,
+      citacao,
     });
   }
 
@@ -747,7 +808,8 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
       currentBlock.type,
       currentBlock.label,
       sanitizeQuoteText(currentBlock.text),
-      currentBlock.novaRedacao
+      currentBlock.novaRedacao,
+      currentBlock.aspas
     );
     currentBlock = null;
   }
@@ -1023,6 +1085,7 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
             label: parsed.numberLabel,
             text: parsed.cleanText,
             novaRedacao: parsed.novaRedacao,
+            aspas: parsed.aspas,
           };
         } else {
           // Fix #2: linhas sem marcador de bloco SEMPRE acumulam no bloco corrente
@@ -1032,6 +1095,15 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
             // O "(NR)" pode chegar na continuação do dispositivo, e não na
             // linha que o abriu; a marca é do dispositivo de qualquer modo.
             if (/\(\s*NR\s*\)$/i.test(clean)) currentBlock.novaRedacao = true;
+            /*
+             * As aspas de fechamento também: o arquivo quebra o dispositivo
+             * citado em várias linhas, e a última é que traz o "”". Sem ler a
+             * continuação, a citação ficava sem fim e o meio dela voltava à
+             * margem do ato alterador.
+             */
+            if (aspasDaLinha(clean) === 'fecha') {
+              currentBlock.aspas = currentBlock.aspas === 'abre' ? 'unica' : 'fecha';
+            }
           } else {
             currentBlock = { type: 'TEXTO_LIVRE', text: clean };
           }
@@ -1055,11 +1127,19 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
       flushCurrentBlock();
       const parsed = identifyBlockType(tok.val);
       if (parsed.cleanText) {
-        pushBlock(parsed.type, parsed.numberLabel, parsed.cleanText, parsed.novaRedacao);
+        pushBlock(parsed.type, parsed.numberLabel, parsed.cleanText, parsed.novaRedacao, parsed.aspas);
+      } else if (parsed.aspas || parsed.novaRedacao) {
+        /*
+         * A higienização pode não deixar texto algum: é o caso do `” (NR)` que
+         * fecha, sozinho num parágrafo, a citação do anexo. O parágrafo não tem
+         * texto do ato — tem as duas marcas, e é a folha que as desenha
+         * (invariante 9). Guardá-las como marca, e não como texto, é o que dá
+         * fim à citação: sem isso o anexo citado inteiro ficava sem fechamento.
+         */
+        pushBlock('TEXTO_LIVRE', undefined, '', parsed.novaRedacao, parsed.aspas);
       } else {
-        // A higienização pode não deixar texto algum: é o caso do `” (NR)` que
-        // fecha, sozinho num parágrafo, a citação do anexo. Aí o parágrafo fica
-        // como o arquivo o escreveu — bloco vazio é conteúdo perdido.
+        // Sobrou o que a classificação não soube ler. Fica como o arquivo o
+        // escreveu — bloco vazio é conteúdo perdido.
         pushBlock('TEXTO_LIVRE', undefined, clean);
       }
     }
@@ -1097,7 +1177,7 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
     ementa: fullEmenta,
     preambulo: fullPreambulo,
     ordemExecucao,
-    blocks: centralizarDenominacaoDeAgrupador(blocks),
+    blocks: preencherCitacoes(centralizarDenominacaoDeAgrupador(blocks)),
     fecho: fullFecho,
     assinaturas: assinaturaLines,
   };

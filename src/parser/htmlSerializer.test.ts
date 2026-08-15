@@ -362,3 +362,79 @@ describe('o anexo se lê depois das assinaturas', () => {
     expect(lido.blocks.some((block) => block.rawText === 'Quadro Demonstrativo de Cargos')).toBe(true);
   });
 });
+
+describe('citação do ato alterado', () => {
+  const citacao = (blocks: LegislativeBlock[]) => ({ ...doc, blocks });
+
+  it('recolhe a citação inteira nos dois blockquotes, e não só as linhas com aspas', () => {
+    /*
+     * O papel espelha o arquivo (invariante 1): os dois `<blockquote>` de 40px
+     * são os 80px de recuo que a folha desenha. O inciso citado saía daqui num
+     * `<p class="MsoNormal">` solto, na margem do ato alterador.
+     */
+    const exportado = serializeToPlanaltoHtml(
+      citacao([
+        { id: 'b1', type: 'ALTERACAO', numberLabel: 'Art. 5º', content: '', rawText: '', citacao: 'abre' },
+        { id: 'b2', type: 'INCISO', numberLabel: 'I -', content: 'dirigir;', rawText: 'dirigir;', citacao: 'meio' },
+        {
+          id: 'b3',
+          type: 'INCISO',
+          numberLabel: 'II -',
+          content: 'representar.',
+          rawText: 'representar.',
+          citacao: 'fecha',
+          novaRedacao: true,
+        },
+      ])
+    );
+
+    expect(exportado.match(/<blockquote>\s*<blockquote>/g)).toHaveLength(3);
+    // As aspas só nas pontas, como as escreve o ato publicado.
+    expect(exportado.match(/“/g)).toHaveLength(1);
+    expect(exportado.match(/”/g)).toHaveLength(1);
+    // O "(NR)" fecha o dispositivo alterado depois das aspas (Decreto nº
+    // 12.002/2024, art. 14, I).
+    expect(exportado).toContain('representar.” (NR)');
+  });
+
+  it('devolve a citação inteira na releitura, e não apenas as pontas', () => {
+    const blocks: LegislativeBlock[] = [
+      { id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', content: 'O Decreto passa a vigorar:', rawText: '' },
+      { id: 'b2', type: 'ALTERACAO', numberLabel: 'Art. 5º', content: 'Compete:', rawText: '', citacao: 'abre' },
+      { id: 'b3', type: 'INCISO', numberLabel: 'I -', content: 'dirigir;', rawText: '', citacao: 'meio' },
+      { id: 'b4', type: 'OMISSIS', content: '..........................', rawText: '', citacao: 'meio' },
+      {
+        id: 'b5',
+        type: 'INCISO',
+        numberLabel: 'II -',
+        content: 'representar.',
+        rawText: '',
+        citacao: 'fecha',
+        novaRedacao: true,
+      },
+      { id: 'b6', type: 'ARTIGO', numberLabel: 'Art. 2º', content: 'Entra em vigor.', rawText: '' },
+    ];
+    const lido = deserializePlanaltoHtmlToDocument(serializeToPlanaltoHtml(citacao(blocks)));
+
+    expect(lido.blocks.map((bloco) => bloco.citacao)).toEqual([
+      undefined,
+      'abre',
+      'meio',
+      'meio',
+      'fecha',
+      undefined,
+    ]);
+  });
+
+  it('não recolhe a tabela citada, que já ocupa a largura da folha', () => {
+    const html = serializeBlockToHtml({
+      id: 'b1',
+      type: 'TABELA',
+      content: '<table><tbody><tr><td>CCE 1.15</td></tr></tbody></table>',
+      rawText: 'Tabela',
+      citacao: 'meio',
+    });
+
+    expect(html).not.toContain('<blockquote>');
+  });
+});

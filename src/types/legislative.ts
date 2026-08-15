@@ -29,6 +29,18 @@ export type BlockType =
 /** Alinhamento horizontal do parágrafo, espelhado no HTML exportado. */
 export type BlockAlign = 'left' | 'center' | 'right' | 'justify';
 
+/**
+ * Onde o dispositivo está na citação do ato alterado: onde as aspas abrem, o
+ * que corre entre elas, onde fecham — e a citação de um dispositivo só, que
+ * abre e fecha na mesma linha.
+ *
+ * As aspas não se repetem a cada dispositivo citado: abrem no primeiro e fecham
+ * no último (Decreto nº 12.002/2024, art. 14). Guardar apenas as pontas seria
+ * perder o meio, que é justamente o que a folha precisa saber para recolher a
+ * citação inteira à direita do artigo que altera — ver `utils/citacoes.ts`.
+ */
+export type PosicaoNaCitacao = 'abre' | 'meio' | 'fecha' | 'unica';
+
 export interface LegislativeBlock {
   id: string;
   type: BlockType;
@@ -46,6 +58,19 @@ export interface LegislativeBlock {
    * importado e nada o repunha, de modo que o ato salvo perdia a marca.
    */
   novaRedacao?: boolean;
+  /**
+   * O dispositivo é texto citado de outro ato, e onde ele está na citação.
+   *
+   * Vale para a citação inteira, e não só para as linhas que trazem as aspas: o
+   * inciso e o omissis que correm entre a abertura e o fechamento são texto do
+   * ato **alterado**, e se recolhem à direita do artigo que os altera — na
+   * folha e no arquivo salvo, que os escreve dentro de dois `<blockquote>`.
+   *
+   * Como o rótulo e o "(NR)", as aspas moram aqui e não no texto (invariante
+   * 9): quem as desenha é a folha, e o redator não as digita nem as apaga por
+   * engano.
+   */
+  citacao?: PosicaoNaCitacao;
   align?: BlockAlign; // Ausente = justificado, como manda o padrão Planalto
   tableRows?: string[][]; // Matriz de células para blocos do tipo TABELA
   children?: LegislativeBlock[]; // Dispositivos alterados ou filhos

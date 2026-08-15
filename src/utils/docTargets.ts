@@ -1,5 +1,6 @@
 import { BlockAlign, BlockType, LegislativeBlock, LegislativeDocument } from '../types/legislative';
 import { desenhaComoTitulo } from './rank';
+import { ASPAS_ABRE, ASPAS_FECHA, abreAspas, fechaAspas } from './citacoes';
 
 /**
  * Endereçamento dos campos editáveis do canvas.
@@ -238,8 +239,8 @@ function htmlDaFonte(doc: LegislativeDocument, alvo: string): string {
   const ancora = bloco.linkName ? `<a name="${bloco.linkName}"></a>` : '';
 
   /*
-   * As aspas e o "(NR)" da citação vêm do tipo do bloco, e é a folha que os
-   * desenha. Fora do dispositivo não há tipo, então eles viram texto — ou
+   * As aspas e o "(NR)" da citação vêm das marcas do bloco, e é a folha que os
+   * desenha. Fora do dispositivo não há marca, então eles viram texto — ou
    * sumiriam da tela sem que ninguém tivesse mandado apagá-los.
    *
    * O **rótulo**, ao contrário, fica para trás: "Art. 1º" não foi escrito pelo
@@ -247,10 +248,9 @@ function htmlDaFonte(doc: LegislativeDocument, alvo: string): string {
    * ementa começar por "Art. 1º", que é justamente o que quem promove um
    * parágrafo mal classificado está tentando desfazer.
    */
-  if (bloco.type === 'ALTERACAO') {
-    return `${ancora}“${bloco.content}”${bloco.novaRedacao ? ' (NR)' : ''}`;
-  }
-  return `${ancora}${bloco.content}`;
+  const abre = abreAspas(bloco) ? ASPAS_ABRE : '';
+  const fecha = fechaAspas(bloco) ? ASPAS_FECHA : '';
+  return `${ancora}${abre}${bloco.content}${fecha}${bloco.novaRedacao ? ' (NR)' : ''}`;
 }
 
 /** Envolve a ordem de execução na marca de "sem formatação" quando ela ficou sem etiquetas. */

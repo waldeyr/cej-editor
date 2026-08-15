@@ -51,6 +51,16 @@ import {
   replaceSegmentsWithText,
 } from '../utils/richText';
 import { inicioDoAnexo, numberLabelForTypeAt } from '../utils/blockTypes';
+import {
+  ASPAS_ABRE,
+  ASPAS_FECHA,
+  abreAspas,
+  citacaoAbaixoDe,
+  citacaoDe,
+  dividirCitacao,
+  estaEmCitacao,
+  fechaAspas,
+} from '../utils/citacoes';
 
 interface EditorCanvasProps {
   doc: LegislativeDocument;
@@ -262,7 +272,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   const handleUpdateBlockContent = (id: string, newContent: string) => {
     const updatedBlocks = doc.blocks.map((b) => {
       if (b.id === id) {
-        const sanitized = b.type === 'ALTERACAO' ? sanitizeQuoteText(newContent) : newContent;
+        /*
+         * As aspas da citação a folha desenha ao lado do campo, e não dentro
+         * dele: as que o redator escrever nas pontas do texto sairiam em dobro
+         * no arquivo salvo.
+         */
+        const sanitized = abreAspas(b) || fechaAspas(b) ? sanitizeQuoteText(newContent) : newContent;
         const normalized = b.numberLabel
           ? sanitized.replace(/^((?:<[^>]+>\s*)*)(?:&nbsp;|&#160;|\s)+/i, '$1')
           : sanitized;
@@ -345,6 +360,9 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       numberLabel,
       content: '',
       rawText: '',
+      // Dentro de uma citação, o dispositivo que nasce é mais um dispositivo
+      // citado — e nasce já no recuo da citação, e não na margem do ato.
+      citacao: citacaoAbaixoDe(doc.blocks[index]),
     };
 
     const newBlocks = [...doc.blocks];
@@ -377,15 +395,23 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const tail = cutContentAfterCaret(element);
     const head = element.innerHTML;
 
+    /*
+     * Repartir um dispositivo citado não abre nem fecha a citação: as aspas
+     * ficam onde estavam, e o que nasce entre elas é mais um dispositivo do ato
+     * alterado.
+     */
+    const [antes, depois] = dividirCitacao(citacaoDe(doc.blocks[index]));
+
     const newBlock: LegislativeBlock = {
       id: newBlockId(),
       type: 'TEXTO_LIVRE',
       content: tail,
       rawText: htmlToPlainText(tail),
+      citacao: depois,
     };
 
     const blocks = [...doc.blocks];
-    blocks[index] = { ...blocks[index], content: head, rawText: htmlToPlainText(head) };
+    blocks[index] = { ...blocks[index], content: head, rawText: htmlToPlainText(head), citacao: antes };
     blocks.splice(index + 1, 0, newBlock);
 
     onUpdateStructure({ ...doc, blocks });
@@ -727,6 +753,29 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const align = block.align || defaultAlignForBlockType(block.type);
     const layout: React.CSSProperties = { textAlign: align, textIndent: indentForAlign(align) };
 
+    /*
+     * O dispositivo citado se recolhe à direita do artigo que o altera. Os
+     * 80px são os dois `<blockquote>` de 40px que o arquivo salvo escreve —
+     * mudou aqui, muda lá (invariante 1). A tabela citada fica onde está: os
+     * dois recuos a empurrariam para fora da folha.
+     */
+    const citado = estaEmCitacao(block) && block.type !== 'TABELA';
+    const recuoDaCitacao = citado ? 'ml-[80px] mr-[40px]' : '';
+    const abre = citado && abreAspas(block);
+    const fecha = citado && fechaAspas(block);
+    /*
+     * O parágrafo que só traz as marcas — o `” (NR)` que fecha, sozinho, a
+     * citação de um anexo inteiro — não pede texto: ali não falta dispositivo
+     * a escrever, e a frase de espera do CSS seria um convite a preencher o
+     * que o ato não tem.
+     */
+    const soMarcas = (abre || fecha) && !block.content;
+    const fraseDeEspera = soMarcas
+      ? undefined
+      : citado
+      ? 'Texto do dispositivo alterado'
+      : 'Novo conteúdo';
+
     return (
       <div
         key={block.id}
@@ -908,28 +957,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-selo p-1 [&_td]:cursor-text [&_td]:focus:bg-selo/10 [&_th]:cursor-text"
             />
           </div>
-        ) : block.type === 'ALTERACAO' ? (
-          /* Citação de dispositivo alterado — dois blockquotes no arquivo salvo. */
-          <div
-            className="ml-[80px] mr-[40px] text-[10pt]"
-            style={layout}
-          >
-            <span className="select-none">“</span>
-            {block.numberLabel && (
-              <span className="select-none">{normalizeNumberLabel(block.numberLabel)} </span>
-            )}
-            <Editable
-              target={target}
-              html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
-              onCommit={(html) => handleUpdateBlockContent(block.id, html)}
-              onKeyDown={(event) => handleBlockEnter(index, event)}
-              ariaLabel="Dispositivo alterado"
-              placeholder="Texto do dispositivo alterado"
-              className="inline outline-none focus:bg-selo/10 cursor-text"
-            />
-            <span className="select-none">”</span>
-            {block.novaRedacao && <span className="select-none"> (NR)</span>}
-          </div>
         ) : desenhaComoTitulo(block.type) ? (
           /*
            * Agrupador. O rótulo fica fora do campo editável, como nos
@@ -939,7 +966,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
            * importado traz a denominação inteira no conteúdo, sem
            * rótulo, e continua aparecendo como sempre apareceu.
            */
-          <div className="font-bold text-[10pt]" style={layout}>
+          <div className={`font-bold text-[10pt] ${recuoDaCitacao}`} style={layout}>
+            {abre && <span className="select-none">{ASPAS_ABRE}</span>}
             {block.numberLabel && (
               <span className="select-none">
                 {normalizeNumberLabel(block.numberLabel)} -{' '}
@@ -954,20 +982,25 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               placeholder="Denominação do agrupador"
               className="inline outline-none focus:bg-selo/10 font-bold cursor-text"
             />
+            {fecha && <span className="select-none">{ASPAS_FECHA}</span>}
           </div>
         ) : (
           /*
            * Dispositivo comum. O rótulo é inline e o campo editável
            * também: assim a segunda linha volta à margem esquerda, como
            * no arquivo salvo, em vez de ficar pendurada sob o texto.
+           *
+           * Citado, ele se recolhe à direita do artigo que o altera — e a
+           * citação inteira se recolhe junto, não só as linhas com aspas.
            */
           <div
-            className="text-[10pt]"
+            className={`text-[10pt] ${recuoDaCitacao}`}
             style={layout}
             onClick={(event) => {
               if (event.target === event.currentTarget) focusEditableTarget(target);
             }}
           >
+            {abre && <span className="select-none">{ASPAS_ABRE}</span>}
             {block.numberLabel && (
               <span className="font-normal select-none">
                 {normalizeNumberLabel(block.numberLabel)}&nbsp;
@@ -978,10 +1011,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               html={normalizeNumberedContentHtml(block.content, Boolean(block.numberLabel))}
               onCommit={(html) => handleUpdateBlockContent(block.id, html)}
               onKeyDown={(event) => handleBlockEnter(index, event)}
-              ariaLabel={block.numberLabel || 'Dispositivo'}
-              placeholder="Novo conteúdo"
+              ariaLabel={
+                citado
+                  ? `${block.numberLabel || 'Dispositivo'} do ato alterado`
+                  : block.numberLabel || 'Dispositivo'
+              }
+              placeholder={fraseDeEspera}
               className="inline outline-none focus:bg-selo/10 cursor-text"
             />
+            {fecha && <span className="select-none">{ASPAS_FECHA}</span>}
             {/* A linha pontilhada que encerra a alteração também leva a marca. */}
             {block.novaRedacao && <span className="select-none"> (NR)</span>}
           </div>

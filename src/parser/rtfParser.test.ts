@@ -194,6 +194,57 @@ describe('RTF Legislative Parser & HTML Serializer', () => {
     expect(alteracao?.numberLabel).toBe('Art. 5º');
   });
 
+  it('lê nas aspas onde a citação do ato alterado abre e onde ela fecha', () => {
+    expect(identifyBlockType('“Art. 2º ..................').aspas).toBe('abre');
+    expect(identifyBlockType('XII - representar o Ministro.” (NR)').aspas).toBe('fecha');
+    // O fechamento sem "(NR)" é o da inclusão de dispositivo novo, que não muda
+    // redação alguma e por isso não leva a marca (LC 95/1998, art. 12, III).
+    expect(identifyBlockType('XII - representar o Ministro.”').aspas).toBe('fecha');
+    expect(identifyBlockType('“Art. 5º Compete ao órgão dirigir.” (NR)').aspas).toBe('unica');
+    expect(identifyBlockType('Art. 1º Este Decreto entra em vigor.').aspas).toBeUndefined();
+  });
+
+  it('não toma por fim da citação a aspa da palavra citada dentro dela', () => {
+    /*
+     * "a) as alíneas “d” e “e” do inciso I" — as aspas estão emparelhadas, e
+     * nenhuma delas fecha citação. Lê-las como fechamento faria a alteração
+     * seguinte inteira voltar à margem do ato alterador.
+     */
+    expect(identifyBlockType('a) as alíneas “d” e “e” do inciso I;').aspas).toBeUndefined();
+    expect(identifyBlockType('b) a alínea “a” do inciso III do art. 2º').aspas).toBeUndefined();
+    // A que sobra sem par, essa fecha.
+    expect(identifyBlockType('as alíneas “d” e “e” do inciso I do art. 2º.”').aspas).toBe('fecha');
+  });
+
+  it('marca a citação inteira, e não só as linhas que trazem as aspas', () => {
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Altera o Decreto n\\'ba 11.353.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba O Decreto passa a vigorar com as seguintes altera\\'e7\\'f5es:\\par \\'93Art. 5\\'ba ....................\\par I - dirigir o \\'f3rg\\'e3o;\\par II - representar o Ministro.\\'94 (NR)\\par Art. 2\\'ba Este Decreto entra em vigor na data de sua publica\\'e7\\'e3o.}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+
+    expect(doc.blocks.map((block) => [block.type, block.citacao])).toEqual([
+      ['ARTIGO', undefined],
+      ['ALTERACAO', 'abre'],
+      ['INCISO', 'meio'],
+      ['ALTERACAO', 'fecha'],
+      ['ARTIGO', undefined],
+    ]);
+  });
+
+  it('guarda como marca o parágrafo que só traz o fim da citação', () => {
+    /*
+     * `” (NR)` sozinho num parágrafo é como o decreto de docs/file-tests fecha a
+     * citação de um anexo inteiro. As duas marcas moram fora do texto
+     * (invariante 9), e é elas que dão fim à citação: sem isso o anexo citado
+     * ficava sem fechamento e voltava à margem do ato alterador.
+     */
+    const rtf = `{\\rtf1 DECRETO N\\'ba 13.090\\par Altera o Decreto.\\par O PRESIDENTE DA REP\\'daBLICA\\par DECRETA:\\par Art. 1\\'ba O Anexo passa a vigorar na forma do Anexo I.\\par Bras\\'edlia, 4 de agosto de 2026.\\par LUIZ IN\\'c1CIO LULA DA SILVA\\par ANEXO I\\par \\'93QUADRO DE CARGOS\\par \\'94 (NR)}`;
+    const doc = parseRtfToLegislativeDocument(rtf);
+    const fim = doc.blocks.at(-1);
+
+    expect(fim?.citacao).toBe('fecha');
+    expect(fim?.novaRedacao).toBe(true);
+    expect(fim?.content).toBe('');
+  });
+
   it('mantém o sufixo do dispositivo acrescentado por alteração no rótulo', () => {
     // Decreto nº 12.002/2024, art. 14, parágrafo único. Sem isto o rótulo saía
     // "Art. 35" e o "-B-B" ia parar dentro do texto do dispositivo.

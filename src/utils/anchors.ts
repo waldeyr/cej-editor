@@ -2,6 +2,7 @@ import { LegislativeBlock, LegislativeDocument } from '../types/legislative';
 import { htmlToPlainText } from './docTargets';
 import { RANK_NONE, TOTAL_DE_AGRUPADORES, isAgrupador, ordemDoAgrupador, rankOf } from './rank';
 import { renumberBlocks } from './blockTypes';
+import { estaEmCitacao } from './citacoes';
 
 /**
  * Pontos de ancoragem e remissões.
@@ -467,12 +468,16 @@ export function ancorarDispositivos(doc: LegislativeDocument): LegislativeDocume
      * O dispositivo citado fica então **sem** endereço automático, e é uma
      * lacuna de propósito — no ato alterador ela alcança quase todo o texto. O
      * ato publicado endereça o citado como "art2-1" (o artigo que altera, um
-     * traço, o artigo alterado), e escrever isso aqui depende de saber onde a
-     * citação termina. Hoje não se sabe: o leitor marca como `ALTERACAO` só os
-     * parágrafos que trazem as aspas, e um modelo de citação com começo e fim é
-     * a tarefa de que este endereço depende (ver a skill `arquivo-planalto`).
+     * traço, o artigo alterado), e escrever isso aqui depende de saber de que
+     * artigo alterador a citação pende — a marca de citação diz onde ela
+     * começa e onde acaba, não a quem ela pertence.
+     *
+     * A citação inteira entra aqui, e não só as linhas com aspas: o inciso
+     * transcrito no meio dela tomava "art2iii" e apontava para um inciso do ato
+     * alterador — endereço errado, que é pior que endereço nenhum, porque a
+     * remissão leva ao dispositivo trocado e nada denuncia (invariante 12).
      */
-    if (block.type === 'ALTERACAO') {
+    if (estaEmCitacao(block)) {
       articulacao = [];
       return undefined;
     }

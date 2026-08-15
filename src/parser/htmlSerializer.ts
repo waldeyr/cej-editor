@@ -15,6 +15,14 @@ import {
   pareceNomeDeSignatario,
 } from './rtfParser';
 import { sanitizeInlineHtml, stripVisibleEdges, visibleTextOfHtml } from './inlineHtml';
+import {
+  ASPAS_ABRE,
+  ASPAS_FECHA,
+  abreAspas,
+  estaEmCitacao,
+  fechaAspas,
+  preencherCitacoes,
+} from '../utils/citacoes';
 
 /**
  * Serializa a AST do Documento Legislativo para a string HTML padrão Planalto (temp/d13090.html).
@@ -181,17 +189,32 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
   const novaRedacao = block.novaRedacao ? ' (NR)' : '';
 
   if (block.type === 'TABELA') {
+    /*
+     * A tabela citada não se recolhe. Ela já ocupa a largura da folha, e os dois
+     * recuos da citação a espremeriam para fora da página — o anexo citado do
+     * decreto de `docs/file-tests/` é feito delas. As aspas da citação ficam nos
+     * parágrafos que a cercam, que é onde o ato publicado as escreve.
+     */
     return `\t<div align="center" style="margin-top: 15px; margin-bottom: 15px" data-block-id="${block.id}">${anchor}\n${block.content}\n\t</div>`;
   }
 
-  if (block.type === 'ALTERACAO') {
-    return `\t<blockquote data-block-id="${block.id}">
-\t\t<blockquote>
-\t\t\t<p class="Textbody0" style="text-align: ${align}; text-indent: ${indent}; vertical-align: baseline; margin-right: 0cm; margin-top: 15px; margin-bottom: 15px">
-\t\t\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${anchor}“${labelPrefix}${block.content}”${novaRedacao}</span></p>
-\t\t</blockquote>
-\t</blockquote>`;
-  }
+  /*
+   * As aspas da citação, que só as pontas levam: abrem no primeiro dispositivo
+   * citado e fecham no último, como as escreve o ato publicado.
+   */
+  const abre = abreAspas(block) ? ASPAS_ABRE : '';
+  const fecha = fechaAspas(block) ? ASPAS_FECHA : '';
+
+  /*
+   * O dispositivo citado mora dentro de dois `<blockquote>` — 40px cada um, os
+   * 80px de recuo que a folha desenha. Vale para a citação inteira, e não só
+   * para as linhas com aspas: o inciso e o omissis do ato alterado saíam daqui
+   * na margem do ato alterador, e a citação chegava serrilhada ao arquivo.
+   */
+  const recolhido = (paragrafo: string) =>
+    estaEmCitacao(block)
+      ? `\t<blockquote>\n\t\t<blockquote>\n${paragrafo}\n\t\t</blockquote>\n\t</blockquote>`
+      : paragrafo;
 
   /*
    * Agrupadores (Parte, Livro, Título, Capítulo, Seção…) e o título do anexo
@@ -216,8 +239,18 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
      * nasce vazio (invariante 2).
      */
     const denominacao = block.numberLabel ? (block.content ? `${block.numberLabel} - ` : block.numberLabel) : '';
-    return `\t<p align="${align}" style="margin-top: 20px; margin-bottom: 10px" data-block-id="${block.id}">
-\t\t<b><span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${denominacao}${block.content}</span></b></p>`;
+    return recolhido(`\t<p align="${align}" style="margin-top: 20px; margin-bottom: 10px" data-block-id="${block.id}">
+\t\t<b><span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${abre}${denominacao}${block.content}${fecha}</span></b></p>`);
+  }
+
+  /*
+   * O parágrafo do dispositivo citado tem estilo próprio no padrão Planalto —
+   * `Textbody0` com a linha de base alinhada —, e é o que o arquivo publicado
+   * escreve dentro dos `<blockquote>`.
+   */
+  if (estaEmCitacao(block)) {
+    return recolhido(`\t\t\t<p class="Textbody0" style="text-align: ${align}; text-indent: ${indent}; vertical-align: baseline; margin-right: 0cm; margin-top: 15px; margin-bottom: 15px" data-block-id="${block.id}">
+\t\t\t<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${anchor}${abre}${labelPrefix}${block.content}${fecha}${novaRedacao}</span></p>`);
   }
 
   return `\t<p class="MsoNormal" style="text-align: ${align}; text-indent: ${indent}; line-height: normal; margin-top: 15px; margin-bottom: 15px" data-block-id="${block.id}">
@@ -415,7 +448,7 @@ function absorverParagrafo(
     return;
   }
 
-  const { type, numberLabel, cleanText, novaRedacao } = identifyBlockType(texto);
+  const { type, numberLabel, cleanText, novaRedacao, aspas } = identifyBlockType(texto);
 
   /*
    * O rótulo e as aspas de citação saem do texto na classificação; aqui eles
@@ -434,6 +467,7 @@ function absorverParagrafo(
     content,
     rawText: cleanText,
     novaRedacao,
+    citacao: aspas,
   });
 }
 
@@ -528,7 +562,7 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
   });
 
   doc.titleIsManual = Boolean(declaredTitle) && declaredTitle !== doc.epigrafe.trim();
-  doc.blocks = centralizarDenominacaoDeAgrupador(doc.blocks);
+  doc.blocks = preencherCitacoes(centralizarDenominacaoDeAgrupador(doc.blocks));
 
   return doc;
 }

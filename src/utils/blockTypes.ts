@@ -1,6 +1,7 @@
 import { BlockType, LegislativeBlock } from '../types/legislative';
 import { sanitizeQuoteText } from '../parser/rtfParser';
 import { htmlToPlainText } from './docTargets';
+import { estaEmCitacao, posicoesDaCitacao } from './citacoes';
 import { RANK_NONE, desenhaComoTitulo, isAgrupador, rankOf } from './rank';
 
 /**
@@ -300,6 +301,9 @@ function retypeBlock(
    */
   if (type === 'ALTERACAO') {
     const content = sanitizeQuoteText(block.content);
+    // A posição na citação vem de `applyBlockType`, que enxerga o trecho todo:
+    // marcar vários dispositivos de uma vez é **uma** citação, com as aspas nas
+    // pontas, e não uma citação por dispositivo.
     return { ...block, type, content, rawText: htmlToPlainText(content) };
   }
 
@@ -363,7 +367,51 @@ export function applyBlockType(
     applied.push(convertible ? retypeBlock(block, type, applied) : block);
   });
 
-  return applied;
+  return type === 'ALTERACAO' ? marcarCitacao(applied, ids) : applied;
+}
+
+/**
+ * Os dispositivos escolhidos passam a ser **uma** citação: as aspas abrem no
+ * primeiro e fecham no último, e o que está entre eles é o meio dela.
+ *
+ * Marcar dois parágrafos como alteração é transcrever dois dispositivos de um
+ * mesmo ato — não abrir duas citações de um dispositivo cada, com aspas em toda
+ * linha, que não é como o ato publicado escreve nem como a norma manda
+ * (Decreto nº 12.002/2024, art. 14).
+ */
+function marcarCitacao(
+  blocks: readonly LegislativeBlock[],
+  ids: ReadonlySet<string>
+): LegislativeBlock[] {
+  /*
+   * A tabela não pode ser ponta da citação: ela não desenha aspas na folha nem
+   * as escreve no arquivo, e uma citação que abrisse nela sairia salva sem o
+   * "“" — e voltaria da releitura sem citação alguma, com o recuo desfeito. No
+   * meio ela entra, e apenas não se recolhe.
+   */
+  const escolhidos = blocks.reduce<number[]>(
+    (indices, block, indice) =>
+      ids.has(block.id) && block.type !== 'TABELA' ? [...indices, indice] : indices,
+    []
+  );
+  if (escolhidos.length === 0) return [...blocks];
+
+  /*
+   * Da primeira à última escolha, inclusive o que ficou no meio sem ser
+   * escolhido: uma citação não tem buraco, e o parágrafo entre dois
+   * dispositivos citados é citado também.
+   */
+  const inicio = escolhidos[0];
+  const fim = escolhidos[escolhidos.length - 1];
+  const posicoes = posicoesDaCitacao(fim - inicio + 1);
+
+  // O bloco que já está na posição certa é devolvido como está: a marca de
+  // trabalho não salvo depende dessa identidade (invariante 7).
+  return blocks.map((block, indice) => {
+    if (indice < inicio || indice > fim) return block;
+    const posicao = posicoes[indice - inicio];
+    return block.citacao === posicao ? block : { ...block, citacao: posicao };
+  });
 }
 
 /**
@@ -423,18 +471,26 @@ export function renumberBlocks(
 ): LegislativeBlock[] {
   const renumbered: LegislativeBlock[] = [];
 
+  /*
+   * O dispositivo citado não entra: renumerar artigo ou parágrafo do ato
+   * alterado é vedado (Decreto nº 12.002/2024, art. 14, IV), e o número dele é
+   * do outro ato. Nem se refaz, nem conta — o "I -" transcrito de outra lei
+   * deslocaria o inciso seguinte deste ato.
+   *
+   * O tipo `ALTERACAO` sozinho não bastava: ele não tem rótulo canônico e por
+   * isso escapava, mas o inciso e a alínea do **meio** da citação continuam
+   * sendo INCISO e ALINEA, com rótulo canônico, e eram reescritos na série do
+   * ato alterador a cada clique em "Renumerar".
+   */
+  const contaNaSerie = (block: LegislativeBlock) => hasCanonicalLabel(block) && !estaEmCitacao(block);
+
   blocks.forEach((block) => {
-    if (!hasCanonicalLabel(block) || (ids && !ids.has(block.id))) {
+    if (!contaNaSerie(block) || (ids && !ids.has(block.id))) {
       renumbered.push(block);
       return;
     }
 
-    const label = numberLabelForTypeAt(
-      renumbered,
-      renumbered.length,
-      block.type,
-      hasCanonicalLabel
-    );
+    const label = numberLabelForTypeAt(renumbered, renumbered.length, block.type, contaNaSerie);
     renumbered.push(label === block.numberLabel ? block : { ...block, numberLabel: label });
   });
 
