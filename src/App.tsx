@@ -23,7 +23,8 @@ import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './pa
 import { completarEmentaDoDocx, prepararHtmlDoDocx } from './parser/docxHtml';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
-import { Aba, EstadoDasAbas, estaSuja } from './types/abas';
+import { Aba, ArquivoDoAto, EstadoDasAbas, estaSuja } from './types/abas';
+import { hrefDeCaminho, nomeDe, relativizar } from './utils/caminhos';
 import {
   abaAtiva,
   criarAba,
@@ -45,6 +46,7 @@ import {
 } from './utils/rascunhos';
 import {
   AnchorPoint,
+  AtoAberto,
   LinkChoice,
   collectAnchorPoints,
   createAnchorName,
@@ -92,7 +94,17 @@ import mammoth from 'mammoth';
 declare global {
   interface Window {
     electronAPI?: {
-      saveFile: (content: Uint8Array | string, defaultName: string) => Promise<boolean>;
+      /** Pergunta onde gravar e devolve o caminho escolhido — é ele que nomeia a aba. */
+      saveFile: (
+        content: Uint8Array | string,
+        defaultName: string,
+        caminhoAtual?: string
+      ) => Promise<{ ok: boolean; caminho?: string; cancelado?: boolean; erro?: string }>;
+      /** Grava por cima do arquivo de origem, sem diálogo. */
+      gravarArquivo?: (
+        caminho: string,
+        content: Uint8Array | string
+      ) => Promise<{ ok: boolean; erro?: string }>;
       openFile: () => Promise<{ filePath: string; buffer: Uint8Array } | null>;
       /** Baixa um endereço no processo principal, fora do alcance da política de origem. */
       fetchUrl?: (url: string) => Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }>;
@@ -598,9 +610,26 @@ export const App: React.FC = () => {
    * um arquivo não descarta nada: o ato anterior continua na aba dele, e a
    * pergunta ficou só para quem fecha.
    */
-  const loadDocument = (loaded: LegislativeDocument) => {
+  const loadDocument = (loaded: LegislativeDocument, arquivo: ArquivoDoAto | null = null) => {
     const prepared: LegislativeDocument = { ...loaded, ...IMPORT_ENCODING };
-    despachar({ tipo: 'abrir', aba: criarAba(prepared) });
+    despachar({ tipo: 'abrir', aba: criarAba(prepared, { arquivo }) });
+  };
+
+  /**
+   * De que arquivo o ato veio — e se é para lá que "Salvar" o devolve.
+   *
+   * Só o HTML ganha caminho. Um `.rtf` ou `.doc` **importado** fica com o nome,
+   * que é o que a aba mostra, e sem caminho de propósito: salvar grava HTML
+   * padrão Planalto, e apontar para o arquivo de origem faria "Salvar" escrever
+   * HTML por cima do RTF do redator, sem perguntar nada.
+   *
+   * No aplicativo de mesa o caminho vem do próprio campo de arquivo. (Isto é o
+   * `File.path` do Electron, que sai de cena na versão 32 em favor de
+   * `webUtils.getPathForFile`; quando a hora chegar, é esta função que muda.)
+   */
+  const identidadeDe = (file: File, comCaminho: boolean): ArquivoDoAto => {
+    const caminho = comCaminho ? (file as File & { path?: string }).path : undefined;
+    return { nome: file.name, caminho: caminho || undefined };
   };
 
   // Importa RTF e DOCX, preservando o fluxo de classificacao legislativa existente.
@@ -612,7 +641,7 @@ export const App: React.FC = () => {
       const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
       const preparo = prepararHtmlDoDocx(result.value);
       const importado = completarEmentaDoDocx(deserializePlanaltoHtmlToDocument(preparo.html));
-      loadDocument(importado);
+      loadDocument(importado, identidadeDe(file, false));
 
       /*
        * O recado conta o que entrou, porque a conversão de Word é a única que
@@ -649,7 +678,7 @@ export const App: React.FC = () => {
      */
     const bytes = new Uint8Array(buffer);
     if (extension === 'doc' && ehArquivoCfb(bytes)) {
-      loadDocument(parseDocBinarioToLegislativeDocument(bytes));
+      loadDocument(parseDocBinarioToLegislativeDocument(bytes), identidadeDe(file, false));
       return;
     }
 
@@ -660,7 +689,7 @@ export const App: React.FC = () => {
       );
     }
 
-    loadDocument(parseRtfToLegislativeDocument(decoded.text));
+    loadDocument(parseRtfToLegislativeDocument(decoded.text), identidadeDe(file, false));
   };
 
   /*
@@ -672,13 +701,14 @@ export const App: React.FC = () => {
    * Texto já decodificado pelo caminho traria os acentos do padrão
    * windows-1252 destruídos antes mesmo de o editor os ver.
    */
-  const openHtmlBytes = (bytes: Uint8Array) => {
+  const openHtmlBytes = (bytes: Uint8Array, arquivo: ArquivoDoAto | null = null) => {
     const decoded = detectAndDecode(bytes);
-    loadDocument(deserializePlanaltoHtmlToDocument(decoded.text));
+    loadDocument(deserializePlanaltoHtmlToDocument(decoded.text), arquivo);
   };
 
+  /* O HTML é o único formato que "Salvar" devolve ao arquivo de origem. */
   const openHtmlFile = async (file: File) => {
-    openHtmlBytes(new Uint8Array(await file.arrayBuffer()));
+    openHtmlBytes(new Uint8Array(await file.arrayBuffer()), identidadeDe(file, true));
   };
 
   const runAction = (action: PendingAction) => {
@@ -688,7 +718,15 @@ export const App: React.FC = () => {
     }
 
     if (action.kind === 'openUrl') {
-      openHtmlBytes(action.bytes);
+      /*
+       * O endereço deixou de ser descartado aqui: ele nomeia a aba e diz de onde
+       * o ato veio. Não vira caminho — "Salvar" continua perguntando onde
+       * gravar, porque um ato baixado ainda não tem lugar no disco.
+       */
+      openHtmlBytes(action.bytes, {
+        nome: nomeDe(new URL(action.url).pathname) || 'ato-baixado.html',
+        origem: action.url,
+      });
       return;
     }
 
@@ -768,7 +806,10 @@ export const App: React.FC = () => {
   };
 
   // Procedimento Centralizado de Salvamento em Bytes (Electron / Web API / Blob Download)
-  const performSaveFile = async (suggestedName?: string): Promise<boolean> => {
+  const performSaveFile = async (
+    suggestedName?: string,
+    perguntarOnde = false
+  ): Promise<boolean> => {
     const snapshot = currentDoc();
     const htmlContent = serializeToPlanaltoHtml(snapshot);
     const targetEncoding = 'windows-1252';
@@ -781,30 +822,85 @@ export const App: React.FC = () => {
      * novo. Marcar o outro deixaria a aba com a marca de não salvo acesa logo
      * depois de salvar.
      */
-    const markSaved = () => despachar({ tipo: 'salvo', id: aba.id, doc: snapshot });
+    const markSaved = (arquivo?: ArquivoDoAto) =>
+      despachar({ tipo: 'salvo', id: aba.id, doc: snapshot, arquivo });
 
-    // 1. Salvamento Nativo Electron (se executando no Desktop App)
+    /*
+     * 1a. O ato já tem arquivo: grava por cima, calado, como no Word.
+     *
+     * `perguntarOnde` é o "Salvar como…", que force o seletor mesmo havendo
+     * caminho. Sem esta passagem, "Salvar" e "Salvar como…" faziam exatamente a
+     * mesma coisa — ambos abriam o seletor, e o editor nunca aprendia de que
+     * arquivo o ato tinha vindo.
+     */
+    if (window.electronAPI?.gravarArquivo && aba.arquivo?.caminho && !perguntarOnde) {
+      const resultado = await window.electronAPI.gravarArquivo(aba.arquivo.caminho, bytes);
+      if (resultado.ok) {
+        markSaved();
+        return true;
+      }
+      setNotice(resultado.erro || 'Não foi possível gravar o arquivo.');
+      return false;
+    }
+
+    // 1b. Salvamento Nativo Electron: pergunta onde, e aprende o caminho.
     if (window.electronAPI) {
       try {
-        const success = await window.electronAPI.saveFile(bytes, defaultName);
-        if (success) markSaved();
-        return success;
+        const resultado = await window.electronAPI.saveFile(bytes, defaultName, aba.arquivo?.caminho);
+        if (resultado.ok && resultado.caminho) {
+          markSaved({ nome: nomeDe(resultado.caminho), caminho: resultado.caminho });
+          return true;
+        }
+        if (resultado.erro) setNotice(resultado.erro);
+        return false;
       } catch (e) {
         console.error('Erro ao salvar arquivo via Electron:', e);
       }
     }
 
-    // 2. File System Access API Moderna (Chrome/Edge em contexto seguro)
+    /*
+     * 2. File System Access API (Chrome/Edge em contexto seguro).
+     *
+     * A concessão de gravação obtida aqui era descartada, e por isso cada
+     * "Salvar" repetia o seletor. Guardá-la na aba é o equivalente web de saber
+     * o caminho — com a ressalva de que a permissão precisa ser reconfirmada a
+     * cada sessão, e aí o seletor volta uma vez.
+     */
     if ('showSaveFilePicker' in window) {
       try {
-        const fileHandle = await (window as any).showSaveFilePicker({
-          suggestedName: defaultName,
-          types: [{ description: 'Arquivo HTML Planalto', accept: { 'text/html': ['.html', '.htm'] } }],
-        });
-        const writable = await fileHandle.createWritable();
-        await writable.write(bytes);
+        const guardado = aba.arquivo?.handle as
+          | (FileSystemFileHandle & {
+              queryPermission?: (d: unknown) => Promise<PermissionState>;
+              requestPermission?: (d: unknown) => Promise<PermissionState>;
+            })
+          | undefined;
+
+        let fileHandle = guardado;
+        if (fileHandle && !perguntarOnde) {
+          const modo = { mode: 'readwrite' };
+          const estado =
+            (await fileHandle.queryPermission?.(modo)) ??
+            ((await fileHandle.requestPermission?.(modo)) as PermissionState | undefined);
+          if (estado !== 'granted' && (await fileHandle.requestPermission?.(modo)) !== 'granted') {
+            fileHandle = undefined;
+          }
+        } else if (perguntarOnde) {
+          fileHandle = undefined;
+        }
+
+        if (!fileHandle) {
+          fileHandle = await (window as any).showSaveFilePicker({
+            suggestedName: defaultName,
+            types: [{ description: 'Arquivo HTML Planalto', accept: { 'text/html': ['.html', '.htm'] } }],
+          });
+        }
+
+        const writable = await fileHandle!.createWritable();
+        // O tipo do DOM exige um ArrayBuffer não compartilhado; os bytes daqui
+        // sempre o são, e a asserção evita copiar o ato inteiro só para agradá-lo.
+        await writable.write(bytes as unknown as FileSystemWriteChunkType);
         await writable.close();
-        markSaved();
+        markSaved({ nome: fileHandle!.name, handle: fileHandle });
         return true;
       } catch (err) {
         if ((err as DOMException).name === 'AbortError') return false;
@@ -861,7 +957,7 @@ export const App: React.FC = () => {
    */
   const handleSaveAs = async () => {
     if (window.electronAPI || 'showSaveFilePicker' in window) {
-      await performSaveFile();
+      await performSaveFile(undefined, true);
       return;
     }
 
@@ -1377,10 +1473,98 @@ export const App: React.FC = () => {
     commitSegments(segments);
   };
 
-  /** Destino escolhido na caixa: um ponto de ancoragem do ato ou um endereço. */
+  /**
+   * Os outros atos abertos, oferecidos como destino de remissão.
+   *
+   * Sai de graça: a aba já guarda o ato desserializado, então os pontos de
+   * ancoragem vêm de `collectAnchorPoints` sem tocar no disco. É o que torna
+   * esta a forma mais barata de criar remissão entre arquivos.
+   */
+  const atosAbertos: AtoAberto[] = useMemo(
+    () =>
+      estado.abas
+        .filter((outra) => outra.id !== aba.id)
+        .map((outra) => ({
+          id: outra.id,
+          rotulo: rotuloDaAba(outra),
+          caminho: outra.arquivo?.caminho,
+          ancoras: collectAnchorPoints(outra.doc),
+        })),
+    [estado.abas, aba.id]
+  );
+
+  /**
+   * O `href` que a escolha da caixa vai gravar no ato — ou a recusa.
+   *
+   * É o **único** lugar em que uma escolha vira endereço, e por isso é aqui que
+   * a conta relativa acontece. O que se grava é o caminho de um arquivo ao
+   * outro, letra por letra: no editor a remissão é caminho entre arquivos da
+   * pasta de trabalho, e só vira endereço da web quando a árvore é publicada.
+   */
+  const hrefDaEscolha = (choice: LinkChoice): { href: string } | { recusa: string } => {
+    if (choice.kind === 'anchor') return { href: `#${choice.name}` };
+    if (choice.kind === 'url') return { href: choice.href };
+
+    const destino = estado.abas.find((outra) => outra.id === choice.abaId);
+    if (!destino) return { recusa: 'O ato de destino não está mais aberto.' };
+
+    /*
+     * Só o aplicativo de mesa conhece o caminho de um arquivo — o navegador
+     * jamais revela a pasta. Sem essa distinção, a recusa mandaria o redator
+     * salvar o ato para destravar algo que salvar não destrava, e ele tentaria
+     * de novo, mais forte.
+     */
+    if (!window.electronAPI) {
+      return {
+        recusa:
+          'Remissão de um ato para outro precisa do aplicativo de mesa: só nele o editor sabe em que pasta cada arquivo está.',
+      };
+    }
+
+    const origem = aba.arquivo?.caminho;
+    if (!origem) {
+      return {
+        recusa: 'Salve este ato em arquivo antes — o caminho da remissão é contado a partir de onde ele está.',
+      };
+    }
+
+    const alvo = destino.arquivo?.caminho;
+    if (!alvo) {
+      return { recusa: `Salve “${rotuloDaAba(destino)}” em arquivo antes de apontar para ele.` };
+    }
+
+    const relativo = relativizar(origem, alvo);
+    if (relativo === null) {
+      return {
+        recusa: `“${rotuloDaAba(destino)}” está noutro disco: não há caminho relativo entre os dois.`,
+      };
+    }
+
+    // Mesmo arquivo aberto em duas abas: a remissão é interna, e só a âncora sobra.
+    if (relativo === '') {
+      return choice.ancora
+        ? { href: `#${choice.ancora}` }
+        : { recusa: 'Este é o arquivo do próprio ato em edição.' };
+    }
+
+    return { href: hrefDeCaminho(relativo, choice.ancora) };
+  };
+
+  /** Destino escolhido na caixa: um ponto do ato, outro ato aberto, ou um endereço. */
   const handleApplyLink = (choice: LinkChoice) => {
-    applyLink(choice.kind === 'anchor' ? `#${choice.name}` : choice.href);
+    const resultado = hrefDaEscolha(choice);
     setShowLinkModal(false);
+
+    /*
+     * A recusa vem antes de consumir o trecho retido: `applyLink` esvazia o
+     * `ref`, e recusar depois custaria ao redator selecionar tudo de novo.
+     */
+    if ('recusa' in resultado) {
+      setNotice(resultado.recusa);
+      return;
+    }
+
+    applyLink(resultado.href);
   };
 
   /**
@@ -1611,6 +1795,9 @@ export const App: React.FC = () => {
       <LinkModal
         isOpen={showLinkModal}
         anchors={anchorPoints}
+        atosAbertos={atosAbertos}
+        atoTemArquivo={Boolean(aba.arquivo?.caminho)}
+        conheceCaminhos={Boolean(window.electronAPI)}
         selectedText={activeSelectionText}
         onSelectLink={handleApplyLink}
         onClose={() => setShowLinkModal(false)}

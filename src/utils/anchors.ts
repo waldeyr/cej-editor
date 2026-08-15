@@ -35,8 +35,27 @@ export interface AnchorPoint {
 
 /** O que o usuário escolheu na caixa de remissão. */
 export type LinkChoice =
+  /** Um ponto de ancoragem do próprio ato. */
   | { kind: 'anchor'; name: string }
-  | { kind: 'url'; href: string };
+  /** Um endereço qualquer, digitado por extenso. */
+  | { kind: 'url'; href: string }
+  /**
+   * Outro ato aberto numa aba.
+   *
+   * A escolha guarda a **aba**, não o caminho: quem sabe transformar isso num
+   * `href` é o App, que conhece o arquivo dos dois lados e faz a conta relativa
+   * de um para o outro. A caixa não precisa saber o que é caminho.
+   */
+  | { kind: 'aba'; abaId: string; ancora?: string };
+
+/** Um ato aberto noutra aba, oferecido como destino de remissão. */
+export interface AtoAberto {
+  id: string;
+  rotulo: string;
+  /** Sem caminho, o ato não pode ser destino: não há de onde contar a remissão. */
+  caminho?: string;
+  ancoras: AnchorPoint[];
+}
 
 /**
  * Reduz um trecho a um nome de âncora: sem acentos, sem espaços e sem

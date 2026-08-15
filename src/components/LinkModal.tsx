@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
-import { Link2, Search, X, Check, Anchor, ExternalLink } from 'lucide-react';
-import { AnchorPoint, LinkChoice } from '../utils/anchors';
+import { Link2, Search, X, Check, Anchor, ExternalLink, FileText, ChevronRight } from 'lucide-react';
+import { AnchorPoint, AtoAberto, LinkChoice } from '../utils/anchors';
 
 interface LinkModalProps {
   isOpen: boolean;
   /** Destinos disponíveis — os pontos de ancoragem já marcados no ato. */
   anchors: AnchorPoint[];
+  /** Os outros atos abertos em abas, oferecidos como destino. */
+  atosAbertos?: AtoAberto[];
+  /** O ato em edição já tem arquivo? Sem isso não há de onde contar a remissão. */
+  atoTemArquivo?: boolean;
+  /**
+   * O programa sabe em que pasta cada arquivo está?
+   *
+   * Só o aplicativo de mesa sabe. No navegador a recusa é outra, e dizer "salve
+   * o ato" ali seria mandar fazer o que não resolve.
+   */
+  conheceCaminhos?: boolean;
   selectedText?: string;
   onSelectLink: (choice: LinkChoice) => void;
   onClose: () => void;
@@ -14,20 +25,28 @@ interface LinkModalProps {
 /**
  * Para onde o trecho selecionado vai levar.
  *
- * As duas respostas possíveis convivem aqui de propósito: um ponto de
- * ancoragem do próprio ato, escolhido na lista, ou um endereço qualquer,
- * colado no campo de baixo. É a caixa que dá sentido à separação entre marcar
- * um destino e criar a remissão que chega até ele.
+ * As três respostas possíveis convivem aqui de propósito: um ponto de
+ * ancoragem do próprio ato, **outro ato aberto numa aba**, ou um endereço
+ * qualquer, colado no campo de baixo. É a caixa que dá sentido à separação
+ * entre marcar um destino e criar a remissão que chega até ele.
+ *
+ * Os atos das outras abas já estão desserializados em memória, e por isso os
+ * pontos de ancoragem deles saem de graça — sem ler disco, sem varrer HTML.
  */
 export const LinkModal: React.FC<LinkModalProps> = ({
   isOpen,
   anchors,
+  atosAbertos = [],
+  atoTemArquivo = false,
+  conheceCaminhos = false,
   selectedText,
   onSelectLink,
   onClose,
 }) => {
   const [search, setSearch] = useState('');
   const [url, setUrl] = useState('');
+  /** Ato de outra aba cujo conteúdo está aberto para escolher a âncora. */
+  const [atoAberto, setAtoAberto] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -37,6 +56,12 @@ export const LinkModal: React.FC<LinkModalProps> = ({
       anchor.label.toLowerCase().includes(term) ||
       anchor.name.toLowerCase().includes(term) ||
       anchor.location.toLowerCase().includes(term)
+  );
+
+  const outrosAtos = atosAbertos.filter(
+    (ato) =>
+      ato.rotulo.toLowerCase().includes(term) ||
+      ato.ancoras.some((a) => a.label.toLowerCase().includes(term) || a.name.toLowerCase().includes(term))
   );
 
   const choose = (choice: LinkChoice) => {
@@ -136,6 +161,104 @@ export const LinkModal: React.FC<LinkModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Outro ato aberto numa aba */}
+        {outrosAtos.length > 0 && (
+          <div className="border-t border-slate-800 bg-slate-900/60">
+            <div className="px-4 pt-3 pb-1 text-xs font-medium text-slate-400 flex items-center gap-1.5">
+              <FileText size={12} /> Em outro ato aberto
+            </div>
+
+            {/*
+              A recusa aparece antes das opções, e não depois do clique: o
+              caminho da remissão é contado a partir de onde o ato está, e um
+              ato que ainda não foi salvo não está em lugar nenhum.
+            */}
+            {!conheceCaminhos ? (
+              <div className="mx-4 mb-3 px-3 py-2 rounded bg-slate-800/60 border border-slate-700/60 text-xs text-slate-300">
+                Remissão de um ato para outro precisa do aplicativo de mesa: só nele o editor sabe em
+                que pasta cada arquivo está.
+              </div>
+            ) : (
+              !atoTemArquivo && (
+                <div className="mx-4 mb-3 px-3 py-2 rounded bg-amber-950/40 border border-amber-800/50 text-xs text-amber-200">
+                  Salve este ato em arquivo antes — o caminho da remissão é contado a partir de onde
+                  ele está.
+                </div>
+              )
+            )}
+
+            <div className="max-h-52 overflow-y-auto px-4 pb-3 space-y-1.5">
+              {outrosAtos.map((ato) => {
+                const expandido = atoAberto === ato.id;
+                const disponivel = conheceCaminhos && atoTemArquivo && Boolean(ato.caminho);
+
+                return (
+                  <div key={ato.id} className="rounded-lg border border-slate-800 overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-slate-950/60">
+                      <button
+                        type="button"
+                        disabled={!disponivel}
+                        onClick={() => choose({ kind: 'aba', abaId: ato.id })}
+                        title={
+                          disponivel
+                            ? `Apontar para “${ato.rotulo}” — para o começo do ato`
+                            : `“${ato.rotulo}” ainda não foi salvo em arquivo`
+                        }
+                        className="flex-1 min-w-0 text-left text-sm text-slate-200 hover:text-amber-300 disabled:text-slate-500 disabled:hover:text-slate-500 truncate transition"
+                      >
+                        {ato.rotulo}
+                        {!ato.caminho && (
+                          <span className="text-xs text-slate-500"> — ainda não salvo em arquivo</span>
+                        )}
+                      </button>
+
+                      {ato.ancoras.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAtoAberto(expandido ? null : ato.id)}
+                          title={
+                            expandido
+                              ? 'Esconder os pontos de ancoragem deste ato'
+                              : `Ver os ${ato.ancoras.length} pontos de ancoragem deste ato`
+                          }
+                          className="flex items-center gap-1 shrink-0 text-xs text-slate-400 hover:text-amber-300 transition"
+                        >
+                          <Anchor size={11} />
+                          {ato.ancoras.length}
+                          <ChevronRight
+                            size={12}
+                            className={`transition-transform ${expandido ? 'rotate-90' : ''}`}
+                          />
+                        </button>
+                      )}
+                    </div>
+
+                    {expandido && (
+                      <div className="max-h-40 overflow-y-auto divide-y divide-slate-800/60">
+                        {ato.ancoras.map((ancora) => (
+                          <button
+                            type="button"
+                            key={ancora.name}
+                            disabled={!disponivel}
+                            onClick={() => choose({ kind: 'aba', abaId: ato.id, ancora: ancora.name })}
+                            title={`Apontar para #${ancora.name}, em “${ato.rotulo}”`}
+                            className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-amber-950/30 disabled:opacity-40 disabled:hover:bg-transparent transition min-w-0"
+                          >
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-xs font-mono text-amber-400 shrink-0">
+                              #{ancora.name}
+                            </span>
+                            <span className="text-xs text-slate-300 truncate">{ancora.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Endereço completo — externo ou não */}
         <form onSubmit={submitUrl} className="p-4 bg-slate-950 border-t border-slate-800 space-y-2">

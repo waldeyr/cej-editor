@@ -36,23 +36,63 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// IPC Handler para Salvar Arquivo Nativo (suporta Uint8Array/Buffer ou string)
-ipcMain.handle('dialog:saveFile', async (_, content: Uint8Array | string, defaultName: string) => {
-  if (!mainWindow) return false;
-  const { filePath } = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: defaultName,
-    filters: [
-      { name: 'HTML Planalto', extensions: ['html', 'htm'] },
-      { name: 'Todos os Arquivos', extensions: ['*'] },
-    ],
-  });
+const paraBuffer = (content: Uint8Array | string) =>
+  typeof content === 'string' ? Buffer.from(content, 'utf-8') : Buffer.from(content);
 
-  if (filePath) {
-    const buffer = typeof content === 'string' ? Buffer.from(content, 'utf-8') : Buffer.from(content);
-    fs.writeFileSync(filePath, buffer);
-    return true;
+/*
+ * A janela que pediu o diálogo — e não uma referência global.
+ *
+ * Com mais de uma janela aberta, o `mainWindow` de módulo penduraria o diálogo
+ * de gravação da segunda janela na primeira, que nem sabe do que se trata.
+ */
+const janelaDe = (event: Electron.IpcMainInvokeEvent) =>
+  BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+
+/**
+ * Pergunta onde gravar, grava, e **devolve o caminho escolhido**.
+ *
+ * O retorno era um booleano, e o caminho se perdia aqui dentro: por isso
+ * "Salvar" abria o seletor toda vez, sem nunca aprender de que arquivo o ato
+ * veio. É esse caminho que dá nome à aba e que serve de origem ao cálculo da
+ * remissão relativa para outro ato.
+ */
+ipcMain.handle(
+  'dialog:saveFile',
+  async (event, content: Uint8Array | string, defaultName: string, caminhoAtual?: string) => {
+    const janela = janelaDe(event);
+    if (!janela) return { ok: false };
+
+    const { filePath, canceled } = await dialog.showSaveDialog(janela, {
+      defaultPath: caminhoAtual || defaultName,
+      filters: [
+        { name: 'HTML Planalto', extensions: ['html', 'htm'] },
+        { name: 'Todos os Arquivos', extensions: ['*'] },
+      ],
+    });
+
+    if (canceled || !filePath) return { ok: false, cancelado: true };
+
+    try {
+      fs.writeFileSync(filePath, paraBuffer(content));
+      return { ok: true, caminho: filePath };
+    } catch (error) {
+      return { ok: false, erro: error instanceof Error ? error.message : 'Não foi possível gravar.' };
+    }
   }
-  return false;
+);
+
+/** Grava por cima do arquivo de onde o ato veio, sem perguntar nada. */
+ipcMain.handle('arquivo:gravar', async (_event, caminho: string, content: Uint8Array | string) => {
+  if (!caminho || !path.isAbsolute(caminho)) {
+    return { ok: false, erro: 'Caminho de arquivo inválido.' };
+  }
+
+  try {
+    fs.writeFileSync(caminho, paraBuffer(content));
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, erro: error instanceof Error ? error.message : 'Não foi possível gravar.' };
+  }
 });
 
 /** Teto de download: um ato normativo em HTML não passa de alguns megabytes. */
@@ -108,9 +148,10 @@ ipcMain.handle('net:fetchUrl', async (_, url: string) => {
 });
 
 // IPC Handler para Abrir Arquivo Nativo (retorna buffer binario bruto)
-ipcMain.handle('dialog:openFile', async () => {
-  if (!mainWindow) return null;
-  const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle('dialog:openFile', async (event) => {
+  const janela = janelaDe(event);
+  if (!janela) return null;
+  const { filePaths } = await dialog.showOpenDialog(janela, {
     properties: ['openFile'],
     filters: [
       { name: 'Documentos Legislativos', extensions: ['rtf', 'doc', 'docx', 'html', 'htm'] },
