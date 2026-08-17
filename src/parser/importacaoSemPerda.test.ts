@@ -9,7 +9,7 @@ import { parseRtfTokens, parseRtfToLegislativeDocument, parseTokensToLegislative
 import { extrairTokensDoDoc } from './docParser';
 import { deserializePlanaltoHtmlToDocument } from './htmlSerializer';
 import { sanitizeInlineHtml, visibleTextOfHtml } from './inlineHtml';
-import { completarEmentaDoDocx, prepararHtmlDoDocx } from './docxHtml';
+import { completarEmentaDoDocx, prepararHtmlDeImportacao } from './docxHtml';
 
 /**
  * A conta fechada da importação.
@@ -296,7 +296,7 @@ describe('a importação não perde conteúdo do ato', () => {
      * e tabela sem `class="MsoTableGrid"`. Nenhuma das duas formas era visitada
      * pelo leitor, e as duas sumiam sem aviso — é o que este caso vigia.
      */
-    const html = prepararHtmlDoDocx(HTML_DO_MAMMOTH).html;
+    const html = prepararHtmlDeImportacao(HTML_DO_MAMMOTH).html;
     const doc = completarEmentaDoDocx(deserializePlanaltoHtmlToDocument(html));
 
     it('leva ao ato toda palavra do documento convertido', () => {

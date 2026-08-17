@@ -23,15 +23,15 @@ import { htmlToPlainText } from '../utils/docTargets';
  */
 
 /** O que a preparação teve de descartar, para que a barra de estado conte. */
-export interface PreparoDoDocx {
+export interface PreparoDoHtmlDeImportacao {
   html: string;
   /** Comentários de revisão do Word: anotação sobre a minuta, não o ato. */
   comentariosDescartados: number;
 }
 
-export function prepararHtmlDoDocx(html: string): PreparoDoDocx {
+export function prepararHtmlDeImportacao(html: string): PreparoDoHtmlDeImportacao {
   /*
-   * A arrumação passa pelo DOM, e não por expressão regular sobre a marcação.
+   * A adaptação passa pelo DOM, e não por expressão regular sobre a marcação.
    * O motivo é a tabela dentro da célula de outra tabela: carimbando por
    * expressão regular, a de dentro também recebia a classe, virava um segundo
    * bloco de tabela e o conteúdo dela entrava no ato duas vezes. Aninhamento é
@@ -69,6 +69,22 @@ export function prepararHtmlDoDocx(html: string): PreparoDoDocx {
   documento.querySelectorAll('ol, ul').forEach((lista) =>
     lista.replaceWith(...Array.from(lista.childNodes))
   );
+
+  /*
+   * Nem todo conversor usa `<p>`: Google Docs, LibreOffice e exportadores
+   * corporativos frequentemente deixam texto diretamente em `<div>`,
+   * `<blockquote>`, `<pre>` ou `<figcaption>`. Só se promove o elemento que
+   * não contém outro bloco; assim um contêiner de vários parágrafos continua
+   * sendo apenas contêiner, sem juntar conteúdo que era separado.
+   */
+  const blocosGenericos = 'div, blockquote, pre, figure, figcaption';
+  documento.querySelectorAll(blocosGenericos).forEach((elemento) => {
+    if (elemento.closest('table')) return;
+    if (elemento.querySelector(`p, h1, h2, h3, h4, h5, h6, table, ol, ul, li, ${blocosGenericos}`)) return;
+    const paragrafo = documento.createElement('p');
+    paragrafo.append(...Array.from(elemento.childNodes));
+    elemento.replaceWith(paragrafo);
+  });
 
   return { html: documento.body.innerHTML, comentariosDescartados };
 }

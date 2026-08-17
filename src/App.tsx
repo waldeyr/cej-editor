@@ -18,9 +18,10 @@ import {
   BlockAlign,
 } from './types/legislative';
 import { parseRtfToLegislativeDocument } from './parser/rtfParser';
-import { ehArquivoCfb, parseDocBinarioToLegislativeDocument } from './parser/docParser';
+import { parseDocBinarioToLegislativeDocument } from './parser/docParser';
 import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './parser/htmlSerializer';
-import { completarEmentaDoDocx, prepararHtmlDoDocx } from './parser/docxHtml';
+import { completarEmentaDoDocx, prepararHtmlDeImportacao } from './parser/docxHtml';
+import { detectarFormatoDeImportacao } from './parser/importFormat';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
 import { Aba, ArquivoDoAto, EstadoDasAbas, estaSuja } from './types/abas';
@@ -658,14 +659,15 @@ export const App: React.FC = () => {
     return { nome: file.name, caminho: caminho || undefined };
   };
 
-  // Importa RTF e DOCX, preservando o fluxo de classificacao legislativa existente.
+  // Importa pelo formato dos bytes, e não pela extensão que o arquivo recebeu.
   const importDocFile = async (file: File) => {
-    const extension = file.name.split('.').pop()?.toLowerCase();
     const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const formato = detectarFormatoDeImportacao(bytes);
 
-    if (extension === 'docx') {
+    if (formato === 'docx') {
       const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
-      const preparo = prepararHtmlDoDocx(result.value);
+      const preparo = prepararHtmlDeImportacao(result.value);
       const importado = completarEmentaDoDocx(deserializePlanaltoHtmlToDocument(preparo.html));
       loadDocument(importado, identidadeDe(file, false));
 
@@ -697,25 +699,22 @@ export const App: React.FC = () => {
       return;
     }
 
-    /*
-     * O `.doc` de verdade é um contêiner OLE, e é a assinatura dos bytes quem
-     * diz — não a extensão: a CEJ distribui RTF com extensão .doc, e os dois
-     * caminhos convergem para a mesma classificação legislativa.
-     */
-    const bytes = new Uint8Array(buffer);
-    if (extension === 'doc' && ehArquivoCfb(bytes)) {
+    if (formato === 'doc') {
       loadDocument(parseDocBinarioToLegislativeDocument(bytes), identidadeDe(file, false));
       return;
     }
 
-    const decoded = detectAndDecode(bytes);
-    if (extension === 'doc' && !decoded.text.trimStart().startsWith('{\\rtf')) {
-      throw new Error(
-        'Este arquivo .doc não é um documento do Word que o editor reconheça. Abra-o no Word e salve como .docx ou .rtf.'
-      );
+    if (formato === 'html') {
+      openHtmlBytes(bytes, identidadeDe(file, false));
+      return;
     }
 
-    loadDocument(parseRtfToLegislativeDocument(decoded.text), identidadeDe(file, false));
+    if (formato === 'rtf') {
+      loadDocument(parseRtfToLegislativeDocument(detectAndDecode(bytes).text), identidadeDe(file, false));
+      return;
+    }
+
+    throw new Error('O formato do arquivo não foi reconhecido. Use um documento RTF, DOC, DOCX ou HTML.');
   };
 
   /*
