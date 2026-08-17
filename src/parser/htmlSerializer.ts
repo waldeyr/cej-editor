@@ -100,11 +100,17 @@ export function serializeToPlanaltoHtml(doc: LegislativeDocument): string {
 		</tr>
 	</tbody></table>`;
 
+  // A ordem só sai quando o ato a tem: a MPV não decreta, e um parágrafo em
+  // negrito vazio no arquivo não espelharia a folha, que esconde a parte vazia.
+  const ordemExecucaoParagrafo = doc.ordemExecucao
+    ? `
+	<p class="Textbody0" style="text-align: ${ordemExecucaoAlign}; text-indent: ${indentForAlign(ordemExecucaoAlign)}; margin-left: 0cm; margin-right: -.05pt; margin-top: 15px; margin-bottom: 15px">
+  ${ordemExecucaoPrefix}<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${ordemExecucaoHtml}</span>${ordemExecucaoSuffix}</p>`
+    : '';
+
   const preambuloHtml = `
 	<p class="Textbody0" style="text-align: ${preambuloAlign}; text-indent: ${indentForAlign(preambuloAlign)}; margin-left: 0cm; margin-right: -.05pt; margin-top: 15px; margin-bottom: 15px">
-	<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${doc.preambulo}</span></p>
-	<p class="Textbody0" style="text-align: ${ordemExecucaoAlign}; text-indent: ${indentForAlign(ordemExecucaoAlign)}; margin-left: 0cm; margin-right: -.05pt; margin-top: 15px; margin-bottom: 15px">
-  ${ordemExecucaoPrefix}<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${ordemExecucaoHtml}</span>${ordemExecucaoSuffix}</p>`;
+	<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${doc.preambulo}</span></p>${ordemExecucaoParagrafo}`;
 
   /*
    * O anexo se lê depois das assinaturas, e é assim que o arquivo o escreve.
@@ -488,7 +494,10 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
     epigrafe: '',
     ementa: '',
     preambulo: '',
-    ordemExecucao: 'DECRETA:',
+    // Vazio até o arquivo a trazer: a MPV publicada não tem parágrafo
+    // "DECRETA:", e o valor de reserva desenhava na folha — e gravava no
+    // arquivo salvo — uma ordem que o ato não escreveu (invariante 9).
+    ordemExecucao: '',
     blocks: [],
     fecho: '',
     assinaturas: [],

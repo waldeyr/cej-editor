@@ -204,6 +204,54 @@ describe('a importação não perde conteúdo do ato', () => {
     });
   });
 
+  describe('Word binário da CEJ (Mpv-1286-24.doc)', () => {
+    /*
+     * A MPV 1.286/2024 no Word em que foi redigida — o mesmo ato de
+     * `mpv1286impressao.htm`, vindo pela porta de importação. O que só ela
+     * prova: o ato **sem linha "DECRETA:"** (a MPV adota, com força de lei, no
+     * fim do preâmbulo), a ementa que começa por verbo fora de qualquer lista
+     * ("Cria…") e o preâmbulo que chega com a ementa ainda não lida. Enquanto
+     * essas três transições falhavam, o estado nunca saía de EPIGRAFE e os
+     * 1.860 parágrafos do ato colavam nela — o documento abria com um bloco.
+     */
+    const tokens = extrairTokensDoDoc(arquivoDeProva('Mpv-1286-24.doc'));
+    const doc = parseTokensToLegislativeDocument(tokens);
+
+    it('leva ao ato toda palavra que o arquivo mostra', () => {
+      const noArquivo = palavras(
+        tokens
+          .filter((token) => token.type === 'text' && token.val)
+          .map((token) => token.val)
+          .join(' ')
+      );
+
+      expect(palavrasPerdidas(noArquivo, palavras(textoDoDocumento(doc)))).toEqual([]);
+    });
+
+    it('reparte epígrafe, ementa e preâmbulo pela forma, sem lista de verbos', () => {
+      expect(doc.epigrafe).toBe('MEDIDA PROVISÓRIA Nº 1.286, DE 31 DE DEZEMBRO DE 2024');
+      expect(doc.ementa).toMatch(/^Cria a Carreira de Desenvolvimento Socioeconômico/);
+      expect(doc.preambulo).toMatch(/adota a seguinte Medida Provisória, com força de lei:$/);
+    });
+
+    it('não inventa ordem de execução: a MPV não decreta', () => {
+      expect(doc.ordemExecucao).toBe('');
+    });
+
+    it('abre o corpo no Art. 1º, sem depender de "DECRETA:"', () => {
+      expect(doc.blocks[0].type).toBe('ARTIGO');
+      expect(doc.blocks[0].numberLabel).toBe('Art. 1º');
+    });
+
+    it('reconhece os três signatários', () => {
+      expect(doc.assinaturas).toEqual([
+        'LUIZ INÁCIO LULA DA SILVA',
+        'Cristina Kiomi Mori',
+        'Gustavo José de Guimarães e Souza',
+      ]);
+    });
+  });
+
   describe('ato publicado (mpv1286impressao.htm)', () => {
     const bytes = arquivoDeProva('mpv1286impressao.htm');
     const html = detectAndDecode(bytes).text;

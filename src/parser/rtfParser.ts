@@ -737,7 +737,10 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
   let epigrafeLines: string[] = [];
   let ementaLines: string[] = [];
   let preambuloLines: string[] = [];
-  let ordemExecucao = 'DECRETA:';
+  // Vazio até o arquivo a trazer: a MPV não decreta — a ordem dela mora no fim
+  // do preâmbulo ("… com força de lei:") — e um "DECRETA:" de reserva seria
+  // texto inventado no ato do redator (invariante 9).
+  let ordemExecucao = '';
   let fechoLines: string[] = [];
   let assinaturaLines: string[] = [];
 
@@ -992,15 +995,44 @@ export function parseTokensToLegislativeDocument(tokens: RtfToken[]): Legislativ
         return;
       }
 
-      if (marca === 'EME' || (state === 'EPIGRAFE' && /^Altera|^Dispõe|^Aprova|^Institui/i.test(clean))) {
-        state = 'EMENTA';
-        ementaLines.push(clean);
+      /*
+       * O primeiro dispositivo abre o corpo, viesse o estado de onde viesse.
+       * A medida provisória não escreve "DECRETA:": o preâmbulo dela termina em
+       * "adota a seguinte Medida Provisória, com força de lei:" e o corpo começa
+       * direto no Art. 1º — sem esta porta, o estado nunca chegava a BODY e a
+       * MPV inteira (1.860 parágrafos no `.doc` de prova) se acumulava na
+       * epígrafe.
+       */
+      if ((state === 'EPIGRAFE' || state === 'EMENTA' || state === 'PREAMBULO') && isNewDeviceStart(tok.val)) {
+        state = 'BODY';
+      }
+
+      /*
+       * O preâmbulo se reconhece também vindo da epígrafe: quando a ementa não
+       * foi lida (ou o ato não a traz), "O PRESIDENTE DA REPÚBLICA…" chegava com
+       * o estado ainda em EPIGRAFE e colava nela. A conferência vem antes da
+       * ementa porque o preâmbulo também é caixa mista.
+       */
+      if (
+        marca === 'TEX' ||
+        ((state === 'EMENTA' || state === 'EPIGRAFE') &&
+          /^O PRESIDENTE DA REPÚBLICA|^A PRESIDENTA DA REPÚBLICA|^O VICE-PRESIDENTE DA REPÚBLICA|^O MINISTRO|^A MINISTRA/i.test(clean))
+      ) {
+        state = 'PREAMBULO';
+        preambuloLines.push(clean);
         return;
       }
 
-      if (marca === 'TEX' || (state === 'EMENTA' && /^O PRESIDENTE DA REPÚBLICA|^O MINISTRO/i.test(clean))) {
-        state = 'PREAMBULO';
-        preambuloLines.push(clean);
+      /*
+       * A ementa se reconhece pela forma, não por lista de verbos: ela é o
+       * primeiro parágrafo em caixa mista depois da epígrafe, que é toda em
+       * maiúsculas. A lista que havia ("Altera|Dispõe|Aprova|Institui") deixava
+       * de fora "Cria a Carreira…" — e a ementa da MPV de prova colava na
+       * epígrafe, levando o resto do ato atrás.
+       */
+      if (marca === 'EME' || (state === 'EPIGRAFE' && clean !== clean.toUpperCase())) {
+        state = 'EMENTA';
+        ementaLines.push(clean);
         return;
       }
 
