@@ -38,6 +38,7 @@ import {
   INTERVALO_DE_PULSO,
   adotarSessao,
   descartarRascunho,
+  descartarSessao,
   gravarRascunho,
   gravarSessao,
   lerRascunho,
@@ -67,7 +68,7 @@ import {
   blockTarget,
   htmlToPlainText,
   isEmptyHtml,
-  markOrdemExecucaoAsPlain,
+  markAsPlainFormat,
   moverParaParte,
   partTarget,
   podeVirarParte,
@@ -77,6 +78,7 @@ import {
 import {
   EditableSegment,
   InlineFormat,
+  InlineFormatResult,
   activeFormatsAtSelection,
   applyInlineFormat,
   clearFormatting,
@@ -92,6 +94,7 @@ import {
   inicioDoAnexo,
   numberLabelForTypeAt,
 } from './utils/blockTypes';
+import { desenhaComoTitulo } from './utils/rank';
 import mammoth from 'mammoth';
 
 declare global {
@@ -111,6 +114,8 @@ declare global {
       openFile: () => Promise<{ filePath: string; buffer: Uint8Array } | null>;
       /** Baixa um endereço no processo principal, fora do alcance da política de origem. */
       fetchUrl?: (url: string) => Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }>;
+      /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
+      abrirNovaJanela?: () => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -141,9 +146,8 @@ const OPENING_PART_TARGETS: readonly string[] = (
  */
 type PendingAction =
   | { kind: 'new' }
-  | { kind: 'openHtml'; file: File }
   | { kind: 'openUrl'; url: string; bytes: Uint8Array }
-  | { kind: 'importDoc'; file: File };
+  | { kind: 'openFile'; file: File };
 
 /** Aba que não pode ser fechada antes de se decidir o que fazer com o que ela tem. */
 type FechamentoPendente = { abaId: string; rotulo: string };
@@ -228,6 +232,9 @@ const INITIAL_DOC: LegislativeDocument = {
 
 const CHAVE_DA_JANELA = 'cej.janela.v1';
 
+const novoIdDeJanela = (): string =>
+  `janela-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
 /**
  * Quem é esta janela, e se ela está abrindo ou apenas recarregando.
  *
@@ -241,12 +248,12 @@ const identificarJanela = (): { id: string; recarregada: boolean } => {
     const guardado = sessionStorage.getItem(CHAVE_DA_JANELA);
     if (guardado) return { id: guardado, recarregada: true };
 
-    const novo = `janela-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const novo = novoIdDeJanela();
     sessionStorage.setItem(CHAVE_DA_JANELA, novo);
     return { id: novo, recarregada: false };
   } catch {
     // Navegação anônima barra o armazenamento; a janela ainda precisa de nome.
-    return { id: `janela-${Math.random().toString(36).slice(2, 8)}`, recarregada: false };
+    return { id: novoIdDeJanela(), recarregada: false };
   }
 };
 
@@ -665,8 +672,8 @@ export const App: React.FC = () => {
     if (avisos.length) setNotice(`Importado com atenção: ${avisos.join('; ')}.`);
   };
 
-  // Importa pelo formato dos bytes, e não pela extensão que o arquivo recebeu.
-  const importDocFile = async (file: File) => {
+  // Abre pelo formato dos bytes, e não pela extensão que o arquivo recebeu.
+  const openFile = async (file: File) => {
     const erroDeTamanho = erroDeTamanhoDeImportacao(file.size);
     if (erroDeTamanho) throw new Error(erroDeTamanho);
     const buffer = await file.arrayBuffer();
@@ -717,7 +724,8 @@ export const App: React.FC = () => {
     }
 
     if (formato === 'html') {
-      openHtmlBytes(bytes, identidadeDe(file, false));
+      // O HTML é o único formato que "Salvar" devolve ao arquivo de origem.
+      openHtmlBytes(bytes, identidadeDe(file, true));
       return;
     }
 
@@ -747,13 +755,6 @@ export const App: React.FC = () => {
     informarDiagnostico(importado);
   };
 
-  /* O HTML é o único formato que "Salvar" devolve ao arquivo de origem. */
-  const openHtmlFile = async (file: File) => {
-    const erroDeTamanho = erroDeTamanhoDeImportacao(file.size);
-    if (erroDeTamanho) throw new Error(erroDeTamanho);
-    openHtmlBytes(new Uint8Array(await file.arrayBuffer()), identidadeDe(file, true));
-  };
-
   const runAction = (action: PendingAction) => {
     if (action.kind === 'new') {
       executeNewDoc();
@@ -778,8 +779,7 @@ export const App: React.FC = () => {
      * programa: uma caixa do navegador interrompe o trabalho, rouba o foco da
      * folha e ainda fala a língua do sistema operacional, não a do ofício.
      */
-    const run = action.kind === 'openHtml' ? openHtmlFile(action.file) : importDocFile(action.file);
-    void run.catch((error: unknown) => {
+    void openFile(action.file).catch((error: unknown) => {
       setNotice(
         error instanceof Error ? error.message : 'Não foi possível abrir o arquivo escolhido.'
       );
@@ -792,16 +792,10 @@ export const App: React.FC = () => {
    */
   const requestAction = (action: PendingAction) => runAction(action);
 
-  const handleImportRtf = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOpenFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file) requestAction({ kind: 'importDoc', file });
-  };
-
-  const handleOpenHtml = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (file) requestAction({ kind: 'openHtml', file });
+    if (file) requestAction({ kind: 'openFile', file });
   };
 
   /**
@@ -1085,6 +1079,52 @@ export const App: React.FC = () => {
   const handleFecharSemSalvar = () => {
     if (fechamentoPendente) executarFechamento(fechamentoPendente.abaId);
     setFechamentoPendente(null);
+  };
+
+  /**
+   * Move uma aba para uma janela nova — só existe no aplicativo de mesa, que
+   * não tem o gesto nativo de arrastar a aba para fora que o navegador já
+   * oferece.
+   *
+   * Não pergunta sobre trabalho não salvo porque nada se perde: a aba grava o
+   * próprio rascunho antes de sair, sob um id de janela novo que nenhuma
+   * janela reivindica ainda, e é a janela nova quem o adota sozinha — o mesmo
+   * mecanismo de `utils/rascunhos.ts` que já recupera uma sessão órfã ao
+   * reabrir o programa (`estadoInicialDasAbas`, acima), só que a "queda" aqui
+   * é deliberada, não uma falha.
+   */
+  const moverAbaParaNovaJanela = async (id: string) => {
+    if (!window.electronAPI?.abrirNovaJanela) return;
+
+    const alvo = estado.abas.find((a) => a.id === id);
+    if (!alvo) return;
+
+    // O campo com o foco só devolve o texto ao documento no blur (invariante
+    // 10); sem isto a janela nova herdaria a frase de antes da última tecla.
+    const doc = id === estado.ativa ? currentDoc() : alvo.doc;
+
+    const novaJanelaId = novoIdDeJanela();
+    gravarRascunho({
+      abaId: id,
+      doc,
+      arquivo: alvo.arquivo ? { ...alvo.arquivo, handle: undefined } : null,
+      rotulo: rotuloDaAba({ ...alvo, doc }),
+      gravadoEm: Date.now(),
+    });
+    gravarSessao(novaJanelaId, { abas: [id], ativa: id, gravadaEm: Date.now() });
+
+    const resultado = await window.electronAPI.abrirNovaJanela();
+    if (!resultado?.ok) {
+      // Sem isto, uma tentativa que falhou deixaria uma sessão órfã capaz de
+      // ser adotada por engano por uma janela futura — enquanto esta aba
+      // continua, ao mesmo tempo, aberta e viva aqui.
+      descartarSessao(novaJanelaId);
+      setNotice('Não foi possível abrir uma nova janela.');
+      return;
+    }
+
+    avisadasDeCota.current.delete(id);
+    despachar({ tipo: 'fechar', id, vazio: criarAba(documentoEmBranco()) });
   };
 
   /**
@@ -1416,6 +1456,13 @@ export const App: React.FC = () => {
    * criar o link na origem são duas mudanças no mesmo documento, e precisam
    * entrar juntas — separadas, a segunda gravação apagaria a primeira.
    */
+  /** O alvo é um agrupador (Título, Capítulo, Seção…), que nasce em negrito por padrão. */
+  const ehAgrupador = (target: string): boolean => {
+    if (!target.startsWith('block:')) return false;
+    const bloco = docRef.current.blocks.find((b) => b.id === target.slice('block:'.length));
+    return Boolean(bloco && desenhaComoTitulo(bloco.type));
+  };
+
   const commitSegments = (
     segments: EditableSegment[],
     format?: TextCommand,
@@ -1424,9 +1471,15 @@ export const App: React.FC = () => {
     let next = base;
 
     readSegments(segments).forEach(({ target, html }) => {
+      /*
+       * A ordem de execução e o agrupador nascem em negrito porque é assim
+       * que o padrão Planalto os escreve — não porque o redator pediu. Sem a
+       * marca, o negrito padrão voltaria sozinho no próximo render ou na
+       * exportação, desfazendo "Limpar formatação".
+       */
       const value =
-        format === 'clearStyle' && target === partTarget('ordemExecucao')
-          ? markOrdemExecucaoAsPlain(html)
+        format === 'clearStyle' && (target === partTarget('ordemExecucao') || ehAgrupador(target))
+          ? markAsPlainFormat(html)
           : html;
       next = applyHtmlToTarget(next, target, value);
       if (format === 'clearStyle') next = setAlignForTarget(next, target, undefined);
@@ -1476,13 +1529,34 @@ export const App: React.FC = () => {
       return;
     }
 
+    let strikethroughResult: InlineFormatResult | undefined;
     if (format === 'clearStyle') {
       clearFormatting(segments);
     } else {
-      applyInlineFormat(segments, format);
+      const result = applyInlineFormat(segments, format);
+      if (format === 'strikethrough') strikethroughResult = result;
     }
 
-    commitSegments(segments, format);
+    /*
+     * Quando a seleção cobre um dispositivo inteiro — não só um trecho do
+     * texto — o rótulo ("Art. 5º") sai riscado junto com o caput: é o gesto de
+     * quem tacha o dispositivo inteiro, não uma palavra dele. Entra como base
+     * de `commitSegments`, para que o rótulo e o texto se gravem no mesmo
+     * commit do histórico (invariante 7).
+     */
+    const base =
+      strikethroughResult && strikethroughResult.fullyCoveredTargets.length > 0
+        ? {
+            ...docRef.current,
+            blocks: docRef.current.blocks.map((block) =>
+              strikethroughResult!.fullyCoveredTargets.includes(blockTarget(block.id))
+                ? { ...block, identificadorTachado: strikethroughResult!.applied }
+                : block
+            ),
+          }
+        : docRef.current;
+
+    commitSegments(segments, format, base);
   };
 
   /**
@@ -1724,8 +1798,7 @@ export const App: React.FC = () => {
         documentTitle={doc.title || htmlToPlainText(doc.epigrafe)}
         onEditTitle={() => setShowTitleModal(true)}
         onNew={() => requestAction({ kind: 'new' })}
-        onImportRtf={handleImportRtf}
-        onOpenHtml={handleOpenHtml}
+        onOpenFile={handleOpenFile}
         onOpenUrl={() => setShowUrlModal(true)}
         onInsertTable={handleOpenTableModal}
         onSave={handleSave}
@@ -1752,6 +1825,7 @@ export const App: React.FC = () => {
         onAtivar={ativarAba}
         onFechar={fecharAba}
         onNova={executeNewDoc}
+        onMoverParaNovaJanela={window.electronAPI?.abrirNovaJanela ? moverAbaParaNovaJanela : undefined}
       />
 
       {/* Área Central: Árvore + Canvas */}

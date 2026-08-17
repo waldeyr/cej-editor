@@ -1,13 +1,27 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+interface LugarDaJanela {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/*
+ * `mainWindow` só é atribuída na primeira janela: é ela que `janelaDe()` usa
+ * de último recurso quando `BrowserWindow.fromWebContents` falha, e uma
+ * segunda janela sobrescrevendo a referência a roubaria da primeira.
+ */
+function createWindow(lugar?: LugarDaJanela) {
+  const janela = new BrowserWindow({
+    width: lugar?.width ?? 1400,
+    height: lugar?.height ?? 900,
+    x: lugar?.x,
+    y: lugar?.y,
     title: 'CEJ-EDITOR - Editor de Atos Normativos',
     icon: path.join(__dirname, '../public/brasao.svg'),
     webPreferences: {
@@ -17,11 +31,15 @@ function createWindow() {
     },
   });
 
+  if (!mainWindow) mainWindow = janela;
+
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    janela.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    janela.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  return janela;
 }
 
 app.whenReady().then(() => {
@@ -165,4 +183,44 @@ ipcMain.handle('dialog:openFile', async (event) => {
     return { filePath, buffer: new Uint8Array(buffer) };
   }
   return null;
+});
+
+/*
+ * Abre uma janela nova — sem payload nenhum. O renderer já gravou, antes de
+ * chamar isto, o rascunho da aba sob um id de janela que nenhuma janela
+ * reivindica ainda (`utils/rascunhos.ts`); a janela nova nasce com
+ * `sessionStorage` vazio e adota essa sessão sozinha, no próprio arranque,
+ * por ser a mais recente entre as órfãs. Não é preciso o processo principal
+ * saber nada sobre abas ou documentos.
+ *
+ * Quando há mais de um monitor — o caso de uso da tarefa —, a janela nova
+ * nasce no outro; com um só, nasce deslocada da que pediu, para não empilhar
+ * exatamente por cima.
+ */
+ipcMain.handle('janela:nova', (event) => {
+  const origem = janelaDe(event);
+  const outroMonitor = origem && screen.getAllDisplays().length > 1
+    ? screen.getAllDisplays().find((d) => d.id !== screen.getDisplayMatching(origem.getBounds()).id)
+    : undefined;
+
+  if (outroMonitor) {
+    const largura = Math.min(1400, outroMonitor.workArea.width);
+    const altura = Math.min(900, outroMonitor.workArea.height);
+    createWindow({
+      x: outroMonitor.workArea.x + Math.round((outroMonitor.workArea.width - largura) / 2),
+      y: outroMonitor.workArea.y + Math.round((outroMonitor.workArea.height - altura) / 2),
+      width: largura,
+      height: altura,
+    });
+    return { ok: true };
+  }
+
+  if (origem) {
+    const { x, y } = origem.getBounds();
+    createWindow({ x: x + 40, y: y + 40, width: 1400, height: 900 });
+    return { ok: true };
+  }
+
+  createWindow();
+  return { ok: true };
 });

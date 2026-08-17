@@ -58,7 +58,12 @@ export const blockTarget = (id: string): string => `block:${id}`;
 export const partTarget = (part: DocPart): string => `part:${part}`;
 export const assinaturaTarget = (index: number): string => `assinatura:${index}`;
 
-/** Marca aplicada à ordem de execução quando o usuário limpa o negrito padrão. */
+/**
+ * Marca aplicada quando o usuário limpa um negrito que é padrão do arquivo
+ * Planalto, e não escolha dele — a ordem de execução e a denominação do
+ * agrupador (Título, Capítulo, Seção…) nascem em negrito porque é assim que o
+ * ato publicado as escreve, mas o redator pode querer outra coisa.
+ */
 const PLAIN_FORMAT_MARK = 'data-cej-plain-format';
 
 /** Texto legível de um trecho de HTML — usado no `<title>` e nas prévias. */
@@ -253,8 +258,17 @@ function htmlDaFonte(doc: LegislativeDocument, alvo: string): string {
   return `${ancora}${abre}${bloco.content}${fecha}${bloco.novaRedacao ? ' (NR)' : ''}`;
 }
 
-/** Envolve a ordem de execução na marca de "sem formatação" quando ela ficou sem etiquetas. */
-export function markOrdemExecucaoAsPlain(html: string): string {
+/**
+ * Envolve o HTML na marca de "sem formatação padrão" quando ele ficou sem
+ * etiqueta alguma.
+ *
+ * "Limpar formatação" tira o negrito da tela na hora, mas o texto que sobra é
+ * puro — sem a marca, o próximo render (ou a exportação) veria só texto liso e
+ * reaplicaria o negrito padrão sozinho, desfazendo o pedido do redator. Etiqueta
+ * já presente (o redator formatou de outro jeito) não é sobrescrita: a marca só
+ * entra quando não há etiqueta nenhuma para servir de sinal.
+ */
+export function markAsPlainFormat(html: string): string {
   if (/<[a-z][^>]*>/i.test(html)) return html;
   return `<span ${PLAIN_FORMAT_MARK}="true">${html}</span>`;
 }

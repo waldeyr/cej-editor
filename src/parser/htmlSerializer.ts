@@ -14,7 +14,7 @@ import {
   identifyBlockType,
   pareceNomeDeSignatario,
 } from './rtfParser';
-import { sanitizeInlineHtml, stripVisibleEdges, visibleTextOfHtml } from './inlineHtml';
+import { despedacar, sanitizeInlineHtml, stripVisibleEdges, visibleTextOfHtml } from './inlineHtml';
 import {
   ASPAS_ABRE,
   ASPAS_FECHA,
@@ -184,7 +184,13 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
    * o link nasceria apontando para um lugar que o arquivo salvo não conhece.
    */
   const anchor = block.linkName ? `<a name="${block.linkName}"></a>` : '';
-  const labelPrefix = block.numberLabel ? `${block.numberLabel} ` : '';
+  /*
+   * O identificador sai riscado quando o dispositivo inteiro foi tachado — o
+   * mesmo `<s>` que o botão "Tachado" grava no caput (`utils/richText.ts`),
+   * para que rótulo e texto saiam com a mesma marcação no arquivo salvo.
+   */
+  const tachar = (texto: string) => (block.identificadorTachado && texto ? `<s>${texto}</s>` : texto);
+  const labelPrefix = block.numberLabel ? tachar(`${block.numberLabel} `) : '';
   const align = block.align || defaultAlignForBlockType(block.type);
   const indent = indentForAlign(align);
   /*
@@ -244,9 +250,21 @@ export function serializeBlockToHtml(block: LegislativeBlock): string {
      * caminho normal de quem cria um anexo pela barra, já que o dispositivo
      * nasce vazio (invariante 2).
      */
-    const denominacao = block.numberLabel ? (block.content ? `${block.numberLabel} - ` : block.numberLabel) : '';
+    const denominacao = block.numberLabel
+      ? tachar(block.content ? `${block.numberLabel} - ` : block.numberLabel)
+      : '';
+    /*
+     * O negrito é o padrão Planalto, não escolha do redator — que pode
+     * sobrescrevê-la com "Limpar formatação", do mesmo jeito que já pode na
+     * ordem de execução. Uma etiqueta qualquer no conteúdo é o sinal de que
+     * ele decidiu algo sobre a formatação ali; a marca de "sem formatação"
+     * (`markAsPlainFormat`) é a que sobra quando o texto volta a ser puro.
+     */
+    const negritoPadrao = !/<[a-z][^>]*>/i.test(block.content);
+    const negritoAbre = negritoPadrao ? '<b>' : '';
+    const negritoFecha = negritoPadrao ? '</b>' : '';
     return recolhido(`\t<p align="${align}" style="margin-top: 20px; margin-bottom: 10px" data-block-id="${block.id}">
-\t\t<b><span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${abre}${denominacao}${block.content}${fecha}</span></b></p>`);
+\t\t${negritoAbre}<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif;color:black">${anchor}${abre}${denominacao}${block.content}${fecha}</span>${negritoFecha}</p>`);
   }
 
   /*
@@ -322,6 +340,74 @@ interface PartesJaLidas {
   ementa: boolean;
   fecho: boolean;
   ordemExecucao: boolean;
+}
+
+/** As três formas do tachado que podem envolver o rótulo — a que o botão escreve e as do corpus legado. */
+const ETIQUETAS_DE_TACHADO = ['s', 'strike', 'del'];
+
+/**
+ * O rótulo chegou do arquivo já riscado — `<s>Art. 5º </s>Fica revogado…` — e é
+ * essa marca que devolve `identificadorTachado` ao reabrir o ato salvo por este
+ * editor. Sem isto, `stripVisibleEdges` preserva toda etiqueta mesmo sem
+ * caractere visível dentro dela (é assim que a âncora vazia sobrevive), e o
+ * `<s>` do rótulo sobraria vazio na frente do texto — sem marcar coisa alguma,
+ * porque quem desenha o rótulo é um `<span>` à parte, que nunca olha para
+ * dentro de `content`.
+ *
+ * O rótulo pode chegar dentro de outras etiquetas que não são dele — o `<span
+ * style="…">` que envolve o parágrafo inteiro, ou o `<a name>` da âncora —, e
+ * por isso a checagem caminha pedaço a pedaço (a mesma varredura de
+ * `inlineHtml.ts`), e não por posição no início da string: só desfaz a etiqueta
+ * de tachado cujo par abre com zero caracteres visíveis vistos e fecha
+ * exatamente no fim do rótulo, nem mais nem menos — a mesma marca ao redor de
+ * rótulo e começo do texto não é tachado do identificador, é tachado do redator
+ * sobre um trecho comum, e continua em `content` como sempre esteve.
+ */
+function extrairTachadoDoRotulo(
+  interior: string,
+  visiveisDoRotulo: number
+): { interior: string; identificadorTachado?: boolean } {
+  if (visiveisDoRotulo <= 0) return { interior };
+
+  const pedacos = despedacar(interior);
+  const abertos: { nome: string; indice: number; visiveisNaAbertura: number }[] = [];
+  let visiveis = 0;
+
+  for (let indice = 0; indice < pedacos.length; indice++) {
+    const pedaco = pedacos[indice];
+    if (pedaco.visivel) {
+      visiveis += pedaco.visivel.length;
+      continue;
+    }
+
+    const abertura = /^<([a-zA-Z][a-zA-Z0-9]*)(?:\s[^>]*)?>$/.exec(pedaco.bruto);
+    if (abertura) {
+      abertos.push({ nome: abertura[1].toLowerCase(), indice, visiveisNaAbertura: visiveis });
+      continue;
+    }
+
+    const fechamento = /^<\/([a-zA-Z][a-zA-Z0-9]*)>$/.exec(pedaco.bruto);
+    if (!fechamento) continue;
+
+    const nome = fechamento[1].toLowerCase();
+    const posicao = abertos.map((item) => item.nome).lastIndexOf(nome);
+    if (posicao === -1) continue;
+    const [aberto] = abertos.splice(posicao, 1);
+
+    if (
+      ETIQUETAS_DE_TACHADO.includes(nome) &&
+      aberto.visiveisNaAbertura === 0 &&
+      visiveis === visiveisDoRotulo
+    ) {
+      const semTags = pedacos
+        .filter((_, i) => i !== aberto.indice && i !== indice)
+        .map((p) => p.bruto)
+        .join('');
+      return { interior: semTags, identificadorTachado: true };
+    }
+  }
+
+  return { interior };
 }
 
 /**
@@ -463,8 +549,11 @@ function absorverParagrafo(
    * que tem forma canônica própria —, o conteúdo é o texto mesmo.
    */
   const inicio = cleanText ? texto.indexOf(cleanText) : texto.length;
+  const { interior: semTachado, identificadorTachado } = extrairTachadoDoRotulo(interior, inicio);
   const content =
-    inicio >= 0 ? stripVisibleEdges(interior, inicio, texto.length - inicio - cleanText.length) : cleanText;
+    inicio >= 0
+      ? stripVisibleEdges(semTachado, inicio, texto.length - inicio - cleanText.length)
+      : cleanText;
 
   doc.blocks.push({
     id: `block-${indice}-${Math.random().toString(36).substring(2, 7)}`,
@@ -474,6 +563,7 @@ function absorverParagrafo(
     rawText: cleanText,
     novaRedacao,
     citacao: aspas,
+    ...(identificadorTachado ? { identificadorTachado } : {}),
   });
 }
 

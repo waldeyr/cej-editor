@@ -208,10 +208,23 @@ export function inicioDoAnexo(blocks: readonly LegislativeBlock[]): number {
  * Art. 5º Fica instituído…" — e, como o rótulo não é editável na folha, não
  * haveria como desfazer o engano.
  */
+/*
+ * O sufixo de inclusão — "Art. 5º-A", "X-A -", repetível como em "Art. 35-B-B"
+ * — é decisão do redator (Decreto nº 12.002/2024, art. 14, parágrafo único), e
+ * precisa ser reconhecido aqui do mesmo jeito que `rtfParser.ts` já reconhece
+ * na importação (`SUFIXO_DE_INCLUSAO`). Sem isto, digitar "Art. 5º-A Fica
+ * incluído…" e clicar "Artigo" cortava o rótulo em "Art. 5º-" e deixava o "A"
+ * vazar para dentro do texto do dispositivo.
+ */
+const SUFIXO_DE_INCLUSAO = '(?:-[A-Za-z]+)*';
+
 const TYPED_LABEL: Partial<Record<BlockType, RegExp>> = {
-  ARTIGO: /^(Art\.?)\s*(\d+)\s*[ºo°]?\s*\.?\s*[-–—]?\s*/i,
-  PARAGRAFO: /^(?:(§)\s*(\d+)\s*[ºo°]?\s*\.?|(Parágrafo\s+único)\s*\.?)\s*[-–—]?\s*/i,
-  INCISO: /^([IVXLCDM]+)\s*[-–—]\s*/i,
+  ARTIGO: new RegExp(`^(Art\\.?)\\s*(\\d+)\\s*[ºo°]?(${SUFIXO_DE_INCLUSAO})\\s*\\.?\\s*[-–—]?\\s*`, 'i'),
+  PARAGRAFO: new RegExp(
+    `^(?:(§)\\s*(\\d+)\\s*[ºo°]?(${SUFIXO_DE_INCLUSAO})|(Parágrafo\\s+único)\\s*\\.?)\\s*[-–—]?\\s*`,
+    'i'
+  ),
+  INCISO: new RegExp(`^([IVXLCDM]+)(${SUFIXO_DE_INCLUSAO})\\s*[-–—]\\s*`, 'i'),
   ALINEA: /^([a-z](?:-[A-Z]+)?)\)\s*/,
   ITEM: /^(\d+)\s*\.\s+/,
 };
@@ -226,15 +239,31 @@ const LEADING_MARKUP = /^(?:<[^>]+>|\s|&nbsp;|&#160;)*/;
  */
 const EMPTY_LEADING_WRAPPER = /^(?:\s*<(b|strong|i|em|u|span|font|sup|sub)\b[^>]*>\s*<\/\1>)+/i;
 
+/**
+ * O número seguido do sufixo de inclusão, como "Art. 35-B-B" traz do decreto de
+ * `docs/file-tests/`: sem sufixo vale `ordinalOrCardinal` de sempre (ponto do
+ * décimo em diante); com sufixo, o ponto do cardinal sai — "35.-B-B" não é
+ * como o ato publicado escreve — e só o "º" do ordinal permanece, porque o
+ * sufixo já desambiguiza que aquele número não é uma contagem qualquer.
+ */
+function numeroComSufixo(valor: number, temSufixo: boolean): string {
+  return temSufixo && valor > 9 ? `${valor}` : ordinalOrCardinal(valor);
+}
+
 /** Forma canônica do rótulo que o redator digitou, a partir do que a expressão capturou. */
 function canonicalTypedLabel(type: BlockType, match: RegExpExecArray): string {
   switch (type) {
-    case 'ARTIGO':
-      return `Art. ${ordinalOrCardinal(Number.parseInt(match[2], 10))}`;
-    case 'PARAGRAFO':
-      return match[3] ? 'Parágrafo único.' : `§ ${ordinalOrCardinal(Number.parseInt(match[2], 10))}`;
+    case 'ARTIGO': {
+      const sufixo = match[3] || '';
+      return `Art. ${numeroComSufixo(Number.parseInt(match[2], 10), Boolean(sufixo))}${sufixo}`;
+    }
+    case 'PARAGRAFO': {
+      if (match[4]) return 'Parágrafo único.';
+      const sufixo = match[3] || '';
+      return `§ ${numeroComSufixo(Number.parseInt(match[2], 10), Boolean(sufixo))}${sufixo}`;
+    }
     case 'INCISO':
-      return `${match[1].toUpperCase()} -`;
+      return `${match[1].toUpperCase()}${match[2] || ''} -`;
     case 'ALINEA':
       return `${match[1]})`;
     case 'ITEM':

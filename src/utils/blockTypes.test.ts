@@ -109,6 +109,30 @@ describe('aplicação de tipo ao dispositivo selecionado', () => {
     expect(convertido.content).toBe('do Ministério da Fazenda;');
   });
 
+  it('reconhece o sufixo de inclusão no rótulo digitado à mão (Decreto nº 12.002/2024, art. 14, § único)', () => {
+    const artigo = block('b9', 'TEXTO_LIVRE', 'Art. 5º-A Fica incluído dispositivo novo.');
+    const [convertido] = apply([artigo], 'b9', 'ARTIGO');
+    expect(convertido.numberLabel).toBe('Art. 5º-A');
+    expect(convertido.content).toBe('Fica incluído dispositivo novo.');
+
+    const paragrafo = block('b9', 'TEXTO_LIVRE', '§ 2º-B Fica incluído dispositivo novo.');
+    const [convertidoParagrafo] = apply([paragrafo], 'b9', 'PARAGRAFO');
+    expect(convertidoParagrafo.numberLabel).toBe('§ 2º-B');
+    expect(convertidoParagrafo.content).toBe('Fica incluído dispositivo novo.');
+
+    const inciso = block('b9', 'TEXTO_LIVRE', 'X-A - do Ministério da Fazenda;');
+    const [convertidoInciso] = apply([inciso], 'b9', 'INCISO');
+    expect(convertidoInciso.numberLabel).toBe('X-A -');
+    expect(convertidoInciso.content).toBe('do Ministério da Fazenda;');
+  });
+
+  it('reconhece o sufixo repetido, como no Art. 35-B-B do decreto de docs/file-tests', () => {
+    const artigo = block('b9', 'TEXTO_LIVRE', 'Art. 35-B-B Fica incluído dispositivo novo.');
+    const [convertido] = apply([artigo], 'b9', 'ARTIGO');
+    expect(convertido.numberLabel).toBe('Art. 35-B-B');
+    expect(convertido.content).toBe('Fica incluído dispositivo novo.');
+  });
+
   it('não deixa invólucro vazio onde estava o rótulo em negrito', () => {
     const escrito = block('b9', 'TEXTO_LIVRE', '<b>Art. 2º</b> Fica revogado o decreto.');
     const [convertido] = apply([escrito], 'b9', 'ARTIGO');

@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   FileCode,
-  FileUp,
   Globe,
   Save,
   Download,
@@ -45,8 +44,7 @@ export type TextCommand = InlineFormat | 'clearStyle' | 'link' | 'anchor';
 interface ToolbarProps {
   documentTitle: string;
   onNew: () => void;
-  onImportRtf: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onOpenHtml: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onOpenFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onOpenUrl: () => void;
   /** Abre a caixa do <title> do arquivo salvo. */
   onEditTitle: () => void;
@@ -132,8 +130,7 @@ const FORMATOS: readonly { format: InlineFormat; label: string; icon: React.Reac
 export const Toolbar: React.FC<ToolbarProps> = ({
   documentTitle,
   onNew,
-  onImportRtf,
-  onOpenHtml,
+  onOpenFile,
   onOpenUrl,
   onEditTitle,
   onInsertTable,
@@ -314,10 +311,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span className="sr-only lg:not-sr-only">Novo</span>
           </button>
 
-          <label className={`${COMMAND_CLASS} cursor-pointer`} title="Abrir arquivo HTML do disco">
+          <label className={`${COMMAND_CLASS} cursor-pointer`} title="Abrir HTML, DOC, DOCX ou RTF do disco">
             <FileCode size={14} aria-hidden="true" />
-            <span className="sr-only lg:not-sr-only">Abrir HTML</span>
-            <input type="file" accept=".html,.htm" onChange={onOpenHtml} className="sr-only" />
+            <span className="sr-only lg:not-sr-only">Abrir</span>
+            <input
+              type="file"
+              accept=".html,.htm,.rtf,.doc,.docx"
+              onChange={onOpenFile}
+              className="sr-only"
+            />
           </label>
 
           <button
@@ -329,12 +331,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <Globe size={14} aria-hidden="true" />
             <span className="sr-only lg:not-sr-only">Abrir URL</span>
           </button>
-
-          <label className={`${COMMAND_CLASS} cursor-pointer`} title="Importar RTF, DOC ou DOCX">
-            <FileUp size={14} aria-hidden="true" />
-            <span className="sr-only lg:not-sr-only">Importar</span>
-            <input type="file" accept=".rtf,.doc,.docx" onChange={onImportRtf} className="sr-only" />
-          </label>
 
           <Divider />
 

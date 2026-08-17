@@ -106,6 +106,25 @@ describe('denominação do agrupador', () => {
     expect(html).toContain('>CAPÍTULO II - DAS COMPETÊNCIAS<');
     expect(html).not.toContain('- CAPÍTULO II');
   });
+
+  it('sai em negrito por padrão, como o ato publicado escreve', () => {
+    const html = serializeBlockToHtml(capitulo);
+    expect(html).toContain('<b><span');
+    expect(html).toContain('</span></b>');
+  });
+
+  it('cede ao redator que limpou o negrito padrão, do mesmo jeito que a ordem de execução', () => {
+    // "Limpar formatação" deixa a marca de sobra mesmo com o texto já puro —
+    // ver `markAsPlainFormat`, em `utils/docTargets.ts`.
+    const semNegrito: LegislativeBlock = {
+      ...capitulo,
+      content: '<span data-cej-plain-format="true">DAS DISPOSIÇÕES PRELIMINARES</span>',
+    };
+    const html = serializeBlockToHtml(semNegrito);
+
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('CAPÍTULO 1 - <span data-cej-plain-format="true">DAS DISPOSIÇÕES PRELIMINARES</span>');
+  });
 });
 
 /*
@@ -282,6 +301,29 @@ describe('abertura de ato publicado', () => {
     expect(voltou?.numberLabel).toBe('Art. 1º');
     expect(voltou?.content).toContain('<a name="art1">');
     expect(voltou?.content).toContain('href="#art2"');
+  });
+
+  it('tacha o identificador junto com o texto quando o dispositivo inteiro foi marcado como tachado', () => {
+    const tachado: LegislativeBlock = {
+      id: 'b1',
+      type: 'ARTIGO',
+      numberLabel: 'Art. 5º',
+      content: '<s>Fica revogado o decreto anterior.</s>',
+      rawText: 'Fica revogado o decreto anterior.',
+      identificadorTachado: true,
+    };
+
+    const exportado = serializeToPlanaltoHtml({ ...doc, blocks: [tachado] });
+    expect(exportado).toContain('<s>Art. 5º </s>');
+
+    const voltou = deserializePlanaltoHtmlToDocument(exportado).blocks.find(
+      (block) => block.type === 'ARTIGO'
+    );
+
+    expect(voltou?.numberLabel).toBe('Art. 5º');
+    expect(voltou?.identificadorTachado).toBe(true);
+    expect(voltou?.content).toContain('<s>Fica revogado o decreto anterior.</s>');
+    expect(voltou?.content).not.toContain('<s></s>');
   });
 });
 

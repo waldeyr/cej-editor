@@ -234,13 +234,42 @@ function reselect(first: Node | undefined, last: Node | undefined): void {
 }
 
 /**
+ * O trecho tocado neste campo é o campo inteiro, do início ao fim — não apenas
+ * uma palavra ou frase no meio dele. É o gesto de quem seleciona um dispositivo
+ * inteiro para tachá-lo, e não apenas um trecho do texto dele.
+ */
+function coversWholeField(segment: EditableSegment): boolean {
+  const whole = document.createRange();
+  whole.selectNodeContents(segment.element);
+  return (
+    whole.compareBoundaryPoints(Range.START_TO_START, segment.range) === 0 &&
+    whole.compareBoundaryPoints(Range.END_TO_END, segment.range) === 0
+  );
+}
+
+export interface InlineFormatResult {
+  /** O formato ficou aplicado (`true`) ou foi retirado (`false`) ao final da operação. */
+  applied: boolean;
+  /** Alvos cujo campo inteiro estava selecionado — não apenas um trecho dele. */
+  fullyCoveredTargets: string[];
+}
+
+/**
  * Aplica ou retira um formato em toda a seleção. O formato é retirado quando
  * *todo* o trecho selecionado já o possui — o mesmo critério de alternância dos
  * editores de texto comuns.
  */
-export function applyInlineFormat(segments: EditableSegment[], format: InlineFormat): void {
+export function applyInlineFormat(
+  segments: EditableSegment[],
+  format: InlineFormat
+): InlineFormatResult {
   const tag = TAG_BY_FORMAT[format];
   const targets: { node: Text; root: HTMLElement }[] = [];
+
+  // O campo inteiro só conta como "tocado por inteiro" enquanto a seleção
+  // ainda não foi recortada pela formatação — depois de dividir os nós de
+  // texto nas fronteiras, os limites do intervalo mudam de nó.
+  const fullyCoveredTargets = segments.filter(coversWholeField).map((segment) => segment.target);
 
   segments.forEach((segment) => {
     splitBoundaryTextNodes(segment.range);
@@ -249,7 +278,7 @@ export function applyInlineFormat(segments: EditableSegment[], format: InlineFor
     });
   });
 
-  if (targets.length === 0) return;
+  if (targets.length === 0) return { applied: false, fullyCoveredTargets: [] };
 
   const shouldRemove = targets.every(({ node, root }) => formatAncestor(node, format, root) !== null);
 
@@ -268,6 +297,8 @@ export function applyInlineFormat(segments: EditableSegment[], format: InlineFor
 
   segments.forEach(({ element }) => removeEmptyInlineElements(element));
   reselect(targets[0]?.node, targets[targets.length - 1]?.node);
+
+  return { applied: !shouldRemove, fullyCoveredTargets };
 }
 
 /**

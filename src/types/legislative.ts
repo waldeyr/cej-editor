@@ -59,6 +59,17 @@ export interface LegislativeBlock {
    */
   novaRedacao?: boolean;
   /**
+   * O identificador ("Art. 5º") sai riscado, porque o dispositivo inteiro foi
+   * tachado — não só um trecho do texto dele.
+   *
+   * Mora fora de `content` pelo mesmo motivo que `numberLabel`: o rótulo é
+   * string simples, sem marcação própria, e quem o desenha é a folha. Entra em
+   * jogo junto com o `<s>` que o botão "Tachado" já grava no texto, quando a
+   * seleção aplicada cobre o campo inteiro — ver `richText.ts`,
+   * `coversWholeField`.
+   */
+  identificadorTachado?: boolean;
+  /**
    * O dispositivo é texto citado de outro ato, e onde ele está na citação.
    *
    * Vale para a citação inteira, e não só para as linhas que trazem as aspas: o

@@ -18,6 +18,7 @@ import {
 import { sanitizeQuoteText } from '../parser/rtfParser';
 import { desenhaComoTitulo } from '../utils/rank';
 import { Editable } from './Editable';
+import { NumberLabelEditable } from './NumberLabelEditable';
 import { CanvasContextMenu, CanvasMenuState } from './CanvasContextMenu';
 import { CanvasHint, CanvasHintState } from './CanvasHint';
 import {
@@ -289,6 +290,12 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
       }
       return b;
     });
+    onUpdateDoc({ ...doc, blocks: updatedBlocks });
+  };
+
+  /** Grava o rótulo que o redator editou diretamente na folha (invariante 3: continua fora do caput). */
+  const handleUpdateBlockLabel = (id: string, newLabel: string) => {
+    const updatedBlocks = doc.blocks.map((b) => (b.id === id ? { ...b, numberLabel: newLabel } : b));
     onUpdateDoc({ ...doc, blocks: updatedBlocks });
   };
 
@@ -764,6 +771,16 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     const abre = citado && abreAspas(block);
     const fecha = citado && fechaAspas(block);
     /*
+     * O negrito do agrupador é o padrão Planalto, não uma escolha do redator —
+     * e o redator pode querer sobrescrevê-la, como já pode com a ordem de
+     * execução (`ordemExecucaoHtml`, acima). Uma etiqueta qualquer já presente
+     * no conteúdo é o sinal de que ele decidiu algo sobre a formatação ali:
+     * "Limpar formatação" deixa a marca de sobra (`markAsPlainFormat`) mesmo
+     * quando o texto volta a ser texto puro, para que o negrito padrão não
+     * reapareça sozinho no próximo render.
+     */
+    const semNegritoPadrao = desenhaComoTitulo(block.type) && /<[a-z][^>]*>/i.test(block.content);
+    /*
      * O parágrafo que só traz as marcas — o `” (NR)` que fecha, sozinho, a
      * citação de um anexo inteiro — não pede texto: ali não falta dispositivo
      * a escrever, e a frase de espera do CSS seria um convite a preencher o
@@ -966,12 +983,19 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
            * importado traz a denominação inteira no conteúdo, sem
            * rótulo, e continua aparecendo como sempre apareceu.
            */
-          <div className={`font-bold text-[10pt] ${recuoDaCitacao}`} style={layout}>
+          <div
+            className={`${semNegritoPadrao ? '' : 'font-bold'} text-[10pt] ${recuoDaCitacao}`}
+            style={layout}
+          >
             {abre && <span className="select-none">{ASPAS_ABRE}</span>}
             {block.numberLabel && (
-              <span className="select-none">
-                {normalizeNumberLabel(block.numberLabel)} -{' '}
-              </span>
+              <NumberLabelEditable
+                label={normalizeNumberLabel(block.numberLabel)}
+                className={`select-none${block.identificadorTachado ? ' line-through' : ''}`}
+                onCommit={(value) => handleUpdateBlockLabel(block.id, value)}
+              >
+                {' - '}
+              </NumberLabelEditable>
             )}
             <Editable
               target={target}
@@ -980,7 +1004,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               onKeyDown={(event) => handleBlockEnter(index, event)}
               ariaLabel="Agrupador"
               placeholder="Denominação do agrupador"
-              className="inline outline-none focus:bg-selo/10 font-bold cursor-text"
+              className={`inline outline-none focus:bg-selo/10 ${semNegritoPadrao ? '' : 'font-bold'} cursor-text`}
             />
             {fecha && <span className="select-none">{ASPAS_FECHA}</span>}
           </div>
@@ -1002,9 +1026,13 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           >
             {abre && <span className="select-none">{ASPAS_ABRE}</span>}
             {block.numberLabel && (
-              <span className="font-normal select-none">
-                {normalizeNumberLabel(block.numberLabel)}&nbsp;
-              </span>
+              <NumberLabelEditable
+                label={normalizeNumberLabel(block.numberLabel)}
+                className={`font-normal select-none${block.identificadorTachado ? ' line-through' : ''}`}
+                onCommit={(value) => handleUpdateBlockLabel(block.id, value)}
+              >
+                &nbsp;
+              </NumberLabelEditable>
             )}
             <Editable
               target={target}
