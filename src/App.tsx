@@ -22,6 +22,7 @@ import { parseDocBinarioToLegislativeDocument } from './parser/docParser';
 import { serializeToPlanaltoHtml, deserializePlanaltoHtmlToDocument } from './parser/htmlSerializer';
 import { completarEmentaDoDocx, prepararHtmlDeImportacao } from './parser/docxHtml';
 import { detectarFormatoDeImportacao } from './parser/importFormat';
+import { diagnosticarImportacao, erroDeTamanhoDeImportacao } from './parser/importDiagnostics';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
 import { Aba, ArquivoDoAto, EstadoDasAbas, estaSuja } from './types/abas';
@@ -659,8 +660,15 @@ export const App: React.FC = () => {
     return { nome: file.name, caminho: caminho || undefined };
   };
 
+  const informarDiagnostico = (doc: LegislativeDocument) => {
+    const avisos = diagnosticarImportacao(doc);
+    if (avisos.length) setNotice(`Importado com atenção: ${avisos.join('; ')}.`);
+  };
+
   // Importa pelo formato dos bytes, e não pela extensão que o arquivo recebeu.
   const importDocFile = async (file: File) => {
+    const erroDeTamanho = erroDeTamanhoDeImportacao(file.size);
+    if (erroDeTamanho) throw new Error(erroDeTamanho);
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     const formato = detectarFormatoDeImportacao(bytes);
@@ -682,6 +690,7 @@ export const App: React.FC = () => {
       // o mesmo conteúdo duas vezes num recado que existe para conferir contas.
       const dispositivos = importado.blocks.length - tabelas;
       const avisos = result.messages.length;
+      const diagnosticos = diagnosticarImportacao(importado);
       setNotice(
         [
           `Documento importado: ${dispositivos} ${dispositivos === 1 ? 'dispositivo' : 'dispositivos'}`,
@@ -692,6 +701,7 @@ export const App: React.FC = () => {
               } de revisão fora do ato`
             : '',
           avisos > 0 ? `${avisos} ${avisos === 1 ? 'aviso' : 'avisos'} de conversão` : '',
+          ...diagnosticos,
         ]
           .filter(Boolean)
           .join(', ') + '.'
@@ -700,7 +710,9 @@ export const App: React.FC = () => {
     }
 
     if (formato === 'doc') {
-      loadDocument(parseDocBinarioToLegislativeDocument(bytes), identidadeDe(file, false));
+      const importado = parseDocBinarioToLegislativeDocument(bytes);
+      loadDocument(importado, identidadeDe(file, false));
+      informarDiagnostico(importado);
       return;
     }
 
@@ -710,7 +722,9 @@ export const App: React.FC = () => {
     }
 
     if (formato === 'rtf') {
-      loadDocument(parseRtfToLegislativeDocument(detectAndDecode(bytes).text), identidadeDe(file, false));
+      const importado = parseRtfToLegislativeDocument(detectAndDecode(bytes).text);
+      loadDocument(importado, identidadeDe(file, false));
+      informarDiagnostico(importado);
       return;
     }
 
@@ -728,11 +742,15 @@ export const App: React.FC = () => {
    */
   const openHtmlBytes = (bytes: Uint8Array, arquivo: ArquivoDoAto | null = null) => {
     const decoded = detectAndDecode(bytes);
-    loadDocument(deserializePlanaltoHtmlToDocument(decoded.text), arquivo);
+    const importado = deserializePlanaltoHtmlToDocument(decoded.text);
+    loadDocument(importado, arquivo);
+    informarDiagnostico(importado);
   };
 
   /* O HTML é o único formato que "Salvar" devolve ao arquivo de origem. */
   const openHtmlFile = async (file: File) => {
+    const erroDeTamanho = erroDeTamanhoDeImportacao(file.size);
+    if (erroDeTamanho) throw new Error(erroDeTamanho);
     openHtmlBytes(new Uint8Array(await file.arrayBuffer()), identidadeDe(file, true));
   };
 
@@ -817,7 +835,13 @@ export const App: React.FC = () => {
     if (!response.ok) {
       throw new Error(`O servidor respondeu ${response.status} ${response.statusText}.`);
     }
-    return new Uint8Array(await response.arrayBuffer());
+    const declaredSize = Number(response.headers.get('content-length') || 0);
+    const erroDeTamanho = erroDeTamanhoDeImportacao(declaredSize);
+    if (declaredSize && erroDeTamanho) throw new Error(erroDeTamanho);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const erroDoCorpo = erroDeTamanhoDeImportacao(bytes.byteLength);
+    if (erroDoCorpo) throw new Error(erroDoCorpo);
+    return bytes;
   };
 
   /*

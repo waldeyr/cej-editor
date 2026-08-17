@@ -33,5 +33,9 @@ yarn-error.log*
 CLAUDE.md
 
 # Arquivos da prova de abertura: atos reais, grandes demais para o histórico.
-# Ver docs/refs/ para a referência normativa, essa sim versionada.
-docs/file-tests/
+# Ver docs/refs/ para a referência normativa, essa sim versionada. Os fixtures
+# sintéticos pequenos são exceção: eles documentam falhas de importação.
+docs/file-tests/*
+!docs/file-tests/problematicos/
+!docs/file-tests/problematicos/*.rtf
+!docs/file-tests/problematicos/*.html

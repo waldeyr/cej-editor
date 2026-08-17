@@ -40,12 +40,17 @@ export function prepararHtmlDeImportacao(html: string): PreparoDoHtmlDeImportaca
   const documento = new DOMParser().parseFromString(html, 'text/html');
   let comentariosDescartados = 0;
 
-  // Comentários de revisão do Word: anotação sobre a minuta, não o ato.
-  documento.querySelectorAll('dt').forEach((termo) => {
+  /*
+   * O Mammoth escreve comentário do Word como uma lista de definição cujo
+   * termo é "Comment [n]". Não basta remover todo `<dl>`: em HTML genérico ele
+   * pode ser um glossário ou uma lista de definições que faz parte do ato.
+   */
+  documento.querySelectorAll('dl').forEach((lista) => {
+    const termo = lista.querySelector(':scope > dt');
+    if (!termo || !/^comment\s*\[\d+\]/i.test(termo.textContent?.trim() || '')) return;
     comentariosDescartados += 1;
-    termo.remove();
+    lista.remove();
   });
-  documento.querySelectorAll('dl, dd').forEach((no) => no.replaceWith(...Array.from(no.childNodes)));
 
   // Só a tabela mais externa vira bloco; a de dentro segue como marcação dela.
   documento.querySelectorAll('table').forEach((tabela) => {
@@ -77,10 +82,45 @@ export function prepararHtmlDeImportacao(html: string): PreparoDoHtmlDeImportaca
    * não contém outro bloco; assim um contêiner de vários parágrafos continua
    * sendo apenas contêiner, sem juntar conteúdo que era separado.
    */
-  const blocosGenericos = 'div, blockquote, pre, figure, figcaption';
+  const blocosGenericos = 'div, blockquote, pre, figure, figcaption, dl, dt, dd';
   documento.querySelectorAll(blocosGenericos).forEach((elemento) => {
     if (elemento.closest('table')) return;
-    if (elemento.querySelector(`p, h1, h2, h3, h4, h5, h6, table, ol, ul, li, ${blocosGenericos}`)) return;
+    const seletorDeBloco = `p, h1, h2, h3, h4, h5, h6, table, ol, ul, li, ${blocosGenericos}`;
+    const temBlocoFilho = Boolean(elemento.querySelector(seletorDeBloco));
+    if (temBlocoFilho) {
+      /*
+       * HTML malformado costuma pôr texto diretamente num `<div>` e fechar o
+       * bloco só depois de uma tabela ou citação. O leitor Planalto visita os
+       * filhos estruturais, mas não esse texto solto. Separam-se os trechos
+       * diretos em parágrafos, sem achatar os filhos que já têm estrutura.
+       */
+      const fragmento = documento.createDocumentFragment();
+      let pendentes: Node[] = [];
+      const descarregarPendentes = () => {
+        if (!pendentes.some((no) => no.nodeType !== Node.TEXT_NODE || Boolean(no.textContent?.trim()))) {
+          pendentes = [];
+          return;
+        }
+        const paragrafo = documento.createElement('p');
+        paragrafo.append(...pendentes);
+        fragmento.append(paragrafo);
+        pendentes = [];
+      };
+
+      Array.from(elemento.childNodes).forEach((filho) => {
+        const eBloco = filho.nodeType === Node.ELEMENT_NODE &&
+          (filho as Element).matches(seletorDeBloco);
+        if (eBloco) {
+          descarregarPendentes();
+          fragmento.append(filho);
+        } else {
+          pendentes.push(filho);
+        }
+      });
+      descarregarPendentes();
+      elemento.replaceWith(fragmento);
+      return;
+    }
     const paragrafo = documento.createElement('p');
     paragrafo.append(...Array.from(elemento.childNodes));
     elemento.replaceWith(paragrafo);
