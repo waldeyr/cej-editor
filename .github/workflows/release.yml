@@ -5,13 +5,19 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Tag da release que recebe os instaladores (ex.: v0.2.3). Deixe em
+          branco só para conferir que o empacotamento ainda compila — nenhuma
+          release é tocada nesse caso.
+        required: false
+        type: string
 
 jobs:
   build:
     name: Build Standalone Desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -30,21 +36,23 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      # O nome de cada arquivo gerado carrega a versão do package.json — que é a
-      # mesma da tag, sem o "v". Publicar só quando o disparo veio de uma tag:
-      # o disparo manual serve para conferir que o empacotamento ainda compila,
-      # e não deve criar release nenhum.
+      # Nunca --publish aqui: o publish embutido do electron-builder escolhe a
+      # release pela versão do package.json, não pela tag que disparou o
+      # workflow — e quando as duas divergem ele publica (ou cria) a release
+      # errada sem avisar (foi assim que nasceu a release solta "v1.0.0", com
+      # um único instalador). Quem decide para qual release os instaladores
+      # vão é o job "publish", pela tag de verdade.
       - name: Build Web Application & Desktop Executables
-        run: npm run build:desktop -- --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build:desktop -- --publish never
 
       # Só os instaláveis. O diretório dist-desktop guarda também a árvore
-      # descompactada do aplicativo, que é enorme e não interessa a ninguém.
+      # descompactada do aplicativo e os metadados de auto-update
+      # (latest*.yml, .blockmap), que este programa não usa e não interessam
+      # a ninguém.
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cej-editor-${{ github.ref_name }}-${{ matrix.os }}
+          name: cej-editor-desktop-${{ matrix.os }}
           if-no-files-found: error
           path: |
             dist-desktop/*.dmg
@@ -52,3 +60,29 @@ jobs:
             dist-desktop/*.exe
             dist-desktop/*.AppImage
             dist-desktop/*.deb
+
+  publish:
+    name: Anexar instaladores à release
+    needs: build
+    # Dispara em duas situações: tag empurrada (publica na própria tag) ou
+    # disparo manual com a tag de destino (republica uma release já
+    # existente). Disparo manual sem tag é só a prova de que empacota — não
+    # deve tocar release nenhuma.
+    if: github.ref_type == 'tag' || inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - name: Reunir todos os instaladores
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cej-editor-desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Anexar à release existente
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
