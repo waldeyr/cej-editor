@@ -1015,7 +1015,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             {block.numberLabel && (
               <NumberLabelEditable
                 label={normalizeNumberLabel(block.numberLabel)}
-                className={`select-none${block.identificadorTachado ? ' line-through' : ''}`}
+                className="select-none"
+                struckThrough={block.identificadorTachado}
                 onCommit={(value) => handleUpdateBlockLabel(block.id, value)}
               >
                 {' - '}
@@ -1052,7 +1053,8 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             {block.numberLabel && (
               <NumberLabelEditable
                 label={normalizeNumberLabel(block.numberLabel)}
-                className={`font-normal select-none${block.identificadorTachado ? ' line-through' : ''}`}
+                className="font-normal select-none"
+                struckThrough={block.identificadorTachado}
                 onCommit={(value) => handleUpdateBlockLabel(block.id, value)}
               >
                 &nbsp;

@@ -243,7 +243,18 @@ function reselect(first: Node | undefined, last: Node | undefined): void {
  * (`("Fica…", 0)`), enquanto o campo inteiro se descreve no elemento
  * (`(campo, 0)`) — pontos distintos para o DOM, o mesmo gesto para o redator.
  */
+function normalizeVisibleText(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function coversWholeField(segment: EditableSegment): boolean {
+  const selectedText = normalizeVisibleText(segment.range.toString());
+  const fieldText = normalizeVisibleText(segment.element.textContent || '');
+
+  // A seleção de todo o caput pode começar e terminar em nós diferentes dos
+  // limites do campo, especialmente quando o HTML tem negrito ou links.
+  if (selectedText && selectedText === fieldText) return true;
+
   const before = document.createRange();
   before.selectNodeContents(segment.element);
   const after = before.cloneRange();
@@ -251,7 +262,7 @@ function coversWholeField(segment: EditableSegment): boolean {
   before.setEnd(segment.range.startContainer, segment.range.startOffset);
   after.setStart(segment.range.endContainer, segment.range.endOffset);
 
-  return before.toString().trim() === '' && after.toString().trim() === '';
+  return normalizeVisibleText(before.toString()) === '' && normalizeVisibleText(after.toString()) === '';
 }
 
 export interface InlineFormatResult {

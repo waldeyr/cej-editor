@@ -25,7 +25,7 @@ import { detectarFormatoDeImportacao } from './parser/importFormat';
 import { diagnosticarImportacao, erroDeTamanhoDeImportacao } from './parser/importDiagnostics';
 import { validateLegislativeDocument } from './validator/legislativeValidator';
 import { detectAndDecode, encodeToBytes } from './utils/encoding';
-import { Aba, ArquivoDoAto, EstadoDasAbas, estaSuja } from './types/abas';
+import { Aba, ArquivoDoAto, EstadoDasAbas, estaSuja, precisaSalvar } from './types/abas';
 import { hrefDeCaminho, nomeDe, relativizar } from './utils/caminhos';
 import {
   abaAtiva,
@@ -379,6 +379,8 @@ export const App: React.FC = () => {
   const doc = aba.doc;
   const selectedBlockId = aba.selectedBlockId;
   const isDirty = estaSuja(aba);
+  const needsSave = precisaSalvar(aba);
+  const hasSaveTarget = Boolean(aba.arquivo?.caminho || aba.arquivo?.handle);
   const canUndo = podeDesfazer(aba);
   const canRedo = podeRefazer(aba);
   const justSaved = aba.acabouDeSalvar;
@@ -710,18 +712,17 @@ export const App: React.FC = () => {
   };
 
   // Abre pelo formato dos bytes, e não pela extensão que o arquivo recebeu.
-  const openFile = async (file: File) => {
-    const erroDeTamanho = erroDeTamanhoDeImportacao(file.size);
+  const openBytes = async (bytes: Uint8Array, arquivo: ArquivoDoAto) => {
+    const erroDeTamanho = erroDeTamanhoDeImportacao(bytes.byteLength);
     if (erroDeTamanho) throw new Error(erroDeTamanho);
-    const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
+    const buffer = bytes.slice().buffer as ArrayBuffer;
     const formato = detectarFormatoDeImportacao(bytes);
 
     if (formato === 'docx') {
       const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
       const preparo = prepararHtmlDeImportacao(result.value);
       const importado = completarEmentaDoDocx(deserializePlanaltoHtmlToDocument(preparo.html));
-      loadDocument(importado, identidadeDe(file, false));
+      loadDocument(importado, { ...arquivo, caminho: undefined, handle: undefined });
 
       /*
        * O recado conta o que entrou, porque a conversão de Word é a única que
@@ -755,25 +756,57 @@ export const App: React.FC = () => {
 
     if (formato === 'doc') {
       const importado = parseDocBinarioToLegislativeDocument(bytes);
-      loadDocument(importado, identidadeDe(file, false));
+      loadDocument(importado, { ...arquivo, caminho: undefined, handle: undefined });
       informarDiagnostico(importado);
       return;
     }
 
     if (formato === 'html') {
       // O HTML é o único formato que "Salvar" devolve ao arquivo de origem.
-      openHtmlBytes(bytes, identidadeDe(file, true));
+      openHtmlBytes(bytes, arquivo);
       return;
     }
 
     if (formato === 'rtf') {
       const importado = parseRtfToLegislativeDocument(detectAndDecode(bytes).text);
-      loadDocument(importado, identidadeDe(file, false));
+      loadDocument(importado, { ...arquivo, caminho: undefined, handle: undefined });
       informarDiagnostico(importado);
       return;
     }
 
     throw new Error('O formato do arquivo não foi reconhecido. Use um documento RTF, DOC, DOCX ou HTML.');
+  };
+
+  const openFile = async (file: File) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await openBytes(bytes, identidadeDe(file, false));
+  };
+
+  const openNativeFile = async () => {
+    const resultado = await window.electronAPI?.openFile?.();
+    if (!resultado) return;
+
+    await openBytes(resultado.buffer, {
+      nome: nomeDe(resultado.filePath),
+      caminho: resultado.filePath,
+    });
+  };
+
+  const openBrowserFile = async () => {
+    const handles = await (window as any).showOpenFilePicker({
+      multiple: false,
+      types: [
+        {
+          description: 'Documentos Legislativos',
+          accept: { 'text/html': ['.html', '.htm'], 'application/rtf': ['.rtf'], 'application/msword': ['.doc'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] },
+        },
+      ],
+    });
+    const handle = handles?.[0] as FileSystemFileHandle | undefined;
+    if (!handle) return;
+
+    const file = await handle.getFile();
+    await openBytes(new Uint8Array(await file.arrayBuffer()), { nome: file.name, handle });
   };
 
   /*
@@ -833,6 +866,13 @@ export const App: React.FC = () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (file) requestAction({ kind: 'openFile', file });
+  };
+
+  const handleOpenNativeFile = () => {
+    const open = window.electronAPI?.openFile ? openNativeFile : openBrowserFile;
+    void open().catch((error: unknown) => {
+      setNotice(error instanceof Error ? error.message : 'Não foi possível abrir o arquivo escolhido.');
+    });
   };
 
   /**
@@ -1893,6 +1933,11 @@ export const App: React.FC = () => {
         onEditTitle={() => setShowTitleModal(true)}
         onNew={() => requestAction({ kind: 'new' })}
         onOpenFile={handleOpenFile}
+        onOpenNativeFile={
+          window.electronAPI?.openFile || 'showOpenFilePicker' in window
+            ? handleOpenNativeFile
+            : undefined
+        }
         onOpenUrl={() => setShowUrlModal(true)}
         onInsertTable={handleOpenTableModal}
         onSave={handleSave}
@@ -1967,6 +2012,8 @@ export const App: React.FC = () => {
         blockCount={doc.blocks.length}
         issueCount={issueCount}
         position={position}
+        dirty={needsSave}
+        hasFile={hasSaveTarget}
         justSaved={justSaved}
         notice={notice}
         onShowFirstIssue={irAoPrimeiroProblema}

@@ -58,6 +58,7 @@ interface ToolbarProps {
   documentTitle: string;
   onNew: () => void;
   onOpenFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onOpenNativeFile?: () => void;
   onOpenUrl: () => void;
   /** Abre a caixa do <title> do arquivo salvo. */
   onEditTitle: () => void;
@@ -154,6 +155,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   documentTitle,
   onNew,
   onOpenFile,
+  onOpenNativeFile,
   onOpenUrl,
   onEditTitle,
   onInsertTable,
@@ -355,7 +357,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span className="sr-only lg:not-sr-only">Novo</span>
           </button>
 
-          <label className={`${BTN_SECUNDARIO} cursor-pointer`} title="Abrir HTML, DOC, DOCX ou RTF do disco">
+          <label
+            className={`${BTN_SECUNDARIO} cursor-pointer`}
+            title="Abrir HTML, DOC, DOCX ou RTF do disco"
+            onClick={(event) => {
+              if (!onOpenNativeFile) return;
+              event.preventDefault();
+              onOpenNativeFile();
+            }}
+          >
             <FileCode size={14} aria-hidden="true" />
             <span className="sr-only lg:not-sr-only">Abrir</span>
             <input

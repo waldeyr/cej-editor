@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ExternalLink, Plus, X } from 'lucide-react';
-import { Aba, estaSuja } from '../types/abas';
+import { Aba, precisaSalvar } from '../types/abas';
 import { dicaDaAba, rotuloDaAba } from '../utils/abas';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
@@ -86,7 +86,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               */}
               <span
                 aria-hidden="true"
-                className={`size-1.5 rounded-full shrink-0 ${estaSuja(aba) ? 'bg-atencao' : 'bg-transparent'}`}
+                className={`size-1.5 rounded-full shrink-0 ${precisaSalvar(aba) ? 'bg-atencao' : 'bg-transparent'}`}
               />
               <span className="truncate">{rotulo}</span>
             </button>

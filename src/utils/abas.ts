@@ -71,6 +71,7 @@ export function dicaDaAba(aba: Aba): string {
     aba.arquivo?.origem ??
     (aba.arquivo ? aba.arquivo.nome : 'Ainda não salvo em arquivo');
 
+  if (!aba.arquivo?.caminho && !aba.arquivo?.handle) return `${origem}\n\nArquivo não salvo`;
   return estaSuja(aba) ? `${origem}\n\nTem alterações não salvas` : origem;
 }
 

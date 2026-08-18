@@ -5,6 +5,8 @@ interface StatusBarProps {
   blockCount: number;
   issueCount: { errors: number; warnings: number };
   position?: string;
+  dirty: boolean;
+  hasFile: boolean;
   justSaved: boolean;
   /** Resposta passageira a um gesto — uma remissão sem destino, por exemplo. */
   notice?: string;
@@ -31,6 +33,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   blockCount,
   issueCount,
   position,
+  dirty,
+  hasFile,
   justSaved,
   notice,
   onShowFirstIssue,
@@ -117,6 +121,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span className="inline-flex items-center gap-1.5 text-comando text-ok" role="status">
             <span className="size-1.5 rounded-full bg-ok shrink-0" aria-hidden="true" />
             Salvo
+          </span>
+        </>
+      )}
+
+      {dirty && (
+        <>
+          <Separator />
+          <span className="inline-flex items-center gap-1.5 text-comando text-atencao" role="status">
+            <span className="size-1.5 rounded-full bg-atencao shrink-0" aria-hidden="true" />
+            {hasFile ? 'Alterações não salvas' : 'Arquivo não salvo'}
           </span>
         </>
       )}

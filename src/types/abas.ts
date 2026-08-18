@@ -57,3 +57,7 @@ export interface EstadoDasAbas {
 }
 
 export const estaSuja = (aba: Aba): boolean => aba.doc !== aba.limpo;
+
+/** Há alterações ou ainda não existe um destino HTML gravável para a aba. */
+export const precisaSalvar = (aba: Aba): boolean =>
+  estaSuja(aba) || !aba.arquivo?.caminho && !aba.arquivo?.handle;

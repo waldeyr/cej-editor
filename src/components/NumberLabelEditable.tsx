@@ -5,6 +5,8 @@ interface NumberLabelEditableProps {
   label: string;
   /** Classe do `<span>` fora de edição, igual à que a folha já usava. */
   className: string;
+  /** Risca semanticamente o rótulo quando o dispositivo inteiro foi tachado. */
+  struckThrough?: boolean;
   /** Grava o novo rótulo, só quando ele mudou de fato. */
   onCommit: (value: string) => void;
   /** O que vem depois do rótulo na mesma linha — o espaço ou o " - " do agrupador. */
@@ -25,6 +27,7 @@ interface NumberLabelEditableProps {
 export const NumberLabelEditable: React.FC<NumberLabelEditableProps> = ({
   label,
   className,
+  struckThrough = false,
   onCommit,
   children,
 }) => {
@@ -86,7 +89,7 @@ export const NumberLabelEditable: React.FC<NumberLabelEditableProps> = ({
           setEditando(true);
         }}
       >
-        {label}
+        {struckThrough ? <s>{label}</s> : label}
       </span>
       {children}
     </>

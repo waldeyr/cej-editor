@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LegislativeDocument } from '../types/legislative';
-import { EstadoDasAbas, estaSuja } from '../types/abas';
+import { EstadoDasAbas, estaSuja, precisaSalvar } from '../types/abas';
 import {
   abaAtiva,
   abaComArquivo,
@@ -158,6 +158,16 @@ describe('abas do editor', () => {
       estado = reduzirAbas(estado, { tipo: 'alterar', id: 'aba-B', doc: ato('B editado') });
 
       expect(temTrabalhoASalvar(estado).map((a) => a.id)).toEqual(['aba-B']);
+    });
+
+    it('indica quando ainda não há arquivo HTML gravável', () => {
+      expect(precisaSalvar(criarAba(ato('novo')))).toBe(true);
+      expect(precisaSalvar(criarAba(ato('importado'), { arquivo: { nome: 'ato.docx' } }))).toBe(true);
+      expect(
+        precisaSalvar(
+          criarAba(ato('salvo'), { arquivo: { nome: 'ato.html', caminho: '/atos/ato.html' } })
+        )
+      ).toBe(false);
     });
   });
 

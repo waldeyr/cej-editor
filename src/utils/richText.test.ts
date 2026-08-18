@@ -61,6 +61,18 @@ describe('tachado sobre o dispositivo inteiro', () => {
     expect(result.fullyCoveredTargets).toEqual(['block:b2']);
   });
 
+  it('reconhece o caput inteiro quando os nós formatados fragmentam a seleção', () => {
+    const element = campo('<b>Fica</b>&nbsp;revogado o cargo.', 'block:b2-formatado');
+    const range = document.createRange();
+    range.setStart(primeiroTexto(element), 0);
+    const fim = ultimoTexto(element);
+    range.setEnd(fim, fim.length);
+
+    const result = applyInlineFormat([segmento(element, range)], 'strikethrough');
+
+    expect(result.fullyCoveredTargets).toEqual(['block:b2-formatado']);
+  });
+
   it('não confunde um trecho do texto com o dispositivo inteiro', () => {
     const element = campo('Fica revogado o cargo.', 'block:b3');
     const texto = primeiroTexto(element);
