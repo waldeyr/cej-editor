@@ -1,10 +1,11 @@
 {
   "name": "cej-editor",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "CEJ-EDITOR - Editor Web e Desktop de Atos Normativos no padrão Planalto com preservação adaptativa de encoding e executável standalone",
   "author": "Secretaria Especial para Assuntos Jurídicos",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/waldeyr/cej-editor",
   "main": "dist-electron/main.cjs",
   "type": "module",
   "engines": {
@@ -50,7 +51,8 @@
         "deb"
       ],
       "category": "Office",
-      "maintainer": "Waldeyr Mendes Cordeiro da Silva <waldeyr@gmail.com>"
+      "maintainer": "Waldeyr Mendes Cordeiro da Silva <waldeyr@gmail.com>",
+      "icon": "public/assets/marca-cej-512.png"
     },
     "publish": [
       {
