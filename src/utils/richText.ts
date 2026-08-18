@@ -237,14 +237,21 @@ function reselect(first: Node | undefined, last: Node | undefined): void {
  * O trecho tocado neste campo é o campo inteiro, do início ao fim — não apenas
  * uma palavra ou frase no meio dele. É o gesto de quem seleciona um dispositivo
  * inteiro para tachá-lo, e não apenas um trecho do texto dele.
+ *
+ * O critério é o texto visível que sobra fora do trecho, e não a igualdade dos
+ * pontos de fronteira: a seleção arrastada com o mouse ancora nos nós de texto
+ * (`("Fica…", 0)`), enquanto o campo inteiro se descreve no elemento
+ * (`(campo, 0)`) — pontos distintos para o DOM, o mesmo gesto para o redator.
  */
 function coversWholeField(segment: EditableSegment): boolean {
-  const whole = document.createRange();
-  whole.selectNodeContents(segment.element);
-  return (
-    whole.compareBoundaryPoints(Range.START_TO_START, segment.range) === 0 &&
-    whole.compareBoundaryPoints(Range.END_TO_END, segment.range) === 0
-  );
+  const before = document.createRange();
+  before.selectNodeContents(segment.element);
+  const after = before.cloneRange();
+
+  before.setEnd(segment.range.startContainer, segment.range.startOffset);
+  after.setStart(segment.range.endContainer, segment.range.endOffset);
+
+  return before.toString().trim() === '' && after.toString().trim() === '';
 }
 
 export interface InlineFormatResult {
