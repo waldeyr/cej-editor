@@ -12,4 +12,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   abrirNovaJanela: () => ipcRenderer.invoke('janela:nova'),
   publicarAtosAbertos: (atos: unknown[]) => ipcRenderer.invoke('atos:publicarAbertos', atos),
   listarAtosAbertos: () => ipcRenderer.invoke('atos:listarAbertos'),
+  /** Alinha o nativeTheme e o menu da aplicação com a preferência salva. */
+  informarTema: (tema: string) => ipcRenderer.invoke('tema:informar', tema),
+  /** O item "Exibir → Tema" do menu mandou trocar o tema; devolve o cancelamento. */
+  onTemaDefinido: (callback: (tema: string) => void) => {
+    const ouvinte = (_event: unknown, tema: string) => callback(tema);
+    ipcRenderer.on('tema:definir', ouvinte);
+    return () => ipcRenderer.removeListener('tema:definir', ouvinte);
+  },
 });

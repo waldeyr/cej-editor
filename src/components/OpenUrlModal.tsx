@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
 import { Globe, X, Download, Loader2 } from 'lucide-react';
+import {
+  BTN_FANTASMA,
+  BTN_FANTASMA_TEXTO,
+  BTN_PRIMARIO,
+  CAMPO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_RODAPE,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 interface OpenUrlModalProps {
   isOpen: boolean;
@@ -71,64 +81,59 @@ export const OpenUrlModal: React.FC<OpenUrlModalProps> = ({ isOpen, onSubmit, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-base">
-            <Globe size={20} className="shrink-0" />
+    <div className={MODAL_VEU}>
+      <div className={MODAL_CAIXA}>
+        <div className={MODAL_CABECALHO}>
+          <div className="flex items-center gap-2 text-titulo text-texto-forte">
+            <Globe size={18} className="text-acao shrink-0" />
             <span>Abrir Ato de um Endereço</span>
           </div>
-          <button
-            onClick={close}
-            disabled={busy}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 disabled:opacity-40 transition"
-            title="Fechar"
-          >
-            <X size={18} />
+          <button onClick={close} disabled={busy} className={BTN_FANTASMA} title="Fechar">
+            <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-3">
-          <label htmlFor="cej-url" className="block text-xs text-slate-300">
-            Endereço do ato publicado em HTML
-          </label>
-          <input
-            id="cej-url"
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={busy}
-            placeholder="https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2026/decreto/d13090.htm"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 disabled:opacity-60 transition"
-            autoFocus
-          />
-
-          {error ? (
-            <p className="text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2" role="alert">
-              {error}
-            </p>
-          ) : (
-            <p className="text-xs text-slate-400">
-              O arquivo é baixado como veio do servidor: a codificação original é detectada aqui mesmo, como num
-              arquivo do disco.
-            </p>
-          )}
-
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={close}
+        <form onSubmit={submit}>
+          <div className="px-5 py-4 space-y-3">
+            <label htmlFor="cej-url" className="block text-lista text-texto-fraco">
+              Endereço do ato publicado em HTML
+            </label>
+            <input
+              id="cej-url"
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
               disabled={busy}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition"
-            >
+              placeholder="https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2026/decreto/d13090.htm"
+              className={`${CAMPO} disabled:opacity-60`}
+              autoFocus
+            />
+
+            {error ? (
+              <p
+                className="text-lista text-falha bg-falha-suave border border-falha rounded-[5px] px-3 py-2"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : (
+              <p className="text-lista text-texto-fraco">
+                O arquivo é baixado como veio do servidor: a codificação original é detectada aqui
+                mesmo, como num arquivo do disco.
+              </p>
+            )}
+          </div>
+
+          <div className={MODAL_RODAPE}>
+            <button type="button" onClick={close} disabled={busy} className={BTN_FANTASMA_TEXTO}>
               Cancelar
             </button>
-            <button
-              type="submit"
-              disabled={busy || !url.trim()}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-xs font-semibold text-black transition flex items-center gap-1.5"
-            >
-              {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            <button type="submit" disabled={busy || !url.trim()} className={BTN_PRIMARIO}>
+              {busy ? (
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={13} aria-hidden="true" />
+              )}
               {busy ? 'Baixando…' : 'Abrir'}
             </button>
           </div>

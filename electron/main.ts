@@ -1,8 +1,78 @@
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
+
+/*
+ * Tema do chrome — os mesmos três valores de src/utils/tema.ts. Quem guarda a
+ * preferência é o renderer (localStorage); o processo principal só mantém o
+ * menu e o `nativeTheme` alinhados, e repassa a escolha feita pelo menu.
+ */
+type Tema = 'claro' | 'escuro' | 'sistema';
+
+let temaCorrente: Tema = 'claro';
+
+const alinharTemaNativo = (tema: Tema) => {
+  nativeTheme.themeSource = tema === 'sistema' ? 'system' : tema === 'escuro' ? 'dark' : 'light';
+};
+
+/**
+ * Menu da aplicação. Os papéis padrão de edição ficam — o campo editável da
+ * folha depende de recortar/copiar/colar do sistema — e "Exibir" ganha o
+ * item de tema, que dispara o mesmo canal do alternador da barra.
+ */
+const construirMenu = () => {
+  const modelo: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin'
+      ? ([{ role: 'appMenu' }] as Electron.MenuItemConstructorOptions[])
+      : []),
+    { role: 'fileMenu', label: 'Arquivo' },
+    { role: 'editMenu', label: 'Editar' },
+    {
+      label: 'Exibir',
+      submenu: [
+        {
+          label: 'Tema',
+          submenu: (
+            [
+              ['claro', 'Claro'],
+              ['escuro', 'Escuro'],
+              ['sistema', 'Acompanhar o sistema'],
+            ] as const
+          ).map(([tema, rotulo]) => ({
+            label: rotulo,
+            type: 'radio' as const,
+            checked: temaCorrente === tema,
+            click: () => definirTema(tema),
+          })),
+        },
+        { type: 'separator' },
+        { role: 'resetZoom', label: 'Tamanho normal' },
+        { role: 'zoomIn', label: 'Aproximar' },
+        { role: 'zoomOut', label: 'Afastar' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Tela inteira' },
+        { type: 'separator' },
+        { role: 'reload', label: 'Recarregar' },
+        { role: 'toggleDevTools', label: 'Ferramentas do desenvolvedor' },
+      ],
+    },
+    { role: 'windowMenu', label: 'Janela' },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(modelo));
+};
+
+/** Escolha feita no menu: alinha o sistema, o menu e todas as janelas abertas. */
+const definirTema = (tema: Tema) => {
+  temaCorrente = tema;
+  alinharTemaNativo(tema);
+  construirMenu();
+  BrowserWindow.getAllWindows().forEach((janela) => {
+    janela.webContents.send('tema:definir', tema);
+  });
+};
 
 interface PontoDeAncoragemAberto {
   name: string;
@@ -41,7 +111,10 @@ function createWindow(lugar?: LugarDaJanela) {
     x: lugar?.x,
     y: lugar?.y,
     title: 'CEJ-EDITOR - Editor de Atos Normativos',
-    icon: path.join(__dirname, '../public/brasao.svg'),
+    // A cor de --color-sup-1: a janela nasce na superfície das barras, sem
+    // clarão escuro antes de a página pintar.
+    backgroundColor: '#f3f6f9',
+    icon: path.join(__dirname, '../public/assets/marca-cej-512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -66,11 +139,25 @@ function createWindow(lugar?: LugarDaJanela) {
 }
 
 app.whenReady().then(() => {
+  construirMenu();
   createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+/*
+ * O renderer informa a preferência salva ao abrir (localStorage é dele), e o
+ * processo principal alinha o `nativeTheme` e o menu — sem retransmitir, para
+ * a notícia não voltar em eco à origem.
+ */
+ipcMain.handle('tema:informar', (_event, tema: Tema) => {
+  if (tema !== 'claro' && tema !== 'escuro' && tema !== 'sistema') return;
+  if (tema === temaCorrente) return;
+  temaCorrente = tema;
+  alinharTemaNativo(tema);
+  construirMenu();
 });
 
 app.on('window-all-closed', () => {

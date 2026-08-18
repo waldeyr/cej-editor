@@ -114,8 +114,10 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   // As oito operações de tabela dividem uma única superfície neutra. Antes cada
   // uma tinha sua própria matiz (azul, ardósia, roxo, celeste, esmeralda,
   // âmbar) sem que a cor distinguisse nada: o rótulo já diz o que o botão faz.
+  // Cores literais, não tokens: esta régua flutua sobre o papel branco, que é
+  // igual nos dois temas (invariante 2 do design system).
   const tableActionButtonBaseClass =
-    'h-7 px-2 rounded border border-black/10 bg-black/[0.04] hover:bg-black/10 text-tinta text-[11px] font-medium transition inline-flex items-center justify-center whitespace-nowrap';
+    'h-7 px-2 rounded border border-black/10 bg-black/[0.04] hover:bg-black/10 text-[#23313f] text-[11px] font-medium transition inline-flex items-center justify-center whitespace-nowrap';
 
   const normalizeNumberedContentHtml = (html: string, hasNumberLabel: boolean) => {
     if (!hasNumberLabel) return html;
@@ -716,15 +718,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     return { textAlign: align, textIndent: recuo ? indentForAlign(align) : undefined };
   };
 
-  /** Barra flutuante de exclusão das partes fixas. */
+  /** Barra flutuante de exclusão das partes fixas. É chrome flutuando sobre a folha e acompanha o tema. */
   const partActions = (label: string, onDelete: () => void) => (
-    <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
+    <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-sup-1 text-texto rounded-[7px] shadow-cej-3 border border-borda p-[3px] z-20 space-x-1 text-xs">
       <button
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
-        className="p-1 text-legenda hover:text-falha"
+        className="p-1 rounded text-texto-fraco hover:bg-falha-suave hover:text-falha transition-colors"
         title={`Excluir ${label}`}
       >
         <Trash2 size={13} />
@@ -732,8 +734,15 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     </div>
   );
 
+  /*
+   * Anel de seleção e hover sobre a folha: cinza-azul fixo, não token
+   * (invariante 2 do design system) — o fundo deles é o papel branco, que não
+   * muda com o tema.
+   */
   const selectionRingClass = (id: string) =>
-    selectedBlockId === id ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]';
+    selectedBlockId === id
+      ? '[outline:2px_solid_#1351b4] [outline-offset:6px]'
+      : 'hover:[outline:1px_solid_#d5dde6] hover:[outline-offset:6px]';
 
   /*
    * A folha é centrada por `mx-auto` no próprio papel, e não por
@@ -805,28 +814,30 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
          * no parágrafo, para que o realce de seleção também a cubra.
          */
         className={`relative group rounded px-2 py-[7px] transition-all ${
-          isSelected ? 'bg-selo/10 ring-1 ring-selo/50' : 'hover:bg-black/[0.03]'
+          isSelected
+            ? '[outline:2px_solid_#1351b4] [outline-offset:6px]'
+            : 'hover:[outline:1px_solid_#d5dde6] hover:[outline-offset:6px]'
         }`}
       >
-        {/* Barra Flutuante de Ações do Bloco */}
-        <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-tinta text-texto rounded-lg shadow-lg border border-rule px-1 py-0.5 z-20 space-x-1 text-xs">
+        {/* Barra flutuante de ações do bloco — chrome sobre a folha, acompanha o tema. */}
+        <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-sup-1 text-texto rounded-[7px] shadow-cej-3 border border-borda p-[3px] z-20 space-x-1 text-xs">
           <button
             onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
-            className="p-1 hover:bg-rule/60 text-texto rounded flex items-center gap-0.5"
+            className="p-1 rounded text-texto hover:bg-sup-3 transition-colors flex items-center gap-0.5"
             title="Inserir linha sem formatação abaixo (ou tecle Enter)"
           >
             <CornerDownLeft size={13} /> Novo conteúdo
           </button>
           <button
             onClick={(e) => handleAddBlockBelow(index, 'ARTIGO', e)}
-            className="p-1 hover:bg-rule/60 text-rank rounded flex items-center gap-0.5"
+            className="p-1 rounded text-rank hover:bg-sup-3 transition-colors flex items-center gap-0.5"
             title="Adicionar Artigo Abaixo"
           >
             <Plus size={13} /> Art
           </button>
           <button
             onClick={(e) => handleAddBlockBelow(index, 'PARAGRAFO', e)}
-            className="p-1 hover:bg-rule/60 text-legenda rounded flex items-center gap-0.5"
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors flex items-center gap-0.5"
             title="Adicionar Parágrafo Abaixo"
           >
             <Plus size={13} /> §
@@ -840,7 +851,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           <button
             onClick={(e) => handleMoveBlock(index, 'up', e)}
             disabled={index === 0 || index === corte}
-            className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors disabled:opacity-35 disabled:hover:bg-transparent"
             title="Mover para cima"
           >
             <ArrowUp size={13} />
@@ -848,14 +859,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           <button
             onClick={(e) => handleMoveBlock(index, 'down', e)}
             disabled={index === doc.blocks.length - 1 || index === corte - 1}
-            className="p-1 text-legenda hover:text-texto disabled:opacity-30"
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors disabled:opacity-35 disabled:hover:bg-transparent"
             title="Mover para baixo"
           >
             <ArrowDown size={13} />
           </button>
           <button
             onClick={(e) => handleDuplicateBlock(block, e)}
-            className="p-1 text-legenda hover:text-texto"
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
             title="Duplicar Bloco"
           >
             <Copy size={13} />
@@ -867,14 +878,14 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               event.stopPropagation();
               onInsertLink();
             }}
-            className="p-1 text-legenda hover:text-texto"
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
             title="Inserir link no trecho selecionado"
           >
             <Link2 size={13} />
           </button>
           <button
             onClick={(e) => handleDeleteBlock(block.id, e)}
-            className="p-1 text-legenda hover:text-falha"
+            className="p-1 rounded text-texto-fraco hover:bg-falha-suave hover:text-falha transition-colors"
             title="Excluir Bloco"
           >
             <Trash2 size={13} />
@@ -886,7 +897,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           <div className="border border-black/10 rounded-lg p-3 bg-black/[0.02] shadow-sm">
             <div className="flex items-center justify-between mb-2 select-none border-b border-black/10 pb-2">
               <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <TableIcon size={15} className="text-tinta/50" /> Tabela
+                <TableIcon size={15} className="text-black/50" /> Tabela
               </div>
               <div className="flex flex-wrap items-center gap-1 text-[11px]">
                 <button
@@ -984,7 +995,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               html={block.content}
               onCommit={(html) => handleUpdateBlockContent(block.id, html)}
               ariaLabel="Tabela"
-              className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-selo p-1 [&_td]:cursor-text [&_td]:focus:bg-selo/10 [&_th]:cursor-text"
+              className="overflow-x-auto text-xs outline-none focus:ring-1 focus:ring-[#1351b4] p-1 [&_td]:cursor-text [&_td]:focus:bg-[#e8f0fb] [&_th]:cursor-text"
             />
           </div>
         ) : desenhaComoTitulo(block.type) ? (
@@ -1017,7 +1028,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               onKeyDown={(event) => handleBlockEnter(index, event)}
               ariaLabel="Agrupador"
               placeholder="Denominação do agrupador"
-              className={`inline outline-none focus:bg-selo/10 ${semNegritoPadrao ? '' : 'font-bold'} cursor-text`}
+              className={`inline outline-none focus:bg-[#e8f0fb] ${semNegritoPadrao ? '' : 'font-bold'} cursor-text`}
             />
             {fecha && <span className="select-none">{ASPAS_FECHA}</span>}
           </div>
@@ -1058,7 +1069,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                   : block.numberLabel || 'Dispositivo'
               }
               placeholder={fraseDeEspera}
-              className="inline outline-none focus:bg-selo/10 cursor-text"
+              className="inline outline-none focus:bg-[#e8f0fb] cursor-text"
             />
             {fecha && <span className="select-none">{ASPAS_FECHA}</span>}
             {/* A linha pontilhada que encerra a alteração também leva a marca. */}
@@ -1072,7 +1083,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   return (
     <main
       ref={rolagemRef}
-      className="flex-1 h-full bg-tinta overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-selo/40 selection:text-black"
+      className="flex-1 h-full bg-sup-fundo overflow-y-auto p-2 sm:p-4 lg:p-6 flex items-start selection:bg-[#b7d3f5] selection:text-black"
       onKeyDown={handleCanvasKeyDown}
       /*
         A etiqueta é posicionada em coordenadas de janela, medidas no instante em
@@ -1110,7 +1121,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             '--cej-link-hover': LINK_INK_HOVER,
           } as React.CSSProperties
         }
-        className="folha w-full min-w-[640px] max-w-4xl mx-auto bg-white shadow-xl min-h-full h-fit px-5 sm:px-8 lg:px-12 py-6 lg:py-10 mb-12 text-black [font-family:Arial,Helvetica,sans-serif] text-[10pt] leading-normal border border-black/10 rounded-sm select-text"
+        className="folha w-full min-w-[640px] max-w-4xl mx-auto bg-white shadow-cej-2 min-h-full h-fit px-5 sm:px-8 lg:px-12 py-6 lg:py-10 mb-12 text-black [font-family:Arial,Helvetica,sans-serif] text-[10pt] leading-normal border border-borda rounded-md select-text"
       >
         {/* Cabeçalho — no arquivo salvo, brasão e epígrafe ficam dentro de um blockquote. */}
         <div className="mb-4 px-10 select-text">
@@ -1155,7 +1166,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 onKeyDown={handlePartEnter}
                 ariaLabel="Epígrafe do ato"
                 placeholder="Epígrafe"
-                className="outline-none focus:bg-selo/10 rounded font-bold text-[8.3pt] text-[#000080] underline"
+                className="outline-none focus:bg-[#e8f0fb] rounded font-bold text-[8.3pt] text-[#000080] underline"
               />
             </div>
           )}
@@ -1183,7 +1194,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 onKeyDown={handlePartEnter}
                 ariaLabel="Ementa do ato"
                 placeholder="Ementa"
-                className="outline-none focus:bg-selo/10 rounded text-[10pt] text-[#800000]"
+                className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt] text-[#800000]"
                 style={partLayout(partTarget('ementa'), false)}
               />
             </div>
@@ -1207,7 +1218,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               onKeyDown={handlePartEnter}
               ariaLabel="Preâmbulo do ato"
               placeholder="Preâmbulo"
-              className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+              className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
               style={partLayout(partTarget('preambulo'))}
             />
           </div>
@@ -1230,7 +1241,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
               onKeyDown={handleOrdemExecucaoEnter}
               ariaLabel="Ordem de execução"
               placeholder="DECRETA:"
-              className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+              className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
               style={partLayout(partTarget('ordemExecucao'))}
             />
           </div>
@@ -1267,7 +1278,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 onKeyDown={handlePartEnter}
                 ariaLabel="Fecho, local e data"
                 placeholder="Local e data"
-                className="outline-none focus:bg-selo/10 rounded text-[10pt]"
+                className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
                 style={partLayout(partTarget('fecho'))}
               />
             </div>
@@ -1292,7 +1303,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                     onKeyDown={handlePartEnter}
                     ariaLabel={`Assinatura ${index + 1}`}
                     placeholder="Nome do signatário"
-                    className="outline-none focus:bg-selo/10 rounded font-bold cursor-text"
+                    className="outline-none focus:bg-[#e8f0fb] rounded font-bold cursor-text"
                     style={partLayout(target)}
                   />
                 </div>

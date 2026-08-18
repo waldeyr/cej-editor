@@ -59,7 +59,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, ariaLabel, onClo
       role="menu"
       aria-label={ariaLabel}
       style={{ left: position.left, top: position.top }}
-      className="fixed z-40 min-w-56 py-1 bg-tinta border border-rule rounded-lg shadow-2xl select-none"
+      className="fixed z-40 min-w-56 py-1 bg-sup-1 border border-borda rounded-lg shadow-cej-3 select-none"
     >
       {children}
     </div>
@@ -70,6 +70,8 @@ interface ContextMenuItemProps {
   label: string;
   hint?: string;
   icon: React.ReactNode;
+  /** Item que desfaz ou apaga algo: tinta de falha, hover na suave dela. */
+  destrutivo?: boolean;
   onActivate: () => void;
   onClose: () => void;
 }
@@ -83,6 +85,7 @@ export const ContextMenuItem: React.FC<ContextMenuItemProps> = ({
   label,
   hint,
   icon,
+  destrutivo = false,
   onActivate,
   onClose,
 }) => (
@@ -93,10 +96,14 @@ export const ContextMenuItem: React.FC<ContextMenuItemProps> = ({
       onActivate();
       onClose();
     }}
-    className="w-full flex items-center gap-2 px-3 py-1.5 text-comando text-texto hover:bg-rule/60 transition-colors text-left"
+    className={`w-full flex items-center gap-2 px-3 py-1.5 text-comando transition-colors text-left ${
+      destrutivo
+        ? 'text-falha hover:bg-falha-suave'
+        : 'text-texto hover:bg-acao-suave hover:text-acao-forte'
+    }`}
   >
-    <span className="shrink-0 text-legenda">{icon}</span>
+    <span className={`shrink-0 ${destrutivo ? 'text-falha' : 'text-texto-fraco'}`}>{icon}</span>
     <span className="flex-1 truncate">{label}</span>
-    {hint && <span className="font-dado text-dado text-legenda shrink-0">{hint}</span>}
+    {hint && <span className="font-dado text-dado text-texto-fraco shrink-0">{hint}</span>}
   </button>
 );

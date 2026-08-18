@@ -62,11 +62,11 @@ export const CanvasHint: React.FC<{ hint: CanvasHintState }> = ({ hint }) => {
       ref={ref}
       role="tooltip"
       style={{ left: position.left, top: position.top }}
-      className="fixed z-30 pointer-events-none max-w-[min(30rem,88vw)] px-2 py-1.5 bg-tinta border border-rule rounded shadow-xl"
+      className="fixed z-30 pointer-events-none max-w-[min(30rem,88vw)] px-2 py-1.5 bg-sup-1 border border-borda rounded shadow-cej-2"
     >
       <div className="font-dado text-dado leading-snug text-texto break-all">{hint.label}</div>
       {hint.note && (
-        <div className="text-dado leading-snug text-legenda mt-1 truncate">{hint.note}</div>
+        <div className="text-dado leading-snug text-texto-fraco mt-1 truncate">{hint.note}</div>
       )}
     </div>
   );

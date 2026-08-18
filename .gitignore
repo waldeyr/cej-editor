@@ -39,3 +39,6 @@ docs/file-tests/*
 !docs/file-tests/problematicos/
 !docs/file-tests/problematicos/*.rtf
 !docs/file-tests/problematicos/*.html
+
+
+temp/*

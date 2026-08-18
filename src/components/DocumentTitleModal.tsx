@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Type, X, RotateCcw, Check } from 'lucide-react';
+import {
+  BTN_FANTASMA,
+  BTN_FANTASMA_TEXTO,
+  BTN_PRIMARIO,
+  CAMPO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_RODAPE,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 interface DocumentTitleModalProps {
   isOpen: boolean;
@@ -53,54 +63,53 @@ export const DocumentTitleModal: React.FC<DocumentTitleModalProps> = ({
   const podeSeguirEpigrafe = isManual && Boolean(suggested) && suggested !== draft.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-base">
-            <Type size={20} className="shrink-0" />
+    <div className={MODAL_VEU}>
+      <div className={MODAL_CAIXA}>
+        <div className={MODAL_CABECALHO}>
+          <div className="flex items-center gap-2 text-titulo text-texto-forte">
+            <Type size={18} className="text-acao shrink-0" />
             <span>Título do Documento</span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-            title="Fechar"
-          >
-            <X size={18} />
+          <button onClick={onClose} className={BTN_FANTASMA} title="Fechar">
+            <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-3">
-          <label htmlFor="cej-title" className="block text-xs text-slate-300">
-            Vai para o <code className="font-mono text-amber-300">&lt;title&gt;</code> do arquivo salvo — nomeia a aba
-            do navegador e sugere o nome do arquivo ao salvar.
-          </label>
-          <input
-            id="cej-title"
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="DECRETO Nº 13.090, DE 4 DE AGOSTO DE 2026"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
-            autoFocus
-          />
+        <form onSubmit={submit}>
+          <div className="px-5 py-4 space-y-3">
+            <label htmlFor="cej-title" className="block text-lista text-texto-fraco">
+              Vai para o <code className="font-dado text-texto">&lt;title&gt;</code> do arquivo salvo —
+              nomeia a aba do navegador e sugere o nome do arquivo ao salvar.
+            </label>
+            <input
+              id="cej-title"
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="DECRETO Nº 13.090, DE 4 DE AGOSTO DE 2026"
+              className={CAMPO}
+              autoFocus
+            />
 
-          <p className="text-xs text-slate-400">
-            {isManual ? (
-              <>
-                Definido à mão: corrigir a epígrafe não altera mais este título.
-                {suggested && (
-                  <>
-                    {' '}
-                    A epígrafe hoje diz <span className="text-slate-300">“{suggested}”</span>.
-                  </>
-                )}
-              </>
-            ) : (
-              <>Segue a epígrafe do ato. Ao gravar aqui, passa a valer o que você escrever.</>
-            )}
-          </p>
+            <p className="text-lista text-texto-fraco">
+              {isManual ? (
+                <>
+                  Definido à mão: corrigir a epígrafe não altera mais este título.
+                  {suggested && (
+                    <>
+                      {' '}
+                      A epígrafe hoje diz <span className="text-texto">“{suggested}”</span>.
+                    </>
+                  )}
+                </>
+              ) : (
+                <>Segue a epígrafe do ato. Ao gravar aqui, passa a valer o que você escrever.</>
+              )}
+            </p>
+          </div>
 
-          <div className="flex items-center justify-between gap-2 pt-1">
+          {/* Rodapé: fantasma → secundário (voltar à epígrafe) → primário. */}
+          <div className={`${MODAL_RODAPE} justify-between`}>
             <button
               type="button"
               onClick={() => {
@@ -108,26 +117,18 @@ export const DocumentTitleModal: React.FC<DocumentTitleModalProps> = ({
                 onClose();
               }}
               disabled={!podeSeguirEpigrafe}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-amber-300 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition flex items-center gap-1.5"
+              className={BTN_FANTASMA_TEXTO}
               title="Voltar a derivar o título da epígrafe"
             >
-              <RotateCcw size={13} /> Voltar a seguir a epígrafe
+              <RotateCcw size={13} aria-hidden="true" /> Voltar a seguir a epígrafe
             </button>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
-              >
+              <button type="button" onClick={onClose} className={BTN_FANTASMA_TEXTO}>
                 Cancelar
               </button>
-              <button
-                type="submit"
-                disabled={!draft.trim()}
-                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-xs font-semibold text-black transition flex items-center gap-1.5"
-              >
-                <Check size={13} /> Gravar
+              <button type="submit" disabled={!draft.trim()} className={BTN_PRIMARIO}>
+                <Check size={13} aria-hidden="true" /> Gravar
               </button>
             </div>
           </div>

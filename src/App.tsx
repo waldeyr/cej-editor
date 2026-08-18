@@ -95,6 +95,7 @@ import {
   numberLabelForTypeAt,
 } from './utils/blockTypes';
 import { desenhaComoTitulo } from './utils/rank';
+import { Tema, aplicarTema, guardarTema, temaGuardado } from './utils/tema';
 import mammoth from 'mammoth';
 
 declare global {
@@ -120,6 +121,10 @@ declare global {
       publicarAtosAbertos?: (atos: AtoAberto[]) => Promise<void>;
       /** Lê os destinos publicados pelas outras janelas abertas. */
       listarAtosAbertos?: () => Promise<AtoAberto[]>;
+      /** Alinha o `nativeTheme` do processo principal com a preferência salva. */
+      informarTema?: (tema: Tema) => Promise<void>;
+      /** O item "Exibir → Tema" do menu da aplicação mandou trocar o tema. */
+      onTemaDefinido?: (callback: (tema: Tema) => void) => () => void;
     };
   }
 }
@@ -396,6 +401,34 @@ export const App: React.FC = () => {
   const redo = useCallback(() => despachar({ tipo: 'refazer' }), []);
 
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+
+  /*
+   * Tema do chrome. O inline script de index.html já pintou a primeira tela;
+   * daqui em diante a escolha vive neste estado, vinda do menu "Exibir" da
+   * barra ou do menu da aplicação no desktop. Só o <html data-tema> muda:
+   * nenhum componente consulta o tema — todos leem tokens.
+   */
+  const [tema, setTema] = useState<Tema>(temaGuardado);
+
+  useEffect(() => {
+    aplicarTema(tema);
+    void window.electronAPI?.informarTema?.(tema);
+    if (tema !== 'sistema') return;
+
+    // Em "sistema", a troca de preferência do SO repinta o chrome na hora.
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const aoMudar = () => aplicarTema('sistema');
+    media.addEventListener('change', aoMudar);
+    return () => media.removeEventListener('change', aoMudar);
+  }, [tema]);
+
+  const definirTema = useCallback((escolhido: Tema) => {
+    guardarTema(escolhido);
+    setTema(escolhido);
+  }, []);
+
+  // O item "Exibir → Tema" do menu da aplicação dispara o mesmo canal.
+  useEffect(() => window.electronAPI?.onTemaDefinido?.(definirTema), [definirTema]);
   /** Aba que o redator mandou fechar e ainda tem trabalho a perder. */
   const [fechamentoPendente, setFechamentoPendente] = useState<FechamentoPendente | null>(null);
   const [activeFormats, setActiveFormats] = useState<InlineFormat[]>([]);
@@ -1812,6 +1845,22 @@ export const App: React.FC = () => {
     warnings: issues.filter((i) => i.severity === 'warning').length,
   };
 
+  /** O tipo do dispositivo selecionado, que acende a ficha na barra de estrutura. */
+  const activeBlockType = useMemo(
+    () => doc.blocks.find((block) => block.id === selectedBlockId)?.type,
+    [doc.blocks, selectedBlockId]
+  );
+
+  /** A contagem da barra de estado é a porta: leva ao primeiro problema apontado. */
+  const irAoPrimeiroProblema = useCallback(() => {
+    const alvo = issues.find((issue) => issue.blockId);
+    if (!alvo?.blockId) return;
+    setSelectedBlockId(alvo.blockId);
+    document
+      .getElementById(`block-${alvo.blockId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [issues, setSelectedBlockId]);
+
   // Endereço legislativo da posição corrente, exibido na barra de estado.
   const position = useMemo(() => {
     if (!selectedBlockId) return undefined;
@@ -1837,7 +1886,7 @@ export const App: React.FC = () => {
   }, [selectedBlockId, doc.blocks]);
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-tinta overflow-hidden select-none">
+    <div className="w-screen h-screen flex flex-col bg-sup-fundo overflow-hidden select-none">
       {/* Barra de Comandos */}
       <Toolbar
         documentTitle={doc.title || htmlToPlainText(doc.epigrafe)}
@@ -1855,6 +1904,9 @@ export const App: React.FC = () => {
         onAlign={handleAlign}
         activeFormats={activeFormats}
         activeAlign={activeAlign}
+        activeBlockType={activeBlockType}
+        tema={tema}
+        onTema={definirTema}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         onUndo={undo}
@@ -1917,6 +1969,7 @@ export const App: React.FC = () => {
         position={position}
         justSaved={justSaved}
         notice={notice}
+        onShowFirstIssue={irAoPrimeiroProblema}
       />
 
       {/* Confirmação antes de fechar um ato com trabalho a perder */}

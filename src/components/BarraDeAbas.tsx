@@ -31,8 +31,9 @@ interface MenuDaAba {
  *
  * Fica entre a barra de comandos e a folha, e não como quarta linha da barra:
  * é onde o FrontPage a punha, e é a leitura natural — os comandos agem sobre o
- * ato, e o ato é o que a aba escolhe. A aba ativa toma a cor da área de baixo,
- * de modo que ela e a folha formem uma superfície só.
+ * ato, e o ato é o que a aba escolhe. A aba ativa sobe para a superfície das
+ * barras (--sup-1) e leva o fio de ação no topo; as inativas ficam um degrau
+ * abaixo, na superfície de painel.
  */
 export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
   abas,
@@ -48,7 +49,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
     <div
       role="tablist"
       aria-label="Atos abertos"
-      className="w-full shrink-0 h-8 flex items-stretch gap-px bg-tinta-alta border-b border-rule/60 overflow-x-auto select-none"
+      className="w-full shrink-0 h-8 flex items-stretch gap-px bg-sup-2 border-b border-borda overflow-x-auto select-none"
     >
       {abas.map((aba) => {
         const selecionada = aba.id === ativa;
@@ -62,8 +63,10 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               e.preventDefault();
               setMenu({ abaId: aba.id, x: e.clientX, y: e.clientY });
             }}
-            className={`group flex items-center gap-1 pl-2.5 pr-1 min-w-32 max-w-52 shrink-0 border-r border-rule/40 transition-colors ${
-              selecionada ? 'bg-tinta' : 'bg-tinta-alta hover:bg-rule/40'
+            className={`group flex items-center gap-1 pl-2.5 pr-1 min-w-32 max-w-52 shrink-0 border-r border-borda-suave transition-colors ${
+              selecionada
+                ? 'bg-sup-1 shadow-[inset_0_2px_0_0_var(--color-acao)]'
+                : 'bg-sup-2 hover:bg-sup-3'
             }`}
           >
             <button
@@ -73,7 +76,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               onClick={() => onAtivar(aba.id)}
               title={dicaDaAba(aba)}
               className={`flex items-center gap-1.5 min-w-0 flex-1 h-full text-comando text-left truncate ${
-                selecionada ? 'text-texto' : 'text-legenda'
+                selecionada ? 'text-texto-forte' : 'text-texto-fraco'
               }`}
             >
               {/*
@@ -83,7 +86,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               */}
               <span
                 aria-hidden="true"
-                className={`size-1.5 rounded-full shrink-0 ${estaSuja(aba) ? 'bg-selo' : 'bg-transparent'}`}
+                className={`size-1.5 rounded-full shrink-0 ${estaSuja(aba) ? 'bg-atencao' : 'bg-transparent'}`}
               />
               <span className="truncate">{rotulo}</span>
             </button>
@@ -93,7 +96,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               onClick={() => onFechar(aba.id)}
               title={`Fechar “${rotulo}”`}
               aria-label={`Fechar “${rotulo}”`}
-              className="inline-flex items-center justify-center size-5 rounded shrink-0 text-legenda hover:text-texto hover:bg-rule/70 transition-colors"
+              className="inline-flex items-center justify-center size-5 rounded-[5px] shrink-0 text-texto-fraco hover:text-texto hover:bg-sup-3 transition-colors"
             >
               <X size={13} />
             </button>
@@ -106,7 +109,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
         onClick={onNova}
         title="Abrir um ato novo em outra aba (Ctrl+T)"
         aria-label="Abrir um ato novo em outra aba"
-        className="inline-flex items-center justify-center size-7 my-0.5 ml-1 rounded shrink-0 text-legenda hover:text-texto hover:bg-rule/70 transition-colors"
+        className="inline-flex items-center justify-center size-7 my-0.5 ml-1 rounded-[5px] shrink-0 text-texto-fraco hover:text-texto hover:bg-sup-3 transition-colors"
       >
         <Plus size={15} />
       </button>

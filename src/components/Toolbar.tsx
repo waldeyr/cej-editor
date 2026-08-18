@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FileCode,
   Globe,
+  Monitor,
+  Moon,
   Save,
+  Sun,
+  SunMoon,
   Download,
   FilePlus,
   Bold,
@@ -37,7 +41,16 @@ import {
   PARTES_PRELIMINARES,
 } from '../utils/docTargets';
 import { textInkOf, weightOf } from '../utils/rank';
-import logoCej from '../assets/logo-cej.png';
+import {
+  BTN_FANTASMA,
+  BTN_PRIMARIO,
+  BTN_SECUNDARIO,
+  FICHA,
+  FICHA_ATIVA,
+} from '../utils/estilos';
+import marcaCej from '../assets/marca-cej.svg';
+import { NOME_DO_TEMA, TEMAS, Tema } from '../utils/tema';
+import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
 export type TextCommand = InlineFormat | 'clearStyle' | 'link' | 'anchor';
 
@@ -67,6 +80,11 @@ interface ToolbarProps {
   onAlign: (align: BlockAlign) => void;
   activeFormats: readonly InlineFormat[];
   activeAlign?: BlockAlign;
+  /** Tipo do dispositivo selecionado — acende a ficha correspondente na barra de estrutura. */
+  activeBlockType?: BlockType;
+  /** Tema corrente do chrome, para o menu Exibir. */
+  tema: Tema;
+  onTema: (tema: Tema) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onUndo?: () => void;
@@ -75,13 +93,18 @@ interface ToolbarProps {
   canRedo?: boolean;
 }
 
-const COMMAND_CLASS =
-  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-comando text-texto bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0 disabled:opacity-35 disabled:hover:bg-tinta-alta';
+/*
+ * Ficha de 24px em formato de ícone quadrado: as mesmas superfícies de
+ * FICHA / FICHA_ATIVA (utils/estilos.ts), sem o px-2 que faria a largura do
+ * botão pular quando o estado ativo acende.
+ */
+const FICHA_ICONE =
+  'inline-flex items-center justify-center size-6 rounded text-texto-fraco bg-sup-2 border border-borda-suave hover:bg-sup-3 hover:text-texto transition-colors shrink-0';
 
-const ICON_CLASS =
-  'inline-flex items-center justify-center size-7 rounded text-legenda hover:text-texto hover:bg-tinta-alta transition-colors shrink-0 disabled:opacity-30 disabled:hover:bg-transparent';
+const FICHA_ICONE_ATIVA =
+  'inline-flex items-center justify-center size-6 rounded bg-acao-suave text-acao-forte border border-acao-borda shrink-0';
 
-const Divider: React.FC = () => <span className="h-4 w-px bg-rule shrink-0" aria-hidden="true" />;
+const Divider: React.FC = () => <span className="h-4 w-px bg-borda shrink-0" aria-hidden="true" />;
 
 /*
  * Dispositivos da estrutura. A posição hierárquica é ordinal, então todos os
@@ -143,6 +166,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onAlign,
   activeFormats,
   activeAlign,
+  activeBlockType,
+  tema,
+  onTema,
   sidebarOpen,
   onToggleSidebar,
   onUndo,
@@ -153,6 +179,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const preserveSelectionMouseDown = (e: React.MouseEvent<HTMLElement>) => {
     // Impede que o clique na barra roube o foco e colapse a seleção corrente.
     e.preventDefault();
+  };
+
+  /*
+   * Menu "Exibir" da barra — a superfície de comando do tema no navegador,
+   * onde não há menu de aplicação. Um menu, e não um alternador permanente:
+   * tema se escolhe uma vez, não a cada hora de trabalho.
+   */
+  const [menuExibir, setMenuExibir] = useState<{ x: number; y: number } | null>(null);
+
+  const ICONE_DO_TEMA: Record<Tema, React.ReactNode> = {
+    claro: <Sun size={14} />,
+    escuro: <Moon size={14} />,
+    sistema: <Monitor size={14} />,
   };
 
   /*
@@ -167,7 +206,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onMouseDown={preserveSelectionMouseDown}
       onClick={() => onApplyPart(part)}
       title={`Fazer do texto selecionado ${GENERO_DA_PARTE[part]} ${NOME_DA_PARTE[part].toLowerCase()} do ato`}
-      className="h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+      className={FICHA}
     >
       {NOME_DA_PARTE[part]}
     </button>
@@ -178,19 +217,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
    * seleção no `mousedown` como os botões de negrito e itálico: sem isso o
    * clique tira o foco da folha e o trecho a formatar se perde no caminho.
    */
-  const structureButton = (type: BlockType) => (
-    <button
-      key={type}
-      type="button"
-      onMouseDown={preserveSelectionMouseDown}
-      onClick={() => onApplyBlockType(type)}
-      title={`Transformar o texto selecionado em ${blockTypeName(type)}`}
-      className="h-6 px-2 rounded text-comando bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
-      style={{ color: 'var(--color-rank)', opacity: textInkOf(type), fontWeight: weightOf(type) }}
-    >
-      {blockTypeName(type)}
-    </button>
-  );
+  const structureButton = (type: BlockType) => {
+    // A ficha acesa marca o tipo do dispositivo selecionado — a mesma resposta
+    // que o negrito ligado dá na barra de texto.
+    const ativa = type === activeBlockType;
+    return (
+      <button
+        key={type}
+        type="button"
+        onMouseDown={preserveSelectionMouseDown}
+        onClick={() => onApplyBlockType(type)}
+        title={`Transformar o texto selecionado em ${blockTypeName(type)}`}
+        className={ativa ? FICHA_ATIVA : FICHA}
+        style={
+          ativa
+            ? { fontWeight: weightOf(type) }
+            : { color: 'var(--color-rank)', opacity: textInkOf(type), fontWeight: weightOf(type) }
+        }
+      >
+        {blockTypeName(type)}
+      </button>
+    );
+  };
 
   /*
    * Botões de texto. Eles permanecem na barra o tempo todo: escondê-los até que
@@ -212,9 +260,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       aria-label={label}
       aria-pressed={isActive}
       title={label}
-      className={`inline-flex items-center justify-center size-6 rounded transition-colors shrink-0 ${
-        isActive ? 'bg-rule text-texto' : 'text-legenda bg-tinta-alta hover:bg-rule/70 hover:text-texto'
-      }`}
+      className={isActive ? FICHA_ICONE_ATIVA : FICHA_ICONE}
     >
       {icon}
     </button>
@@ -230,7 +276,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onMouseDown={preserveSelectionMouseDown}
       onClick={onActivate}
       title={label}
-      className="inline-flex items-center gap-1.5 h-6 px-2 rounded text-comando text-texto bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+      className={FICHA}
     >
       {icon}
       {label}
@@ -238,7 +284,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   );
 
   return (
-    <header className="w-full shrink-0 bg-tinta border-b border-rule/60 select-none">
+    <header className="w-full shrink-0 bg-sup-1 border-b border-borda select-none">
       {/* Linha permanente: identidade, documento e ações de arquivo. */}
       {/*
         Comandos de arquivo. Abaixo de 1024px os rotulos recolhem para leitores
@@ -246,12 +292,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         janela sem rolagem alguma - inalcancavel. A rolagem aqui e rede de
         seguranca para as janelas mais estreitas, nao o arranjo normal.
       */}
-      <div className="flex items-center gap-2 px-2 h-11 border-b border-rule/40 overflow-x-auto">
+      <div className="flex items-center gap-2 px-2 h-11 border-b border-borda-suave overflow-x-auto">
         {/*
           Abaixo de 1024px a lista lateral já sai de cena por CSS (ver
           SidebarTree), e um botão que comanda o que não está lá promete o que
           não pode cumprir. O invólucro é quem esconde: `hidden` na própria
-          classe do botão perderia para o `inline-flex` que ICON_CLASS traz —
+          classe do botão perderia para o `inline-flex` que BTN_FANTASMA traz —
           entre duas utilidades de display, quem vence é a ordem da folha de
           estilo gerada, não a ordem em que aparecem no atributo.
         */}
@@ -259,7 +305,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             onClick={onToggleSidebar}
-            className={ICON_CLASS}
+            className={BTN_FANTASMA}
             aria-label={sidebarOpen ? 'Recolher a vista do ato' : 'Expandir a vista do ato'}
             title={sidebarOpen ? 'Recolher a vista do ato' : 'Expandir a vista do ato'}
           >
@@ -269,19 +315,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         {/*
           Marca e nome formam um conjunto só, e por isso ficam mais próximos
-          entre si do que do botão ao lado. O ícone foi desenhado sobre branco
-          e vem numa placa clara: descartar esse branco deixaria a folha do
-          próprio desenho transparente sobre o chrome escuro, e a marca perderia
-          justamente o papel que ela representa.
+          entre si do que do botão ao lado. A marca traz a própria placa azul
+          dentro do SVG — nada de fundo por fora dela.
         */}
         <div className="flex items-center gap-1.5 shrink-0">
           <img
-            src={logoCej}
+            src={marcaCej}
             alt=""
             aria-hidden="true"
-            className="size-6 rounded-[5px] bg-white object-contain shrink-0"
+            className="size-6 rounded-[5px] object-contain shrink-0"
           />
-          <span className="text-titulo text-texto hidden sm:inline">CEJ-EDITOR</span>
+          <span className="text-titulo text-texto-forte hidden sm:inline">CEJ-EDITOR</span>
         </div>
 
         <Divider />
@@ -295,7 +339,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           type="button"
           onClick={onEditTitle}
           title={`${documentTitle}\n\nClique para definir o título do documento`}
-          className="hidden md:block text-comando text-legenda hover:text-texto truncate min-w-0 flex-1 text-left rounded px-1 -mx-1 py-0.5 hover:bg-tinta-alta transition-colors"
+          className="hidden md:block text-comando text-texto-fraco hover:text-texto truncate min-w-0 flex-1 text-left rounded px-1 -mx-1 py-0.5 hover:bg-sup-3 transition-colors"
         >
           {documentTitle}
         </button>
@@ -306,12 +350,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             documento parecidos entre si. A dica os distingue para quem vê; o
             rótulo em `sr-only` continua nomeando o botão para quem não vê.
           */}
-          <button type="button" onClick={onNew} className={COMMAND_CLASS} title="Novo documento">
+          <button type="button" onClick={onNew} className={BTN_SECUNDARIO} title="Novo documento">
             <FilePlus size={14} aria-hidden="true" />
             <span className="sr-only lg:not-sr-only">Novo</span>
           </button>
 
-          <label className={`${COMMAND_CLASS} cursor-pointer`} title="Abrir HTML, DOC, DOCX ou RTF do disco">
+          <label className={`${BTN_SECUNDARIO} cursor-pointer`} title="Abrir HTML, DOC, DOCX ou RTF do disco">
             <FileCode size={14} aria-hidden="true" />
             <span className="sr-only lg:not-sr-only">Abrir</span>
             <input
@@ -325,7 +369,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             onClick={onOpenUrl}
-            className={COMMAND_CLASS}
+            className={BTN_SECUNDARIO}
             title="Abrir um ato publicado na internet pelo endereço"
           >
             <Globe size={14} aria-hidden="true" />
@@ -338,7 +382,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             type="button"
             onClick={onUndo}
             disabled={!canUndo}
-            className={ICON_CLASS}
+            className={BTN_FANTASMA}
             aria-label="Desfazer"
             title="Desfazer (Ctrl+Z)"
           >
@@ -349,7 +393,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             type="button"
             onClick={onRedo}
             disabled={!canRedo}
-            className={ICON_CLASS}
+            className={BTN_FANTASMA}
             aria-label="Refazer"
             title="Refazer (Ctrl+Y)"
           >
@@ -361,7 +405,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             onClick={onSave}
-            className={`${COMMAND_CLASS} bg-rank/15 border border-rank/30 hover:bg-rank/25`}
+            className={BTN_PRIMARIO}
             title="Salvar o ato"
           >
             <Save size={14} aria-hidden="true" />
@@ -371,14 +415,50 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             onClick={onSaveAs}
-            className={COMMAND_CLASS}
+            className={BTN_SECUNDARIO}
             title="Salvar com outro nome"
           >
             <Download size={14} aria-hidden="true" />
             <span className="sr-only lg:not-sr-only">Salvar como…</span>
           </button>
+
+          <Divider />
+
+          <button
+            type="button"
+            onClick={(event) => {
+              const { left, bottom } = event.currentTarget.getBoundingClientRect();
+              setMenuExibir((aberto) => (aberto ? null : { x: left, y: bottom + 4 }));
+            }}
+            className={BTN_FANTASMA}
+            aria-label="Exibir — tema do editor"
+            aria-haspopup="menu"
+            title="Exibir — tema do editor"
+          >
+            <SunMoon size={16} />
+          </button>
         </div>
       </div>
+
+      {menuExibir && (
+        <ContextMenu
+          x={menuExibir.x}
+          y={menuExibir.y}
+          ariaLabel="Tema do editor"
+          onClose={() => setMenuExibir(null)}
+        >
+          {TEMAS.map((opcao) => (
+            <ContextMenuItem
+              key={opcao}
+              label={NOME_DO_TEMA[opcao]}
+              hint={tema === opcao ? '✓' : undefined}
+              icon={ICONE_DO_TEMA[opcao]}
+              onActivate={() => onTema(opcao)}
+              onClose={() => setMenuExibir(null)}
+            />
+          ))}
+        </ContextMenu>
+      )}
 
       {/*
        * Linha de texto: alinhamento, formatação inline, remissões e, ao fim, as
@@ -391,7 +471,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         estreita cortaria os primeiros botões num ponto que a rolagem não
         alcança. Assim eles ficam no centro quando cabem e roláveis quando não.
       */}
-      <div className="flex px-2 h-9 overflow-x-auto border-b border-rule/30">
+      <div className="flex px-2 h-9 overflow-x-auto border-b border-borda-suave">
         <div className="flex items-center gap-1 mx-auto">
         {ALINHAMENTOS.map(({ align, label, icon }) =>
           textButton(label, icon, () => onAlign(align), activeAlign === align)
@@ -434,7 +514,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={preserveSelectionMouseDown}
           onClick={() => onApplyBlockType('TEXTO_LIVRE')}
-          className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-texto bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+          className={FICHA}
           title="Inserir uma linha sem formatação abaixo do cursor (o mesmo que teclar Enter no fim de um dispositivo)"
         >
           <CornerDownLeft size={12} aria-hidden="true" /> Novo conteúdo
@@ -444,7 +524,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={preserveSelectionMouseDown}
           onClick={onInsertTable}
-          className="inline-flex items-center gap-1.5 h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+          className={FICHA}
           title="Inserir tabela"
         >
           <Table size={13} aria-hidden="true" /> Inserir tabela
@@ -477,7 +557,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onMouseDown={preserveSelectionMouseDown}
           onClick={() => onApplyBlockType('ALTERACAO')}
           title="Transformar o texto selecionado em dispositivo alterado, entre aspas"
-          className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+          className={FICHA}
         >
           <Quote size={12} aria-hidden="true" /> Alteração
         </button>
@@ -487,7 +567,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onMouseDown={preserveSelectionMouseDown}
           onClick={() => onApplyBlockType('OMISSIS')}
           title="Marcar o dispositivo selecionado como omissis, que perde a numeração"
-          className="h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+          className={FICHA}
         >
           Omissis
         </button>
@@ -506,7 +586,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onMouseDown={preserveSelectionMouseDown}
           onClick={onRenumber}
           title="Refazer a numeração dos dispositivos selecionados — ou de todo o ato, se nada estiver selecionado"
-          className="inline-flex items-center gap-1 h-6 px-2 rounded text-comando text-legenda bg-tinta-alta hover:bg-rule/70 transition-colors shrink-0"
+          className={FICHA}
         >
           <ListOrdered size={12} aria-hidden="true" /> Renumerar
         </button>

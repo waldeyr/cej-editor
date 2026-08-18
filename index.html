@@ -2,17 +2,41 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/brasao.svg" />
+    <link rel="icon" type="image/svg+xml" href="/assets/marca-cej.svg" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CEJ-EDITOR - Editor de Atos Normativos</title>
+    <!--
+      O tema é aplicado antes da primeira pintura, para não haver clarão de
+      tema errado ao abrir. O mesmo cálculo vive em src/utils/tema.ts — mudou
+      lá, confira aqui. O fundo provisório repete --color-sup-fundo de cada
+      tema só até a folha de estilo chegar.
+    -->
+    <script>
+      (function () {
+        var tema = 'claro';
+        try {
+          var lido = localStorage.getItem('cej:tema');
+          if (lido === 'claro' || lido === 'escuro' || lido === 'sistema') tema = lido;
+        } catch (e) {}
+        var resolvido =
+          tema === 'sistema'
+            ? window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'escuro'
+              : 'claro'
+            : tema;
+        document.documentElement.dataset.tema = resolvido;
+        document.documentElement.style.backgroundColor =
+          resolvido === 'escuro' ? '#131c25' : '#e3e9ef';
+      })();
+    </script>
   </head>
   <!--
     Apenas geometria em estilo inline: cor e tipografia pertencem aos tokens de
-    src/index.css, e estilos inline venceriam a folha de estilo. O fundo repete
-    o valor de --color-tinta unicamente para evitar um lampejo branco antes de
-    a folha ser aplicada.
+    src/index.css, e estilos inline venceriam a folha de estilo. O fundo vem do
+    <html>, pintado pelo script acima.
   -->
-  <body style="margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden; background-color: #16202b;">
+  <body style="margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden;">
     <div id="root" style="width: 100%; height: 100%;"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

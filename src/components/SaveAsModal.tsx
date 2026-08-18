@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Save, X, Check } from 'lucide-react';
+import {
+  BTN_FANTASMA,
+  BTN_FANTASMA_TEXTO,
+  BTN_PRIMARIO,
+  CAMPO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_RODAPE,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 interface SaveAsModalProps {
   isOpen: boolean;
@@ -72,56 +82,46 @@ export const SaveAsModal: React.FC<SaveAsModalProps> = ({ isOpen, suggested, onS
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-base">
-            <Save size={20} className="shrink-0" />
+    <div className={MODAL_VEU}>
+      <div className={MODAL_CAIXA}>
+        <div className={MODAL_CABECALHO}>
+          <div className="flex items-center gap-2 text-titulo text-texto-forte">
+            <Save size={18} className="text-acao shrink-0" />
             <span>Salvar Como</span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-            title="Fechar sem salvar"
-          >
-            <X size={18} />
+          <button onClick={onClose} className={BTN_FANTASMA} title="Fechar sem salvar">
+            <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-3">
-          <label htmlFor="cej-nome-arquivo" className="block text-xs text-slate-300">
-            Nome do arquivo
-          </label>
-          <input
-            id="cej-nome-arquivo"
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onFocus={(e) => e.target.select()}
-            placeholder="decreto_13090.html"
-            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
-            autoFocus
-          />
+        <form onSubmit={submit}>
+          <div className="px-5 py-4 space-y-3">
+            <label htmlFor="cej-nome-arquivo" className="block text-lista text-texto-fraco">
+              Nome do arquivo
+            </label>
+            <input
+              id="cej-nome-arquivo"
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              placeholder="decreto_13090.html"
+              className={CAMPO}
+              autoFocus
+            />
 
-          <p className="text-xs text-slate-400">
-            O ato é gravado em HTML no padrão Planalto, na codificação que a barra de estado anuncia. Será
-            salvo como <span className="text-slate-300">{fileName || '—'}</span>.
-          </p>
+            <p className="text-lista text-texto-fraco">
+              O ato é gravado em HTML no padrão Planalto, na codificação que a barra de estado
+              anuncia. Será salvo como <span className="text-texto">{fileName || '—'}</span>.
+            </p>
+          </div>
 
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
-            >
+          <div className={MODAL_RODAPE}>
+            <button type="button" onClick={onClose} className={BTN_FANTASMA_TEXTO}>
               Cancelar
             </button>
-            <button
-              type="submit"
-              disabled={!fileName}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-xs font-semibold text-black transition flex items-center gap-1.5"
-            >
-              <Check size={13} /> Salvar
+            <button type="submit" disabled={!fileName} className={BTN_PRIMARIO}>
+              <Check size={13} aria-hidden="true" /> Salvar
             </button>
           </div>
         </form>

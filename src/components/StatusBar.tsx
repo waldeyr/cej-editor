@@ -8,10 +8,12 @@ interface StatusBarProps {
   justSaved: boolean;
   /** Resposta passageira a um gesto — uma remissão sem destino, por exemplo. */
   notice?: string;
+  /** Leva ao primeiro problema apontado pelo validador — a contagem é clicável. */
+  onShowFirstIssue?: () => void;
 }
 
 const Separator: React.FC = () => (
-  <span className="text-rule" aria-hidden="true">
+  <span className="text-borda-forte" aria-hidden="true">
     ·
   </span>
 );
@@ -31,6 +33,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   position,
   justSaved,
   notice,
+  onShowFirstIssue,
 }) => {
   const { errors, warnings } = issueCount;
 
@@ -45,16 +48,29 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     }
     if (warnings > 0) {
       return {
-        color: 'var(--color-selo)',
+        color: 'var(--color-atencao)',
         label: `${warnings} ${warnings === 1 ? 'aviso' : 'avisos'}`,
       };
     }
-    return { color: 'var(--color-rank)', label: 'Documento válido' };
+    return { color: 'var(--color-ok)', label: 'Documento válido' };
   })();
+
+  const temProblema = errors > 0 || warnings > 0;
+
+  const conformidade = (
+    <span className="inline-flex items-center gap-1.5 text-comando shrink-0" style={{ color: state.color }}>
+      <span
+        className="size-1.5 rounded-full shrink-0"
+        style={{ backgroundColor: state.color }}
+        aria-hidden="true"
+      />
+      {state.label}
+    </span>
+  );
 
   return (
     <footer
-      className="w-full shrink-0 h-7 flex items-center gap-2 px-3 bg-tinta border-t border-rule/60 select-none whitespace-nowrap overflow-hidden"
+      className="w-full shrink-0 h-7 flex items-center gap-2 px-3 bg-sup-1 border-t border-borda select-none whitespace-nowrap overflow-hidden"
       aria-label="Estado do documento"
     >
       {/*
@@ -62,7 +78,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         a contagem de blocos. O estado de conformidade e a posição corrente são
         o que se consulta enquanto se redige, e ficam até o fim.
       */}
-      <span className="font-dado text-dado text-legenda hidden md:inline shrink-0">
+      <span className="font-dado text-dado text-texto-fraco hidden md:inline shrink-0">
         {declaredEncoding || 'ISO-8859-1'} / Windows-1252
       </span>
 
@@ -70,7 +86,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <Separator />
       </span>
 
-      <span className="font-dado text-dado text-legenda hidden sm:inline shrink-0">
+      <span className="font-dado text-dado text-texto-fraco hidden sm:inline shrink-0">
         {blockCount} {blockCount === 1 ? 'bloco' : 'blocos'}
       </span>
 
@@ -78,19 +94,28 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <Separator />
       </span>
 
-      <span className="inline-flex items-center gap-1.5 text-comando shrink-0" style={{ color: state.color }}>
-        <span
-          className="size-1.5 rounded-full shrink-0"
-          style={{ backgroundColor: state.color }}
-          aria-hidden="true"
-        />
-        {state.label}
-      </span>
+      {/*
+        A contagem de problemas é a porta para eles: o clique leva ao primeiro
+        apontamento na árvore, em vez de deixar o redator caçá-lo na folha.
+      */}
+      {temProblema && onShowFirstIssue ? (
+        <button
+          type="button"
+          onClick={onShowFirstIssue}
+          title="Ir ao primeiro problema apontado"
+          className="rounded px-1 -mx-1 hover:bg-sup-3 transition-colors shrink-0"
+        >
+          {conformidade}
+        </button>
+      ) : (
+        conformidade
+      )}
 
       {justSaved && (
         <>
           <Separator />
-          <span className="text-comando text-legenda" role="status">
+          <span className="inline-flex items-center gap-1.5 text-comando text-ok" role="status">
+            <span className="size-1.5 rounded-full bg-ok shrink-0" aria-hidden="true" />
             Salvo
           </span>
         </>
@@ -99,7 +124,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       {notice && (
         <>
           <Separator />
-          <span className="text-comando text-selo truncate min-w-0" role="status">
+          <span className="text-comando text-atencao truncate min-w-0" role="status">
             {notice}
           </span>
         </>
@@ -107,7 +132,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
       <span className="flex-1" />
 
-      {position && <span className="font-dado text-dado text-legenda truncate">{position}</span>}
+      {position && <span className="font-dado text-dado text-texto-fraco truncate">{position}</span>}
     </footer>
   );
 };

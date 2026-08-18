@@ -21,7 +21,7 @@ const RAIL_WIDTH = 18;
  *
  * A trilha (à esquerda, 18px, sem rolagem) desenha uma marca por dispositivo
  * para o ato inteiro: largura e densidade codificam a posição hierárquica, e o
- * marcador âmbar indica a posição corrente. Ela permanece na tela mesmo com o
+ * marcador azul de ação indica a posição corrente. Ela permanece na tela mesmo com o
  * painel recolhido, de modo que a silhueta do ato em redação nunca desaparece.
  *
  * A lista (à direita, recolhível) traz os mesmos dispositivos rotulados e
@@ -89,7 +89,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
           size={12}
           role="img"
           aria-label={`${severity}: ${issue.message}`}
-          className={issue.severity === 'error' ? 'text-falha' : 'text-selo'}
+          className={issue.severity === 'error' ? 'text-falha' : 'text-atencao'}
         />
       </span>
     );
@@ -114,7 +114,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
     <div
       onClick={handleRailClick}
       aria-hidden="true"
-      className="relative shrink-0 h-full bg-tinta border-r border-rule/60 cursor-pointer"
+      className="relative shrink-0 h-full bg-sup-2 border-r border-borda cursor-pointer"
       style={{ width: RAIL_WIDTH }}
     >
       {blocks.map((block, index) => {
@@ -142,7 +142,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
               style={{
                 ...geometry,
                 width: `${(tickWidthOf(block.type) / 100) * 12}px`,
-                backgroundColor: isSelected ? 'var(--color-selo)' : 'var(--color-rank)',
+                backgroundColor: isSelected ? 'var(--color-acao)' : 'var(--color-rank)',
                 opacity: isSelected ? 1 : inkOf(block.type),
               }}
             />
@@ -158,7 +158,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
                 style={{
                   ...geometry,
                   backgroundColor:
-                    issue.severity === 'error' ? 'var(--color-falha)' : 'var(--color-selo)',
+                    issue.severity === 'error' ? 'var(--color-falha)' : 'var(--color-atencao)',
                 }}
               />
             )}
@@ -169,7 +169,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
       {/* Marcador da posição atual — o único elemento animado da aplicação. */}
       {selectedIndex >= 0 && (
         <span
-          className="absolute left-0 w-[2px] bg-selo transition-[top] duration-150 ease-out pointer-events-none"
+          className="absolute left-0 w-[2px] bg-acao transition-[top] duration-150 ease-out pointer-events-none"
           style={{
             top: `${(selectedIndex / blocks.length) * 100}%`,
             height: `${100 / blocks.length}%`,
@@ -182,10 +182,10 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
   );
 
   const sectionButtonClass =
-    'w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-etiqueta uppercase text-legenda hover:text-texto transition-colors';
+    'w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-etiqueta uppercase text-texto-fraco hover:text-texto transition-colors';
 
   const leafRowClass =
-    'w-full text-left px-2 py-1.5 rounded text-lista text-legenda hover:bg-tinta-alta hover:text-texto transition-colors flex items-center justify-between gap-2';
+    'w-full text-left px-2 py-1.5 rounded text-lista text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors flex items-center justify-between gap-2';
 
   const renderLeaf = (id: string, label: string, issueId?: string) => {
     const issue = issueId ? issues.find((i) => i.id === issueId) : undefined;
@@ -195,7 +195,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
       <button
         type="button"
         onClick={() => onSelectBlock(id)}
-        className={`${leafRowClass} ${isSelected ? 'bg-selo/10 text-texto' : ''}`}
+        className={`${leafRowClass} ${isSelected ? 'bg-acao-suave text-texto-forte' : ''}`}
       >
         <span className="truncate">{label}</span>
         {issue && issueMark(issue)}
@@ -283,20 +283,20 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
         onDragEnd={endDrag}
         style={{ paddingLeft: indentOf(block.type) }}
         className={`group w-full text-left pr-2 py-1 rounded flex items-center justify-between gap-2 transition-colors cursor-grab active:cursor-grabbing ${
-          agrupador && !previousIsAgrupador ? 'mt-2 border-t border-rule/50 pt-2' : ''
-        } ${isDragging ? 'opacity-40' : ''} ${
-          dropsAbove ? 'shadow-[inset_0_2px_0_0_var(--color-selo)]' : ''
-        } ${dropsBelow ? 'shadow-[inset_0_-2px_0_0_var(--color-selo)]' : ''} ${
+          agrupador && !previousIsAgrupador ? 'mt-2 border-t border-borda-suave pt-2' : ''
+        } ${isDragging ? 'opacity-40 bg-sup-4' : ''} ${
+          dropsAbove ? 'shadow-[inset_0_2px_0_0_var(--color-acao)]' : ''
+        } ${dropsBelow ? 'shadow-[inset_0_-2px_0_0_var(--color-acao)]' : ''} ${
           isSelected
-            ? 'bg-selo/10 border-l-2 border-l-selo'
-            : 'border-l-2 border-l-transparent hover:bg-tinta'
+            ? 'bg-acao-suave border-l-2 border-l-acao'
+            : 'border-l-2 border-l-transparent hover:bg-sup-3'
         }`}
       >
         <span className="flex items-baseline gap-1.5 min-w-0">
           <GripVertical
             size={11}
             aria-hidden="true"
-            className="shrink-0 self-center text-legenda/0 group-hover:text-legenda/60 transition-colors"
+            className="shrink-0 self-center text-transparent group-hover:text-texto-fraco transition-colors"
           />
           {showNumberLabel && (
             <span
@@ -313,7 +313,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
           <span
             className={`truncate ${
               agrupador ? 'text-etiqueta uppercase' : 'text-lista'
-            } ${isSelected ? 'text-texto' : 'text-legenda'}`}
+            } ${isSelected ? 'text-texto-forte' : 'text-texto-fraco'}`}
           >
             {preview}
           </span>
@@ -325,7 +325,7 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
   };
 
   return (
-    <aside className="h-full flex bg-tinta-alta border-r border-rule/60 select-none">
+    <aside className="h-full flex bg-sup-2 border-r border-borda select-none">
       {rail}
 
       {/*
@@ -339,9 +339,9 @@ export const SidebarTree: React.FC<SidebarTreeProps> = ({
           aria-label="Vista do ato"
           className="w-72 h-full hidden lg:flex flex-col overflow-hidden"
         >
-          <div className="px-3 py-2.5 border-b border-rule/60 shrink-0">
-            <span className="text-etiqueta uppercase text-legenda">Vista do ato</span>
-            <p className="text-lista text-legenda/60 mt-0.5">Arraste para reordenar</p>
+          <div className="px-3 py-2.5 border-b border-borda-suave shrink-0">
+            <span className="text-etiqueta uppercase text-texto-fraco">Vista do ato</span>
+            <p className="text-lista text-texto-fraco mt-0.5">Arraste para reordenar</p>
           </div>
 
           <div className="flex-1 overflow-y-auto px-1.5 py-2 space-y-1">

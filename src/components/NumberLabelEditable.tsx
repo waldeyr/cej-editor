@@ -68,7 +68,8 @@ export const NumberLabelEditable: React.FC<NumberLabelEditableProps> = ({
           }}
           size={Math.max(1, rascunho.length)}
           aria-label="Numeração do dispositivo"
-          className={`${className} bg-selo/10 outline-none ring-1 ring-selo rounded-sm`}
+          /* Afordância sobre o papel branco: cores literais, fora do tema (invariante 2). */
+          className={`${className} bg-[#e8f0fb] outline-none ring-1 ring-[#1351b4] rounded-sm`}
         />
         {children}
       </>

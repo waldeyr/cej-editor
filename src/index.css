@@ -34,25 +34,61 @@
   src: url('../public/fonts/rawline-600.ttf') format('truetype');
 }
 
+/*
+ * CEJ-EDITOR — folha de tokens do design system claro.
+ *
+ * Duas regras governam a paleta:
+ *
+ *   1. O tema alcança apenas o chrome. A folha do ato (`.folha`) conserva a CSS
+ *      que já existe — Arial 10pt, entrelinha 1.5, tinta preta, justificado com
+ *      recuo de 38px, remissão em #0000ee — porque ela espelha o HTML exportado
+ *      por parser/htmlSerializer.ts. Nenhum token daqui entra na folha.
+ *   2. Nada de cor sobre transparência. No escuro a opacidade funcionava; no
+ *      claro, opacidade sobre superfície clara lava a cor. Todo estado tem token
+ *      próprio: --sup-3 para hover, --sup-4 para pressionado.
+ *
+ * A hierarquia legislativa é ordinal — Artigo precede Parágrafo, que precede
+ * Inciso — e por isso é expressa por uma única matiz em densidades graduadas
+ * (--color-rank), nunca por matizes categóricas.
+ */
 @theme {
-  /*
-   * Paleta. A hierarquia legislativa é ordinal — Artigo precede Parágrafo,
-   * que precede Inciso — e por isso é expressa por uma única matiz em
-   * densidades graduadas (--color-rank), nunca por matizes categóricas.
-   * A cor fica reservada a duas perguntas: onde estou, e o que está errado.
-   */
-  --color-tinta: #16202b;
-  --color-tinta-alta: #1e2b38;
-  --color-rule: #33465a;
-  --color-legenda: #93a6b8;
-  --color-texto: #e8eef4;
-  --color-selo: #e0b252;
-  --color-falha: #d4574a;
-  --color-rank: #a8c4e0;
+  /* ---- Superfícies, do fundo do aplicativo ao realce pressionado ---- */
+  --color-sup-fundo: #e3e9ef; /* fundo do canvas, atrás da folha */
+  --color-sup-1: #f3f6f9;     /* barras: ferramentas, abas ativa, estado */
+  --color-sup-2: #e9eef3;     /* painéis: árvore lateral, aba inativa, rodapé de modal */
+  --color-sup-3: #dce4ec;     /* hover */
+  --color-sup-4: #cfd9e3;     /* pressionado / arrastando */
 
-  /* O papel. Espelha o HTML exportado e não deve divergir dele. */
-  --color-papel: #ffffff;
+  /* ---- Bordas ---- */
+  --color-borda-suave: #dfe5ec; /* divisória dentro de uma mesma superfície */
+  --color-borda: #c7d1dc;       /* limite entre superfícies e contorno de sobreposição */
+  --color-borda-forte: #a7b4c2; /* contorno de campo de entrada */
 
+  /* ---- Texto ---- */
+  --color-texto-forte: #0f1c28; /* títulos, aba ativa, item selecionado */
+  --color-texto: #23313f;       /* corpo do chrome */
+  --color-texto-fraco: #566878; /* legendas, ícones em repouso — 4.6:1 sobre --sup-1 */
+  --color-texto-inverso: #ffffff;
+
+  /* ---- Ação institucional (gov.br) ---- */
+  --color-acao: #1351b4;
+  --color-acao-forte: #0c3d8c;
+  --color-acao-suave: #e6eefa;  /* preenchimento de estado ativo / seleção na árvore */
+  --color-acao-borda: #a9c5ea;
+  --color-foco: #1351b4;
+
+  /* ---- Estados ---- */
+  --color-atencao: #8a5a00;
+  --color-atencao-suave: #fbf1dc;
+  --color-falha: #a4231c;
+  --color-falha-suave: #fbe9e7;
+  --color-ok: #146c2e;
+  --color-ok-suave: #e4f2e7;
+
+  /* ---- Rampa hierárquica: uma matiz só, em densidades ---- */
+  --color-rank: #1a3f6e;
+
+  /* ---- Tipografia (inalterada) ---- */
   --font-display: 'Rawline', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-dado: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
@@ -76,14 +112,84 @@
 
   --text-dado: 0.6875rem;
   --text-dado--line-height: 1;
+
+  /* ---- Sombras: curtas e de baixa opacidade ---- */
+  --shadow-cej-1: 0 1px 2px rgba(15, 28, 40, 0.06);
+  --shadow-cej-2: 0 4px 14px rgba(15, 28, 40, 0.10);
+  --shadow-cej-3: 0 12px 32px rgba(15, 28, 40, 0.16);
+}
+
+/*
+ * Tema escuro opcional, sob [data-tema="escuro"] no <html>. Os valores são os
+ * da paleta anterior remapeados para os nomes em camadas — quem já usava
+ * bg-tinta continua vendo #16202b quando o tema escuro está ligado.
+ *
+ * `@theme` não aceita variante, então a folha escura reescreve as variáveis
+ * geradas. A folha do ato não aparece aqui: ela é branca nos dois temas.
+ */
+html[data-tema='escuro'] {
+  --color-sup-fundo: #131c25;
+  --color-sup-1: #16202b;
+  --color-sup-2: #1e2b38;
+  --color-sup-3: #2a3947;
+  --color-sup-4: #33465a;
+
+  --color-borda-suave: #253442;
+  --color-borda: #33465a;
+  --color-borda-forte: #4a5f74;
+
+  --color-texto-forte: #f4f8fb;
+  --color-texto: #e8eef4;
+  --color-texto-fraco: #93a6b8;
+  --color-texto-inverso: #0f1c28;
+
+  --color-acao: #6f9fe0;
+  --color-acao-forte: #8fb6ea;
+  --color-acao-suave: #23384f;
+  --color-acao-borda: #3d5a7d;
+  --color-foco: #e0b252;
+
+  --color-atencao: #e0b252;
+  --color-atencao-suave: #33290f;
+  --color-falha: #e0776b;
+  --color-falha-suave: #3a1c18;
+  --color-ok: #74c48b;
+  --color-ok-suave: #14301c;
+
+  --color-rank: #a8c4e0;
+
+  --shadow-cej-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-cej-2: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-cej-3: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
 body {
   margin: 0;
   padding: 0;
   font-family: var(--font-display);
-  background-color: var(--color-tinta);
+  background-color: var(--color-sup-fundo);
   color: var(--color-texto);
+}
+
+/*
+ * Link do chrome: tinta de ação com sublinha de borda, não o azul do
+ * navegador. Assim um link criado depois em qualquer componente já nasce no
+ * desenho do tema. A folha do ato tem a própria regra de remissão, abaixo, e a
+ * reposição em `.folha a` a protege desta.
+ */
+a {
+  color: var(--color-acao);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-acao-borda);
+}
+
+a:hover {
+  color: var(--color-acao-forte);
+}
+
+.folha a {
+  border-bottom: none;
+  color: inherit;
 }
 
 /*
@@ -91,7 +197,7 @@ body {
  * foco antes desta mudança, o que tornava a interface inavegável por teclado.
  */
 :focus-visible {
-  outline: 2px solid var(--color-selo);
+  outline: 2px solid var(--color-foco);
   outline-offset: 2px;
   border-radius: 2px;
 }
@@ -161,13 +267,14 @@ body {
  * também por isso que o `box-decoration-break` volta ao `slice` de origem: com
  * `clone`, o recuo — e o ícone com ele — se repetiria a cada linha do trecho.
  *
- * A tinta é a do selo, escurecida para se ler sobre o papel branco. Ela vai
- * escrita dentro do SVG porque data: URI não enxerga variável de CSS: mudou
- * --color-selo, confira aqui.
+ * A tinta e o realce são literais, não tokens: são afordância do editor sobre o
+ * papel, que é branco nos dois temas — mudar de tema não muda o fundo delas
+ * (invariante 2 do design system). O âmbar #8a6410 vai escrito dentro do SVG
+ * porque data: URI não enxerga variável de CSS.
  */
 .folha a[name] {
   padding-left: 1em;
-  background-color: color-mix(in srgb, var(--color-selo) 24%, transparent);
+  background-color: rgba(224, 178, 82, 0.24);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a6410' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22V8'/%3E%3Cpath d='M5 12H2a10 10 0 0 0 20 0h-3'/%3E%3Ccircle cx='12' cy='5' r='3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: left 0.1em center;
@@ -232,10 +339,10 @@ body {
   opacity: 1;
 }
 
-/* Barras de rolagem discretas sobre o chrome escuro. */
+/* Barras de rolagem discretas, na cor de borda do tema corrente. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-rule) transparent;
+  scrollbar-color: var(--color-borda) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -248,7 +355,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--color-rule);
+  background-color: var(--color-borda);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 6px;

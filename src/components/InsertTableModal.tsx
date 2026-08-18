@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Table, X, Check } from 'lucide-react';
+import {
+  BTN_FANTASMA,
+  BTN_FANTASMA_TEXTO,
+  BTN_PRIMARIO,
+  CAMPO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_RODAPE,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 /** Teto de linhas de uma tabela inserida pela barra. */
 export const MAX_TABLE_ROWS = 100;
@@ -85,124 +95,113 @@ export const InsertTableModal: React.FC<InsertTableModalProps> = ({ isOpen, onIn
   const previewColumns = size.ok ? Math.min(size.columns, PREVIEW_COLUMNS) : 0;
   const truncated = size.ok && (size.rows > PREVIEW_ROWS || size.columns > PREVIEW_COLUMNS);
 
-  const campoClass =
-    'w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500 transition';
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-base">
-            <Table size={20} className="shrink-0" />
+    <div className={MODAL_VEU}>
+      <div className={MODAL_CAIXA}>
+        <div className={MODAL_CABECALHO}>
+          <div className="flex items-center gap-2 text-titulo text-texto-forte">
+            <Table size={18} className="text-acao shrink-0" />
             <span>Inserir Tabela</span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-            title="Fechar"
-          >
-            <X size={18} />
+          <button onClick={onClose} className={BTN_FANTASMA} title="Fechar">
+            <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div className="flex items-start gap-4">
-            <div className="grid grid-cols-2 gap-3 flex-1">
-              <div className="space-y-1.5">
-                <label htmlFor="cej-table-rows" className="block text-xs text-slate-300">
-                  Linhas
-                </label>
-                <input
-                  id="cej-table-rows"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={MAX_TABLE_ROWS}
-                  value={rows}
-                  onChange={(e) => {
-                    setRows(e.target.value);
-                    setError('');
-                  }}
-                  className={campoClass}
-                  autoFocus
-                />
+        <form onSubmit={submit}>
+          <div className="px-5 py-4 space-y-4">
+            <div className="flex items-start gap-4">
+              <div className="grid grid-cols-2 gap-3 flex-1">
+                <div className="space-y-1.5">
+                  <label htmlFor="cej-table-rows" className="block text-lista text-texto-fraco">
+                    Linhas
+                  </label>
+                  <input
+                    id="cej-table-rows"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={MAX_TABLE_ROWS}
+                    value={rows}
+                    onChange={(e) => {
+                      setRows(e.target.value);
+                      setError('');
+                    }}
+                    className={CAMPO}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="cej-table-columns" className="block text-lista text-texto-fraco">
+                    Colunas
+                  </label>
+                  <input
+                    id="cej-table-columns"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={MAX_TABLE_COLUMNS}
+                    value={columns}
+                    onChange={(e) => {
+                      setColumns(e.target.value);
+                      setError('');
+                    }}
+                    className={CAMPO}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="cej-table-columns" className="block text-xs text-slate-300">
-                  Colunas
-                </label>
-                <input
-                  id="cej-table-columns"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={MAX_TABLE_COLUMNS}
-                  value={columns}
-                  onChange={(e) => {
-                    setColumns(e.target.value);
-                    setError('');
-                  }}
-                  className={campoClass}
-                />
+
+              {/* A grade pedida, desenhada enquanto se digita */}
+              <div
+                className="shrink-0 w-32 pt-6 flex flex-col items-center gap-1"
+                aria-hidden="true"
+              >
+                {size.ok ? (
+                  <>
+                    <div
+                      className="grid gap-px w-full"
+                      style={{ gridTemplateColumns: `repeat(${previewColumns}, minmax(0, 1fr))` }}
+                    >
+                      {Array.from({ length: previewRows * previewColumns }, (_, i) => (
+                        <div
+                          key={i}
+                          className={`h-3 border border-borda ${
+                            i < previewColumns ? 'bg-sup-4' : 'bg-white'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    {truncated && (
+                      <span className="text-[10px] text-texto-fraco leading-none">…</span>
+                    )}
+                  </>
+                ) : (
+                  <div className="h-3 w-full" />
+                )}
               </div>
             </div>
 
-            {/* A grade pedida, desenhada enquanto se digita */}
-            <div
-              className="shrink-0 w-32 pt-6 flex flex-col items-center gap-1"
-              aria-hidden="true"
-            >
-              {size.ok ? (
-                <>
-                  <div
-                    className="grid gap-px w-full"
-                    style={{ gridTemplateColumns: `repeat(${previewColumns}, minmax(0, 1fr))` }}
-                  >
-                    {Array.from({ length: previewRows * previewColumns }, (_, i) => (
-                      <div
-                        key={i}
-                        className={`h-3 border border-slate-700 ${
-                          i < previewColumns ? 'bg-slate-700/70' : 'bg-slate-950'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  {truncated && <span className="text-[10px] text-slate-500 leading-none">…</span>}
-                </>
-              ) : (
-                <div className="h-3 w-full" />
-              )}
-            </div>
+            {error ? (
+              <p
+                className="text-lista text-falha bg-falha-suave border border-falha rounded-[5px] px-3 py-2"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : (
+              <p className="text-lista text-texto-fraco">
+                A primeira linha nasce como cabeçalho. Depois de inserida, os botões acima da tabela
+                acrescentam e retiram linhas, colunas e células.
+              </p>
+            )}
           </div>
 
-          {error ? (
-            <p
-              className="text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2"
-              role="alert"
-            >
-              {error}
-            </p>
-          ) : (
-            <p className="text-xs text-slate-400">
-              A primeira linha nasce como cabeçalho. Depois de inserida, os botões acima da tabela
-              acrescentam e retiram linhas, colunas e células.
-            </p>
-          )}
-
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition"
-            >
+          <div className={MODAL_RODAPE}>
+            <button type="button" onClick={onClose} className={BTN_FANTASMA_TEXTO}>
               Cancelar
             </button>
-            <button
-              type="submit"
-              disabled={!size.ok}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-xs font-semibold text-black transition flex items-center gap-1.5"
-            >
-              <Check size={13} /> Inserir
+            <button type="submit" disabled={!size.ok} className={BTN_PRIMARIO}>
+              <Check size={13} aria-hidden="true" /> Inserir
             </button>
           </div>
         </form>

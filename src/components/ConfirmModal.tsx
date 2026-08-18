@@ -1,5 +1,15 @@
 import React from 'react';
 import { AlertCircle, Save, Trash2, X } from 'lucide-react';
+import {
+  BTN_DESTRUTIVO,
+  BTN_FANTASMA,
+  BTN_FANTASMA_TEXTO,
+  BTN_PRIMARIO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_RODAPE,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 /**
  * A pergunta que se faz quando há trabalho a perder.
@@ -31,50 +41,40 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2.5 text-amber-400 font-semibold text-base">
-            <AlertCircle size={20} className="text-amber-400 shrink-0" />
+    <div className={MODAL_VEU}>
+      {/* A decisão pode descartar trabalho: o fio de falha no topo diz isso antes do texto. */}
+      <div className={`${MODAL_CAIXA} max-w-md border-t-2 border-t-falha flex flex-col`}>
+        <div className={MODAL_CABECALHO}>
+          <div className="flex items-center gap-2.5 text-titulo text-texto-forte">
+            <AlertCircle size={18} className="text-atencao shrink-0" />
             <span>{title}</span>
           </div>
           <button
             onClick={onCancel}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+            className={BTN_FANTASMA}
             title="Cancelar — o ato continua aberto"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
-        {/* Corpo */}
-        <div className="p-5 text-sm text-slate-300 leading-relaxed">
+        <div className="px-5 py-4 text-lista text-texto leading-relaxed">
           <p>{message}</p>
         </div>
 
-        {/* Rodapé com 3 Ações */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 p-4 bg-slate-950/50 border-t border-slate-800">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 transition order-3 sm:order-1"
-          >
+        {/* Rodapé: fantasma → destrutivo → primário. */}
+        <div className={`${MODAL_RODAPE} flex-wrap`}>
+          <button onClick={onCancel} className={BTN_FANTASMA_TEXTO}>
             Cancelar
           </button>
 
-          <button
-            onClick={onDiscardAndContinue}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-800 transition order-2"
-          >
-            <Trash2 size={14} />
+          <button onClick={onDiscardAndContinue} className={BTN_DESTRUTIVO}>
+            <Trash2 size={14} aria-hidden="true" />
             Fechar sem salvar
           </button>
 
-          <button
-            onClick={onSaveAndContinue}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition order-1 sm:order-3 font-semibold"
-          >
-            <Save size={14} />
+          <button onClick={onSaveAndContinue} className={BTN_PRIMARIO}>
+            <Save size={14} aria-hidden="true" />
             Salvar e fechar
           </button>
         </div>

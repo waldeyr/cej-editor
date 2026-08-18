@@ -79,12 +79,13 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         onClose={onClose}
       />
 
-      {(link || anchorPoint) && <div className="my-1 border-t border-rule/60" role="separator" />}
+      {(link || anchorPoint) && <div className="my-1 border-t border-borda-suave" role="separator" />}
 
       {link && (
         <ContextMenuItem
           label="Remover link"
           icon={<Link2Off size={14} />}
+          destrutivo
           onActivate={() => onRemoveLink(link.element)}
           onClose={onClose}
         />
@@ -95,6 +96,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           label="Remover âncora"
           hint={`#${anchorPoint.name}`}
           icon={<Unlink size={14} />}
+          destrutivo
           onActivate={() => onRemoveAnchorPoint(anchorPoint.element)}
           onClose={onClose}
         />

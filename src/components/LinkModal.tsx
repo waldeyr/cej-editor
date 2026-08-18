@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 import { Link2, Search, X, Check, Anchor, ExternalLink, FileText, ChevronRight } from 'lucide-react';
 import { AnchorPoint, AtoAberto, LinkChoice } from '../utils/anchors';
+import {
+  BTN_FANTASMA,
+  BTN_SECUNDARIO,
+  CAMPO,
+  MODAL_CABECALHO,
+  MODAL_CAIXA,
+  MODAL_VEU,
+} from '../utils/estilos';
 
 interface LinkModalProps {
   isOpen: boolean;
@@ -101,68 +109,67 @@ export const LinkModal: React.FC<LinkModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-2 text-amber-400 font-semibold text-base">
-            <Link2 size={20} className="shrink-0" />
+    <div className={MODAL_VEU}>
+      <div className={`${MODAL_CAIXA} flex flex-col max-h-[85vh]`}>
+        <div className={`${MODAL_CABECALHO} shrink-0`}>
+          <div className="flex items-center gap-2 text-titulo text-texto-forte">
+            <Link2 size={18} className="text-acao shrink-0" />
             <span>Inserir Link</span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
-            title="Fechar"
-          >
-            <X size={18} />
+          <button onClick={onClose} className={BTN_FANTASMA} title="Fechar">
+            <X size={16} />
           </button>
         </div>
 
         {selectedText ? (
-          <div className="px-5 py-2.5 bg-amber-950/40 border-b border-amber-800/50 text-xs text-amber-200">
-            <span className="font-medium text-amber-400">Texto selecionado:</span> “{selectedText}”
-            <span className="text-amber-200/70"> — escolha para onde ele deve levar.</span>
+          <div className="px-5 py-2.5 bg-acao-suave border-b border-borda-suave text-lista text-texto shrink-0">
+            <span className="font-medium text-acao-forte">Texto selecionado:</span> “{selectedText}”
+            <span className="text-texto-fraco"> — escolha para onde ele deve levar.</span>
           </div>
         ) : (
-          <div className="px-5 py-2.5 bg-slate-800/60 border-b border-slate-700/60 text-xs text-slate-300">
+          <div className="px-5 py-2.5 bg-sup-2 border-b border-borda-suave text-lista text-texto-fraco shrink-0">
             💡 Dica: selecione um trecho de texto no documento para transformá-lo em link.
           </div>
         )}
 
-        <div className="p-4 border-b border-slate-800 bg-slate-900/90">
+        <div className="p-4 border-b border-borda-suave shrink-0">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-texto-fraco pointer-events-none"
+            />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar ponto de ancoragem (ex: Anexo I, Art. 1º...)"
-              className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
+              className={`${CAMPO} pl-9`}
               autoFocus
             />
           </div>
         </div>
 
         {/* Pontos de ancoragem do ato */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 divide-y divide-slate-800/50">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 divide-y divide-borda-suave">
           {filtered.length > 0 ? (
             <>
               {ocultos > 0 && (
-                <div className="pb-2 text-xs text-slate-400">
+                <div className="pb-2 text-lista text-texto-fraco">
                   {encontrados.length} pontos de ancoragem neste ato. Estão listados os {filtered.length}{' '}
                   primeiros — escreva acima o dispositivo procurado, como{' '}
-                  <strong className="text-slate-300">Art. 12</strong> ou{' '}
-                  <strong className="text-slate-300">Anexo I</strong>, para achar os outros {ocultos}.
+                  <strong className="text-texto">Art. 12</strong> ou{' '}
+                  <strong className="text-texto">Anexo I</strong>, para achar os outros {ocultos}.
                 </div>
               )}
               {filtered.map((anchor) => (
                 <div
                   key={anchor.name}
                   onClick={() => choose({ kind: 'anchor', name: anchor.name })}
-                  className="pt-2 first:pt-0 p-3 rounded-lg hover:bg-amber-950/40 border border-transparent hover:border-amber-800/50 cursor-pointer transition flex items-center justify-between gap-3 group"
+                  className="pt-2 first:pt-0 p-3 rounded-lg hover:bg-acao-suave border border-transparent hover:border-acao-borda cursor-pointer transition flex items-center justify-between gap-3 group"
                 >
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <div className="font-semibold text-slate-200 group-hover:text-amber-300 text-sm flex items-center gap-2 min-w-0">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 group-hover:bg-amber-900/60 text-xs font-mono text-amber-400 shrink-0">
+                    <div className="font-semibold text-texto group-hover:text-acao-forte text-sm flex items-center gap-2 min-w-0">
+                      <span className="px-2 py-0.5 rounded bg-sup-2 text-xs font-dado text-acao shrink-0">
                         #{anchor.name}
                       </span>
                       <span className="truncate">{anchor.label}</span>
@@ -173,26 +180,26 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                       nada que a primeira linha já não diga.
                     */}
                     {anchor.label !== anchor.location && (
-                      <div className="text-xs text-slate-400 flex items-center gap-1">
+                      <div className="text-lista text-texto-fraco flex items-center gap-1">
                         <Anchor size={11} className="shrink-0" />
                         <span className="truncate">em {anchor.location}</span>
                       </div>
                     )}
                   </div>
-                  <button className="text-xs px-2.5 py-1 rounded bg-amber-500/20 group-hover:bg-amber-500 text-amber-300 group-hover:text-black font-semibold transition flex items-center gap-1 shrink-0">
+                  <button className="text-xs px-2.5 py-1 rounded-[5px] bg-acao-suave border border-acao-borda text-acao-forte group-hover:bg-acao group-hover:border-acao group-hover:text-texto-inverso font-semibold transition flex items-center gap-1 shrink-0">
                     <Check size={12} /> Selecionar
                   </button>
                 </div>
               ))}
             </>
           ) : (
-            <div className="py-8 px-4 text-center text-slate-400 text-sm leading-relaxed">
+            <div className="py-8 px-4 text-center text-texto-fraco text-sm leading-relaxed">
               {anchors.length === 0 ? (
                 <>
                   Este ato ainda não tem pontos de ancoragem.
                   <br />
-                  <span className="text-slate-500">
-                    Selecione o trecho de destino e use <strong className="text-slate-300">Inserir âncora</strong> para
+                  <span>
+                    Selecione o trecho de destino e use <strong className="text-texto">Inserir âncora</strong> para
                     criar um — ou cole um endereço abaixo.
                   </span>
                 </>
@@ -205,8 +212,8 @@ export const LinkModal: React.FC<LinkModalProps> = ({
 
         {/* Outro ato aberto numa aba */}
         {outrosAtos.length > 0 && (
-          <div className="border-t border-slate-800 bg-slate-900/60">
-            <div className="px-4 pt-3 pb-1 text-xs font-medium text-slate-400 flex items-center gap-1.5">
+          <div className="border-t border-borda-suave bg-sup-2 shrink-0">
+            <div className="px-4 pt-3 pb-1 text-etiqueta uppercase text-texto-fraco flex items-center gap-1.5">
               <FileText size={12} /> Em outro ato aberto
             </div>
 
@@ -216,13 +223,13 @@ export const LinkModal: React.FC<LinkModalProps> = ({
               ato que ainda não foi salvo não está em lugar nenhum.
             */}
             {!conheceCaminhos ? (
-              <div className="mx-4 mb-3 px-3 py-2 rounded bg-slate-800/60 border border-slate-700/60 text-xs text-slate-300">
+              <div className="mx-4 mb-3 px-3 py-2 rounded-[5px] bg-sup-1 border border-borda text-lista text-texto">
                 Remissão de um ato para outro precisa do aplicativo de mesa: só nele o editor sabe em
                 que pasta cada arquivo está.
               </div>
             ) : (
               !atoTemArquivo && (
-                <div className="mx-4 mb-3 px-3 py-2 rounded bg-amber-950/40 border border-amber-800/50 text-xs text-amber-200">
+                <div className="mx-4 mb-3 px-3 py-2 rounded-[5px] bg-atencao-suave border border-atencao text-lista text-atencao">
                   Salve este ato em arquivo antes — o caminho da remissão é contado a partir de onde
                   ele está.
                 </div>
@@ -238,14 +245,14 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                 const emOutraJanela = ato.janelaId !== janelaAtualId;
 
                 return (
-                  <div key={atoKey} className="rounded-lg border border-slate-800 overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-slate-950/60">
-                      <div className="flex-1 min-w-0 text-sm text-slate-200 truncate">
+                  <div key={atoKey} className="rounded-lg border border-borda bg-sup-1 overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <div className="flex-1 min-w-0 text-sm text-texto truncate">
                         {ato.rotulo}
                         {!ato.caminho && (
-                          <span className="text-xs text-slate-500"> — ainda não salvo em arquivo</span>
+                          <span className="text-lista text-texto-fraco"> — ainda não salvo em arquivo</span>
                         )}
-                        {emOutraJanela && <span className="text-xs text-slate-500"> — outra janela</span>}
+                        {emOutraJanela && <span className="text-lista text-texto-fraco"> — outra janela</span>}
                       </div>
 
                       <button
@@ -257,7 +264,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                             ? `Apontar para o início de “${ato.rotulo}”`
                             : `“${ato.rotulo}” ainda não foi salvo em arquivo`
                         }
-                        className="shrink-0 text-xs text-slate-400 hover:text-amber-300 disabled:text-slate-600 disabled:hover:text-slate-600 transition"
+                        className="shrink-0 text-lista text-acao hover:text-acao-forte disabled:text-texto-fraco disabled:opacity-50 disabled:hover:text-texto-fraco transition"
                       >
                         Início
                       </button>
@@ -271,7 +278,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                               ? 'Esconder os pontos de ancoragem deste ato'
                               : `Ver os ${ato.ancoras.length} pontos de ancoragem deste ato`
                           }
-                          className="flex items-center gap-1 shrink-0 text-xs text-slate-400 hover:text-amber-300 transition"
+                          className="flex items-center gap-1 shrink-0 text-lista text-texto-fraco hover:text-acao-forte transition"
                         >
                           <Anchor size={11} />
                           {ato.ancoras.length}
@@ -284,7 +291,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                     </div>
 
                     {expandido && (
-                      <div className="max-h-40 overflow-y-auto divide-y divide-slate-800/60">
+                      <div className="max-h-40 overflow-y-auto divide-y divide-borda-suave border-t border-borda-suave">
                         {/*
                           A busca e o teto valem aqui também. Sem eles, expandir
                           um ato de porte montava quinhentos e tantos botões numa
@@ -292,7 +299,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                           era ignorado justamente onde mais falta faz.
                         */}
                         {lista.ocultos > 0 && (
-                          <div className="px-3 py-1.5 text-[11px] text-slate-400">
+                          <div className="px-3 py-1.5 text-[11px] text-texto-fraco">
                             {lista.encontradas.length} pontos neste ato; listados os{' '}
                             {lista.visiveis.length} primeiros. Escreva acima para achar os outros{' '}
                             {lista.ocultos}.
@@ -312,12 +319,12 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                               })
                             }
                             title={`Apontar para #${ancora.name}, em “${ato.rotulo}”`}
-                            className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-amber-950/30 disabled:opacity-40 disabled:hover:bg-transparent transition min-w-0"
+                            className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-acao-suave disabled:opacity-40 disabled:hover:bg-transparent transition min-w-0"
                           >
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-xs font-mono text-amber-400 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-sup-2 text-xs font-dado text-acao shrink-0">
                               #{ancora.name}
                             </span>
-                            <span className="text-xs text-slate-300 truncate">{ancora.label}</span>
+                            <span className="text-lista text-texto truncate">{ancora.label}</span>
                           </button>
                         ))}
                       </div>
@@ -330,8 +337,8 @@ export const LinkModal: React.FC<LinkModalProps> = ({
         )}
 
         {/* Endereço completo — externo ou não */}
-        <form onSubmit={submitUrl} className="p-4 bg-slate-950 border-t border-slate-800 space-y-2">
-          <label className="flex items-center gap-1.5 text-xs text-slate-400">
+        <form onSubmit={submitUrl} className="p-4 bg-sup-2 border-t border-borda-suave space-y-2 shrink-0">
+          <label className="flex items-center gap-1.5 text-lista text-texto-fraco">
             <ExternalLink size={12} /> Ou informe um endereço completo
           </label>
           <div className="flex items-center gap-2">
@@ -340,14 +347,10 @@ export const LinkModal: React.FC<LinkModalProps> = ({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://www.planalto.gov.br/... ou #ancora"
-              className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              className={CAMPO}
             />
-            <button
-              type="submit"
-              disabled={!url.trim()}
-              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-medium text-amber-300 border border-amber-800/60 transition flex items-center gap-1"
-            >
-              <Link2 size={13} /> Usar endereço
+            <button type="submit" disabled={!url.trim()} className={BTN_SECUNDARIO}>
+              <Link2 size={13} aria-hidden="true" /> Usar endereço
             </button>
           </div>
         </form>
