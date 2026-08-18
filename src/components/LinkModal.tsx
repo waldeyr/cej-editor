@@ -8,6 +8,8 @@ interface LinkModalProps {
   anchors: AnchorPoint[];
   /** Os outros atos abertos em abas, oferecidos como destino. */
   atosAbertos?: AtoAberto[];
+  /** Distingue os atos da janela atual dos publicados por outra janela. */
+  janelaAtualId?: string;
   /** O ato em edição já tem arquivo? Sem isso não há de onde contar a remissão. */
   atoTemArquivo?: boolean;
   /**
@@ -37,6 +39,7 @@ export const LinkModal: React.FC<LinkModalProps> = ({
   isOpen,
   anchors,
   atosAbertos = [],
+  janelaAtualId,
   atoTemArquivo = false,
   conheceCaminhos = false,
   selectedText,
@@ -228,34 +231,41 @@ export const LinkModal: React.FC<LinkModalProps> = ({
 
             <div className="max-h-52 overflow-y-auto px-4 pb-3 space-y-1.5">
               {outrosAtos.map((ato) => {
-                const expandido = atoAberto === ato.id;
+                const atoKey = `${ato.janelaId}:${ato.id}`;
+                const expandido = atoAberto === atoKey;
                 const disponivel = conheceCaminhos && atoTemArquivo && Boolean(ato.caminho);
                 const lista = ancorasDe(ato);
+                const emOutraJanela = ato.janelaId !== janelaAtualId;
 
                 return (
-                  <div key={ato.id} className="rounded-lg border border-slate-800 overflow-hidden">
+                  <div key={atoKey} className="rounded-lg border border-slate-800 overflow-hidden">
                     <div className="flex items-center gap-2 px-3 py-2 bg-slate-950/60">
-                      <button
-                        type="button"
-                        disabled={!disponivel}
-                        onClick={() => choose({ kind: 'aba', abaId: ato.id })}
-                        title={
-                          disponivel
-                            ? `Apontar para “${ato.rotulo}” — para o começo do ato`
-                            : `“${ato.rotulo}” ainda não foi salvo em arquivo`
-                        }
-                        className="flex-1 min-w-0 text-left text-sm text-slate-200 hover:text-amber-300 disabled:text-slate-500 disabled:hover:text-slate-500 truncate transition"
-                      >
+                      <div className="flex-1 min-w-0 text-sm text-slate-200 truncate">
                         {ato.rotulo}
                         {!ato.caminho && (
                           <span className="text-xs text-slate-500"> — ainda não salvo em arquivo</span>
                         )}
+                        {emOutraJanela && <span className="text-xs text-slate-500"> — outra janela</span>}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={!disponivel}
+                        onClick={() => choose({ kind: 'aba', abaId: ato.id, janelaId: ato.janelaId })}
+                        title={
+                          disponivel
+                            ? `Apontar para o início de “${ato.rotulo}”`
+                            : `“${ato.rotulo}” ainda não foi salvo em arquivo`
+                        }
+                        className="shrink-0 text-xs text-slate-400 hover:text-amber-300 disabled:text-slate-600 disabled:hover:text-slate-600 transition"
+                      >
+                        Início
                       </button>
 
                       {ato.ancoras.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => setAtoAberto(expandido ? null : ato.id)}
+                          onClick={() => setAtoAberto(expandido ? null : atoKey)}
                           title={
                             expandido
                               ? 'Esconder os pontos de ancoragem deste ato'
@@ -293,7 +303,14 @@ export const LinkModal: React.FC<LinkModalProps> = ({
                             type="button"
                             key={ancora.name}
                             disabled={!disponivel}
-                            onClick={() => choose({ kind: 'aba', abaId: ato.id, ancora: ancora.name })}
+                            onClick={() =>
+                              choose({
+                                kind: 'aba',
+                                abaId: ato.id,
+                                janelaId: ato.janelaId,
+                                ancora: ancora.name,
+                              })
+                            }
                             title={`Apontar para #${ancora.name}, em “${ato.rotulo}”`}
                             className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-amber-950/30 disabled:opacity-40 disabled:hover:bg-transparent transition min-w-0"
                           >

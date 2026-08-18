@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ArrowDown,
   CornerDownLeft,
+  Link2,
   Table as TableIcon,
 } from 'lucide-react';
 import {
@@ -858,6 +859,18 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             title="Duplicar Bloco"
           >
             <Copy size={13} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onInsertLink();
+            }}
+            className="p-1 text-legenda hover:text-texto"
+            title="Inserir link no trecho selecionado"
+          >
+            <Link2 size={13} />
           </button>
           <button
             onClick={(e) => handleDeleteBlock(block.id, e)}

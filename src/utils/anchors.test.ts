@@ -68,6 +68,19 @@ describe('nome do ponto de ancoragem', () => {
 });
 
 describe('pontos de ancoragem do ato', () => {
+  it('oferece a epígrafe como destino padrão', () => {
+    const doc = { ...docWith(), epigrafe: 'DECRETO Nº 13.090' };
+
+    expect(collectAnchorPoints(doc)).toEqual([
+      { name: 'epigrafe', label: 'Epígrafe', location: 'Epígrafe', blockId: 'epigrafe' },
+    ]);
+    expect(createAnchorName(doc, 'Epígrafe')).toBe('epigrafe-2');
+  });
+
+  it('não oferece a âncora da epígrafe vazia', () => {
+    expect(collectAnchorPoints(docWith())).toEqual([]);
+  });
+
   it('reúne os marcados à mão e os numerados na importação', () => {
     const doc = docWith(
       block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', linkName: 'art1' }),

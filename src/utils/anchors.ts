@@ -49,11 +49,13 @@ export type LinkChoice =
    * `href` é o App, que conhece o arquivo dos dois lados e faz a conta relativa
    * de um para o outro. A caixa não precisa saber o que é caminho.
    */
-  | { kind: 'aba'; abaId: string; ancora?: string };
+  | { kind: 'aba'; abaId: string; janelaId: string; ancora?: string };
 
 /** Um ato aberto noutra aba, oferecido como destino de remissão. */
 export interface AtoAberto {
   id: string;
+  /** Janela que mantém o ato aberto; distingue abas de renderers diferentes. */
+  janelaId: string;
   rotulo: string;
   /** Sem caminho, o ato não pode ser destino: não há de onde contar a remissão. */
   caminho?: string;
@@ -138,6 +140,10 @@ export function collectAnchorPoints(doc: LegislativeDocument): AnchorPoint[] {
   const points: AnchorPoint[] = [];
   /** Rótulos da cadeia aberta, por posição hierárquica; o anexo abre a lista. */
   let cadeia: string[] = [];
+
+  if (htmlToPlainText(doc.epigrafe).trim()) {
+    points.push({ name: 'epigrafe', label: 'Epígrafe', location: 'Epígrafe', blockId: 'epigrafe' });
+  }
 
   doc.blocks.forEach((block) => {
     const rank = rankOf(block.type);

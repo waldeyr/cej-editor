@@ -116,6 +116,10 @@ declare global {
       fetchUrl?: (url: string) => Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }>;
       /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
       abrirNovaJanela?: () => Promise<{ ok: boolean }>;
+      /** Publica os destinos abertos nesta janela, sem transferir o conteúdo dos atos. */
+      publicarAtosAbertos?: (atos: AtoAberto[]) => Promise<void>;
+      /** Lê os destinos publicados pelas outras janelas abertas. */
+      listarAtosAbertos?: () => Promise<AtoAberto[]>;
     };
   }
 }
@@ -1448,6 +1452,19 @@ export const App: React.FC = () => {
   const [showTableModal, setShowTableModal] = useState<boolean>(false);
   const [showSaveAsModal, setShowSaveAsModal] = useState<boolean>(false);
   const [activeSelectionText, setActiveSelectionText] = useState<string>('');
+  const [atosEmOutrasJanelas, setAtosEmOutrasJanelas] = useState<AtoAberto[]>([]);
+
+  const carregarAtosEmOutrasJanelas = () => {
+    if (!window.electronAPI?.listarAtosAbertos) {
+      setAtosEmOutrasJanelas([]);
+      return;
+    }
+
+    void window.electronAPI
+      .listarAtosAbertos()
+      .then(setAtosEmOutrasJanelas)
+      .catch(() => setAtosEmOutrasJanelas([]));
+  };
 
   /**
    * Devolve ao documento o HTML dos campos que a operação acabou de alterar.
@@ -1516,6 +1533,7 @@ export const App: React.FC = () => {
       const held = getEditableSegments();
       heldSegmentsRef.current = held;
       setActiveSelectionText(held.map((segment) => segment.range.toString()).join(''));
+      carregarAtosEmOutrasJanelas();
       setShowLinkModal(true);
       return;
     }
@@ -1609,17 +1627,36 @@ export const App: React.FC = () => {
    * ancoragem vêm de `collectAnchorPoints` sem tocar no disco. É o que torna
    * esta a forma mais barata de criar remissão entre arquivos.
    */
-  const atosAbertos: AtoAberto[] = useMemo(
+  const atosDestaJanela: AtoAberto[] = useMemo(
     () =>
       estado.abas
-        .filter((outra) => outra.id !== aba.id)
         .map((outra) => ({
           id: outra.id,
+          janelaId: janela.id,
           rotulo: rotuloDaAba(outra),
           caminho: outra.arquivo?.caminho,
           ancoras: collectAnchorPoints(outra.doc),
         })),
-    [estado.abas, aba.id]
+    [estado.abas]
+  );
+
+  useEffect(() => {
+    void window.electronAPI?.publicarAtosAbertos?.(atosDestaJanela);
+  }, [atosDestaJanela]);
+
+  useEffect(
+    () => () => {
+      void window.electronAPI?.publicarAtosAbertos?.([]);
+    },
+    []
+  );
+
+  const atosAbertos: AtoAberto[] = useMemo(
+    () => [
+      ...atosDestaJanela.filter((outra) => outra.id !== aba.id),
+      ...atosEmOutrasJanelas,
+    ],
+    [atosDestaJanela, atosEmOutrasJanelas, aba.id]
   );
 
   /**
@@ -1634,7 +1671,9 @@ export const App: React.FC = () => {
     if (choice.kind === 'anchor') return { href: `#${choice.name}` };
     if (choice.kind === 'url') return { href: choice.href };
 
-    const destino = estado.abas.find((outra) => outra.id === choice.abaId);
+    const destino = atosAbertos.find(
+      (outro) => outro.id === choice.abaId && outro.janelaId === choice.janelaId
+    );
     if (!destino) return { recusa: 'O ato de destino não está mais aberto.' };
 
     /*
@@ -1657,15 +1696,15 @@ export const App: React.FC = () => {
       };
     }
 
-    const alvo = destino.arquivo?.caminho;
+    const alvo = destino.caminho;
     if (!alvo) {
-      return { recusa: `Salve “${rotuloDaAba(destino)}” em arquivo antes de apontar para ele.` };
+      return { recusa: `Salve “${destino.rotulo}” em arquivo antes de apontar para ele.` };
     }
 
     const relativo = relativizar(origem, alvo);
     if (relativo === null) {
       return {
-        recusa: `“${rotuloDaAba(destino)}” está noutro disco: não há caminho relativo entre os dois.`,
+        recusa: `“${destino.rotulo}” está noutro disco: não há caminho relativo entre os dois.`,
       };
     }
 
@@ -1703,6 +1742,12 @@ export const App: React.FC = () => {
    * vira recado na barra de estado em vez de um clique que não faz nada.
    */
   const handleNavigateAnchor = (name: string) => {
+    if (name.replace(/^#/, '') === 'epigrafe') {
+      setSelectedBlockId('epigrafe');
+      document.getElementById('block-epigrafe')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
     const block = findAnchorBlock(doc, name);
     if (!block) {
       setNotice(`Nenhum ponto de ancoragem responde por #${name}.`);
@@ -1926,6 +1971,7 @@ export const App: React.FC = () => {
         isOpen={showLinkModal}
         anchors={anchorPoints}
         atosAbertos={atosAbertos}
+        janelaAtualId={janela.id}
         atoTemArquivo={Boolean(aba.arquivo?.caminho)}
         conheceCaminhos={Boolean(window.electronAPI)}
         selectedText={activeSelectionText}

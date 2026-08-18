@@ -4,6 +4,24 @@ import fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
 
+interface PontoDeAncoragemAberto {
+  name: string;
+  label: string;
+  location: string;
+  blockId: string;
+}
+
+interface AtoAberto {
+  id: string;
+  janelaId: string;
+  rotulo: string;
+  caminho?: string;
+  ancoras: PontoDeAncoragemAberto[];
+}
+
+/** Destinos publicados por cada renderer, sem conteúdo integral dos atos. */
+const atosAbertosPorRenderer = new Map<number, AtoAberto[]>();
+
 interface LugarDaJanela {
   x: number;
   y: number;
@@ -32,6 +50,11 @@ function createWindow(lugar?: LugarDaJanela) {
   });
 
   if (!mainWindow) mainWindow = janela;
+
+  const rendererId = janela.webContents.id;
+  janela.webContents.once('destroyed', () => {
+    atosAbertosPorRenderer.delete(rendererId);
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     janela.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -65,6 +88,16 @@ const paraBuffer = (content: Uint8Array | string) =>
  */
 const janelaDe = (event: Electron.IpcMainInvokeEvent) =>
   BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+
+ipcMain.handle('atos:publicarAbertos', (event, atos: AtoAberto[]) => {
+  atosAbertosPorRenderer.set(event.sender.id, Array.isArray(atos) ? atos : []);
+});
+
+ipcMain.handle('atos:listarAbertos', (event): AtoAberto[] =>
+  [...atosAbertosPorRenderer]
+    .filter(([rendererId]) => rendererId !== event.sender.id)
+    .flatMap(([, atos]) => atos)
+);
 
 /**
  * Pergunta onde gravar, grava, e **devolve o caminho escolhido**.

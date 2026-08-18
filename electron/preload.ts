@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchUrl: (url: string) => ipcRenderer.invoke('net:fetchUrl', url),
   /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
   abrirNovaJanela: () => ipcRenderer.invoke('janela:nova'),
+  publicarAtosAbertos: (atos: unknown[]) => ipcRenderer.invoke('atos:publicarAbertos', atos),
+  listarAtosAbertos: () => ipcRenderer.invoke('atos:listarAbertos'),
 });

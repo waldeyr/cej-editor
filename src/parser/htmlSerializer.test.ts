@@ -78,6 +78,10 @@ describe('tinta das remissões', () => {
   it('deixa a epígrafe no azul-marinho do padrão Planalto', () => {
     expect(html).toContain('style="color: #000080 !important"');
   });
+
+  it('declara a epígrafe como destino padrão de remissão', () => {
+    expect(html).toContain('<a name="epigrafe" href="#">');
+  });
 });
 
 /*
