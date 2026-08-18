@@ -17,7 +17,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "electron:dev": "vite",
-    "build:desktop": "tsc && vite build && npm run build:electron && electron-builder"
+    "build:desktop": "tsc && vite build && npm run build:electron && electron-builder --publish never"
   },
   "build": {
     "appId": "br.gov.planalto.cej-editor",

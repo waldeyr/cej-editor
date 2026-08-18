@@ -36,14 +36,17 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      # Nunca --publish aqui: o publish embutido do electron-builder escolhe a
-      # release pela versão do package.json, não pela tag que disparou o
-      # workflow — e quando as duas divergem ele publica (ou cria) a release
-      # errada sem avisar (foi assim que nasceu a release solta "v1.0.0", com
-      # um único instalador). Quem decide para qual release os instaladores
-      # vão é o job "publish", pela tag de verdade.
+      # O publish embutido do electron-builder escolhe a release pela versão
+      # do package.json, não pela tag que disparou o workflow — e quando as
+      # duas divergem ele publica (ou cria) a release errada sem avisar (foi
+      # assim que nasceu a release solta "v1.0.0", com um único instalador).
+      # Por isso o próprio script build:desktop traz "--publish never" (passar
+      # a flag daqui via "npm run -- --publish never" chega fora de ordem ao
+      # electron-builder e derruba o build com "Unknown argument: never").
+      # Quem decide para qual release os instaladores vão é o job "publish",
+      # pela tag de verdade.
       - name: Build Web Application & Desktop Executables
-        run: npm run build:desktop -- --publish never
+        run: npm run build:desktop
 
       # Só os instaláveis. O diretório dist-desktop guarda também a árvore
       # descompactada do aplicativo e os metadados de auto-update
