@@ -87,6 +87,9 @@ npm run build
 
 ### Empacotamento Desktop (Electron)
 
+O comando abaixo compila a aplicação e gera os instaladores do **sistema
+operacional em que ele roda**:
+
 ```bash
 npm run build:desktop
 ```
@@ -94,6 +97,40 @@ npm run build:desktop
 Os artefatos gerados serão salvos no diretório `dist-desktop/`, com a versão no nome
 de cada arquivo — `CEJ-EDITOR-0.2.0.dmg`, `CEJ-EDITOR Setup 0.2.0.exe`,
 `CEJ-EDITOR-0.2.0.AppImage` e assim por diante.
+
+#### Gerar cada distribuição individualmente
+
+Para escolher o sistema ou o formato, compile uma vez e chame o
+`electron-builder` com o alvo desejado:
+
+```bash
+# Compila o web (dist/) e a camada Electron (dist-electron/) — pré-requisito de todos
+npm run build
+
+# Windows: instalador NSIS (.exe) e executável portátil
+npx electron-builder --win
+
+# Linux: .AppImage e pacote .deb
+npx electron-builder --linux
+
+# macOS: imagem de disco .dmg e arquivo .zip
+npx electron-builder --mac
+```
+
+Um formato específico pode ser pedido depois do sistema:
+
+```bash
+npx electron-builder --win nsis          # somente o instalador
+npx electron-builder --win portable      # somente o portátil
+npx electron-builder --linux AppImage    # somente o AppImage
+npx electron-builder --linux deb         # somente o .deb
+```
+
+Duas restrições de plataforma valem aqui: o `.dmg` do **macOS só é gerado em uma
+máquina macOS** (limitação da Apple), e gerar o instalador do Windows a partir do
+Linux exige o Wine instalado. Na prática, a compilação dos três sistemas é feita
+pelo fluxo de publicação descrito em [Versão e Publicação](#versão-e-publicação),
+que roda em executores nativos de cada plataforma.
 
 ## Versão e Publicação
 
