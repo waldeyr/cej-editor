@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,13 +38,40 @@ const caminhoDeProva = (nome: string): string => resolve(__dirname, '../../docs/
 const arquivoDeProva = (nome: string): Uint8Array => new Uint8Array(readFileSync(caminhoDeProva(nome)));
 
 /*
+ * As provas são atos reais, grandes demais para o histórico do git — o
+ * `.gitignore` exclui `docs/file-tests/*` de propósito. Num clone que não as
+ * tem (a integração contínua, uma máquina nova), a suíte inteira é pulada e
+ * anunciada como pulada, em vez de derrubar o `npm test` com ENOENT: a conta
+ * sem perda roda onde os arquivos de verdade estão.
+ */
+const PROVAS = [
+  '0408_DEC_13090_S1_OK.rtf',
+  'DEC11158.doc',
+  'Mpv-1286-24.doc',
+  'mpv1286impressao.htm',
+  'decreto-anexo.docx',
+];
+const provasDisponiveis = PROVAS.every((nome) => existsSync(caminhoDeProva(nome)));
+
+if (!provasDisponiveis) {
+  it.skip('a importação não perde conteúdo do ato — atos de prova ausentes em docs/file-tests/', () => {});
+}
+
+/*
+ * Não basta `describe.skip`: o corpo de uma suíte pulada ainda roda na coleta,
+ * e é no corpo que os arquivos são lidos e desserializados. Sem as provas, a
+ * suíte não pode nem ser coletada.
+ */
+const descreveComProvas = (provasDisponiveis ? describe : () => undefined) as typeof describe;
+
+/*
  * A conversão de Word acontece de verdade, e não por um HTML escrito à mão: o
  * que se afere é o encontro entre o que o mammoth escreve e o que o leitor
  * legislativo espera, que é justamente onde o conteúdo se perdia.
  */
-const HTML_DO_MAMMOTH = (
-  await mammoth.convertToHtml({ buffer: readFileSync(caminhoDeProva('decreto-anexo.docx')) })
-).value;
+const HTML_DO_MAMMOTH = provasDisponiveis
+  ? (await mammoth.convertToHtml({ buffer: readFileSync(caminhoDeProva('decreto-anexo.docx')) })).value
+  : '';
 
 /**
  * Multiconjunto de palavras. Pontuação sai fora: o que se afere é se a palavra
@@ -113,7 +140,7 @@ function palavrasPerdidas(noArquivo: Map<string, number>, noDocumento: Map<strin
   return perdidas.sort();
 }
 
-describe('a importação não perde conteúdo do ato', () => {
+descreveComProvas('a importação não perde conteúdo do ato', () => {
   describe('RTF da CEJ (0408_DEC_13090_S1_OK.rtf)', () => {
     const bytes = arquivoDeProva('0408_DEC_13090_S1_OK.rtf');
     const rtf = detectAndDecode(bytes).text;

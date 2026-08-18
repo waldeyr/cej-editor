@@ -87,5 +87,11 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Anexar à release existente
-        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+      # A release nasce aqui quando ainda não existe: a tag por si só não a
+      # cria, e o `gh release upload` recusa anexar ao que não há.
+      - name: Anexar à release, criando-a se não existir
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
+            || gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+                 --notes "CEJ-EDITOR $RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
