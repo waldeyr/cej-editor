@@ -25,26 +25,27 @@ O CEJ-EDITOR é uma aplicação Web e Desktop (Electron) destinada ao suporte à
 
 ## Tecnologias e Versões
 
-As versões abaixo são as declaradas no `package.json`. A integração contínua compila e testa o projeto com **Node.js 20**.
+As versões abaixo são as declaradas no `package.json`. A integração contínua compila e testa o projeto com **Node.js 22.12 ou superior**.
 
 | Tecnologia | Versão | Função |
 | :--- | :--- | :--- |
-| **Node.js** | `>= 18.0.0` | Ambiente de execução JavaScript/TypeScript |
+| **Node.js** | `>= 22.12.0` | Ambiente de execução JavaScript/TypeScript |
 | **React** | `^18.2.0` | Biblioteca para construção de interfaces gráficas |
 | **TypeScript** | `^5.3.3` | Linguagem para tipagem estática de código |
-| **Vite** | `^5.1.4` | Ferramenta de build e servidor de desenvolvimento |
-| **Electron** | `^29.1.0` | Framework para execução em ambiente desktop |
+| **Vite** | `^8.2.1` | Ferramenta de build e servidor de desenvolvimento |
+| **Electron** | `^41.10.5` | Framework para execução em ambiente desktop |
+| **Electron Builder** | `^26.15.3` | Empacotamento dos instaladores desktop |
 | **TailwindCSS** | `^4.0.0` | Framework utilitário para estilização CSS |
 | **Lucide React** | `^0.344.0` | Conjunto de ícones para interface |
 | **Mammoth** | `^1.12.1` | Conversão de DOCX para HTML na importação |
-| **Vitest** | `^1.3.1` | Framework para testes unitários |
-| **Esbuild** | `^0.20.1` | Bundler para scripts da camada Electron |
+| **Vitest** | `^4.1.10` | Framework para testes unitários |
+| **Esbuild** | `^0.28.2` | Bundler para scripts da camada Electron |
 
 ## Instalação e Execução
 
 ### Requisitos
 
-Possuir o **Node.js** (versão 18 ou superior) e o **npm** instalados.
+Possuir o **Node.js** (versão 22.12 ou superior) e o **npm** instalados.
 
 ```bash
 node -v

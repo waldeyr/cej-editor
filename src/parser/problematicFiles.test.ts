@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { htmlToPlainText } from '../utils/docTargets';
 import { prepararHtmlDeImportacao } from './docxHtml';
 import { deserializePlanaltoHtmlToDocument } from './htmlSerializer';
 import { parseRtfToLegislativeDocument } from './rtfParser';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const problematico = (name: string) =>
   readFileSync(resolve(__dirname, '../../docs/file-tests/problematicos', name), 'utf-8');

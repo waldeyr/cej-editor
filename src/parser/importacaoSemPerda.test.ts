@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LegislativeDocument } from '../types/legislative';
 import { detectAndDecode } from '../utils/encoding';
 import { htmlToPlainText } from '../utils/docTargets';
@@ -10,6 +12,8 @@ import { extrairTokensDoDoc } from './docParser';
 import { deserializePlanaltoHtmlToDocument } from './htmlSerializer';
 import { sanitizeInlineHtml, visibleTextOfHtml } from './inlineHtml';
 import { completarEmentaDoDocx, prepararHtmlDeImportacao } from './docxHtml';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * A conta fechada da importação.
