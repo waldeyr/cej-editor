@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gravarArquivo: (caminho: string, content: Uint8Array | string) =>
     ipcRenderer.invoke('arquivo:gravar', caminho, content),
   openFile: () => ipcRenderer.invoke('dialog:openFile'),
+  openRecentFile: (caminho: string) => ipcRenderer.invoke('arquivo:abrirRecente', caminho),
   fetchUrl: (url: string) => ipcRenderer.invoke('net:fetchUrl', url),
   /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
   abrirNovaJanela: () => ipcRenderer.invoke('janela:nova'),
@@ -19,5 +20,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const ouvinte = (_event: unknown, tema: string) => callback(tema);
     ipcRenderer.on('tema:definir', ouvinte);
     return () => ipcRenderer.removeListener('tema:definir', ouvinte);
+  },
+  onArquivoMenu: (callback: (comando: 'novo' | 'abrir' | 'abrirUrl') => void) => {
+    const ouvinte = (_event: unknown, comando: 'novo' | 'abrir' | 'abrirUrl') => callback(comando);
+    ipcRenderer.on('arquivo:menu', ouvinte);
+    return () => ipcRenderer.removeListener('arquivo:menu', ouvinte);
+  },
+  onArquivoRecente: (callback: (caminho: string) => void) => {
+    const ouvinte = (_event: unknown, caminho: string) => callback(caminho);
+    ipcRenderer.on('arquivo:recente', ouvinte);
+    return () => ipcRenderer.removeListener('arquivo:recente', ouvinte);
   },
 });

@@ -1,6 +1,6 @@
 {
   "name": "cej-editor",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "description": "CEJ-EDITOR - Editor Web e Desktop de Atos Normativos no padrão Planalto com preservação adaptativa de encoding e executável standalone",
   "author": "Secretaria Especial para Assuntos Jurídicos",

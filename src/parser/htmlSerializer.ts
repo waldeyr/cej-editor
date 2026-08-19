@@ -342,8 +342,20 @@ interface PartesJaLidas {
   ordemExecucao: boolean;
 }
 
-/** As três formas do tachado que podem envolver o rótulo — a que o botão escreve e as do corpus legado. */
+/** As três formas semânticas do tachado aceitas no HTML importado. */
 const ETIQUETAS_DE_TACHADO = ['s', 'strike', 'del'];
+
+/** Reconhece o tachado CSS inline usado por alguns editores HTML. */
+function etiquetaTemTachado(nome: string, bruto: string): boolean {
+  if (ETIQUETAS_DE_TACHADO.includes(nome)) return true;
+
+  const estilo = bruto.match(/\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+  if (!estilo) return false;
+
+  return /(?:^|;)\s*text-decoration(?:-line)?\s*:\s*[^;]*\bline-through\b/i.test(
+    estilo[1] || estilo[2] || estilo[3] || ''
+  );
+}
 
 /**
  * O rótulo chegou do arquivo já riscado — `<s>Art. 5º </s>Fica revogado…` — e é
@@ -357,11 +369,10 @@ const ETIQUETAS_DE_TACHADO = ['s', 'strike', 'del'];
  * O rótulo pode chegar dentro de outras etiquetas que não são dele — o `<span
  * style="…">` que envolve o parágrafo inteiro, ou o `<a name>` da âncora —, e
  * por isso a checagem caminha pedaço a pedaço (a mesma varredura de
- * `inlineHtml.ts`), e não por posição no início da string: só desfaz a etiqueta
- * de tachado cujo par abre com zero caracteres visíveis vistos e fecha
- * exatamente no fim do rótulo, nem mais nem menos — a mesma marca ao redor de
- * rótulo e começo do texto não é tachado do identificador, é tachado do redator
- * sobre um trecho comum, e continua em `content` como sempre esteve.
+ * `inlineHtml.ts`), e não por posição no início da string. A marca é do
+ * identificador quando fecha no fim do rótulo, ou do dispositivo quando fecha
+ * no fim de todo o texto visível. No segundo caso ela permanece no conteúdo,
+ * para que o caput continue riscado.
  */
 function extrairTachadoDoRotulo(
   interior: string,
@@ -370,6 +381,7 @@ function extrairTachadoDoRotulo(
   if (visiveisDoRotulo <= 0) return { interior };
 
   const pedacos = despedacar(interior);
+  const visiveisTotais = pedacos.reduce((total, pedaco) => total + pedaco.visivel.length, 0);
   const abertos: { nome: string; indice: number; visiveisNaAbertura: number }[] = [];
   let visiveis = 0;
 
@@ -394,11 +406,17 @@ function extrairTachadoDoRotulo(
     if (posicao === -1) continue;
     const [aberto] = abertos.splice(posicao, 1);
 
-    if (
-      ETIQUETAS_DE_TACHADO.includes(nome) &&
-      aberto.visiveisNaAbertura === 0 &&
-      visiveis === visiveisDoRotulo
-    ) {
+    const comecaNoRotulo = aberto.visiveisNaAbertura === 0;
+    const comecaNoCaput = aberto.visiveisNaAbertura === visiveisDoRotulo;
+    if (!etiquetaTemTachado(nome, pedacos[aberto.indice].bruto) || (!comecaNoRotulo && !comecaNoCaput)) {
+      continue;
+    }
+
+    if (visiveis === visiveisTotais) {
+      return { interior, identificadorTachado: true };
+    }
+
+    if (comecaNoRotulo && visiveis === visiveisDoRotulo) {
       const semTags = pedacos
         .filter((_, i) => i !== aberto.indice && i !== indice)
         .map((p) => p.bruto)

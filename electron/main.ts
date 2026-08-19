@@ -4,6 +4,40 @@ import fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
 
+const MAX_ARQUIVOS_RECENTES = 10;
+const nomeDoHistoricoDeArquivos = () => path.join(app.getPath('userData'), 'arquivos-recentes.json');
+
+function gravarArquivosRecentes(arquivos: string[]): void {
+  try {
+    fs.writeFileSync(nomeDoHistoricoDeArquivos(), JSON.stringify(arquivos.slice(0, MAX_ARQUIVOS_RECENTES)));
+  } catch {
+    // O histórico é auxiliar: não pode impedir a abertura do documento.
+  }
+}
+
+function lerArquivosRecentes(): string[] {
+  try {
+    const guardados = JSON.parse(fs.readFileSync(nomeDoHistoricoDeArquivos(), 'utf8'));
+    if (!Array.isArray(guardados)) return [];
+
+    const existentes = guardados.filter(
+      (caminho): caminho is string =>
+        typeof caminho === 'string' && path.isAbsolute(caminho) && fs.existsSync(caminho)
+    );
+    if (existentes.length !== guardados.length) gravarArquivosRecentes(existentes);
+    return existentes.slice(0, MAX_ARQUIVOS_RECENTES);
+  } catch {
+    return [];
+  }
+}
+
+function registrarArquivoRecente(caminho: string): void {
+  gravarArquivosRecentes([caminho, ...lerArquivosRecentes().filter((item) => item !== caminho)]);
+}
+
+const rendererDaJanela = (janela?: Electron.BaseWindow): BrowserWindow | undefined =>
+  janela ? BrowserWindow.fromId(janela.id) ?? undefined : undefined;
+
 /*
  * Tema do chrome — os mesmos três valores de src/utils/tema.ts. Quem guarda a
  * preferência é o renderer (localStorage); o processo principal só mantém o
@@ -23,11 +57,38 @@ const alinharTemaNativo = (tema: Tema) => {
  * item de tema, que dispara o mesmo canal do alternador da barra.
  */
 const construirMenu = () => {
+  const comando = (nome: 'novo' | 'abrir' | 'abrirUrl'): Electron.MenuItemConstructorOptions => ({
+    click: (_item, janela) => rendererDaJanela(janela)?.webContents.send('arquivo:menu', nome),
+  });
+  const recentes = lerArquivosRecentes();
+  const itensRecentes: Electron.MenuItemConstructorOptions[] = recentes.length > 0
+    ? recentes.map((caminho) => ({
+        label: path.basename(caminho),
+        sublabel: caminho,
+        click: (_item, janela) => rendererDaJanela(janela)?.webContents.send('arquivo:recente', caminho),
+      }))
+    : [{ label: 'Nenhum arquivo recente', enabled: false }];
   const modelo: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin'
       ? ([{ role: 'appMenu' }] as Electron.MenuItemConstructorOptions[])
       : []),
-    { role: 'fileMenu', label: 'Arquivo' },
+    {
+      label: 'Arquivo',
+      submenu: [
+        { label: 'Novo', accelerator: 'CmdOrCtrl+N', ...comando('novo') },
+        { label: 'Abrir', accelerator: 'CmdOrCtrl+O', ...comando('abrir') },
+        { label: 'Abrir URL', ...comando('abrirUrl') },
+        { type: 'separator' },
+        {
+          label: 'Recentes',
+          submenu: [
+            { label: 'Lista de arquivos recentes', enabled: false },
+            { type: 'separator' },
+            ...itensRecentes,
+          ],
+        },
+      ],
+    },
     { role: 'editMenu', label: 'Editar' },
     {
       label: 'Exibir',
@@ -300,9 +361,25 @@ ipcMain.handle('dialog:openFile', async (event) => {
   if (filePaths && filePaths.length > 0) {
     const filePath = filePaths[0];
     const buffer = fs.readFileSync(filePath);
+    registrarArquivoRecente(filePath);
+    construirMenu();
     return { filePath, buffer: new Uint8Array(buffer) };
   }
   return null;
+});
+
+ipcMain.handle('arquivo:abrirRecente', async (_event, caminho: string) => {
+  if (!path.isAbsolute(caminho) || !lerArquivosRecentes().includes(caminho)) return null;
+
+  try {
+    const buffer = fs.readFileSync(caminho);
+    registrarArquivoRecente(caminho);
+    construirMenu();
+    return { filePath: caminho, buffer: new Uint8Array(buffer) };
+  } catch {
+    construirMenu();
+    return null;
+  }
 });
 
 /*

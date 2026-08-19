@@ -329,6 +329,50 @@ describe('abertura de ato publicado', () => {
     expect(voltou?.content).toContain('<s>Fica revogado o decreto anterior.</s>');
     expect(voltou?.content).not.toContain('<s></s>');
   });
+
+  it.each([
+    ['s', '<s>Art. 6º Fica revogado o decreto anterior.</s>'],
+    ['strike', '<strike>Art. 7º Fica revogado o decreto anterior.</strike>'],
+    ['del', '<del>Art. 8º Fica revogado o decreto anterior.</del>'],
+    [
+      'text-decoration',
+      '<span style="text-decoration: line-through">Art. 9º Fica revogado o decreto anterior.</span>',
+    ],
+    [
+      'text-decoration-line',
+      '<span style="TEXT-DECORATION-LINE: line-through">Art. 10º Fica revogado o decreto anterior.</span>',
+    ],
+  ])('promove o tachado integral do dispositivo ao rótulo (%s)', (_nome, paragrafo) => {
+    const importado = deserializePlanaltoHtmlToDocument(`<html><body><p>${paragrafo}</p></body></html>`);
+    const artigo = importado.blocks.find((block) => block.type === 'ARTIGO');
+
+    expect(artigo?.identificadorTachado).toBe(true);
+    expect(artigo?.numberLabel).toMatch(/^Art\. /);
+    expect(visibleTextOfHtml(artigo?.content || '')).toBe('Fica revogado o decreto anterior.');
+    expect(artigo?.content).toMatch(/(?:<s>|<strike>|<del>|text-decoration)/i);
+  });
+
+  it('não promove o tachado parcial do caput ao rótulo', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      '<html><body><p>Art. 11º Fica <s>parcialmente revogado</s> o decreto anterior.</p></body></html>'
+    );
+    const artigo = importado.blocks.find((block) => block.type === 'ARTIGO');
+
+    expect(artigo?.identificadorTachado).toBeUndefined();
+    expect(artigo?.numberLabel).toBe('Art. 11º');
+    expect(artigo?.content).toContain('<s>parcialmente revogado</s>');
+  });
+
+  it('promove o tachado quando a marca cobre todo o caput, mesmo sem envolver o rótulo', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      '<html><body><p>Art. 12º <s>Fica revogado o decreto anterior.</s></p></body></html>'
+    );
+    const artigo = importado.blocks.find((block) => block.type === 'ARTIGO');
+
+    expect(artigo?.identificadorTachado).toBe(true);
+    expect(artigo?.numberLabel).toBe('Art. 12º');
+    expect(artigo?.content).toContain('<s>Fica revogado o decreto anterior.</s>');
+  });
 });
 
 describe('o anexo se lê depois das assinaturas', () => {

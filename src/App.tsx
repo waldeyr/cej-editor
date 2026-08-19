@@ -113,6 +113,7 @@ declare global {
         content: Uint8Array | string
       ) => Promise<{ ok: boolean; erro?: string }>;
       openFile: () => Promise<{ filePath: string; buffer: Uint8Array } | null>;
+      openRecentFile?: (caminho: string) => Promise<{ filePath: string; buffer: Uint8Array } | null>;
       /** Baixa um endereço no processo principal, fora do alcance da política de origem. */
       fetchUrl?: (url: string) => Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }>;
       /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
@@ -125,6 +126,8 @@ declare global {
       informarTema?: (tema: Tema) => Promise<void>;
       /** O item "Exibir → Tema" do menu da aplicação mandou trocar o tema. */
       onTemaDefinido?: (callback: (tema: Tema) => void) => () => void;
+      onArquivoMenu?: (callback: (comando: 'novo' | 'abrir' | 'abrirUrl') => void) => () => void;
+      onArquivoRecente?: (callback: (caminho: string) => void) => () => void;
     };
   }
 }
@@ -785,6 +788,16 @@ export const App: React.FC = () => {
   const openNativeFile = async () => {
     const resultado = await window.electronAPI?.openFile?.();
     if (!resultado) return;
+
+    await openBytes(resultado.buffer, {
+      nome: nomeDe(resultado.filePath),
+      caminho: resultado.filePath,
+    });
+  };
+
+  const openRecentNativeFile = async (caminho: string) => {
+    const resultado = await window.electronAPI?.openRecentFile?.(caminho);
+    if (!resultado) throw new Error('O arquivo recente não está mais disponível.');
 
     await openBytes(resultado.buffer, {
       nome: nomeDe(resultado.filePath),
@@ -1526,6 +1539,30 @@ export const App: React.FC = () => {
   const [showSaveAsModal, setShowSaveAsModal] = useState<boolean>(false);
   const [activeSelectionText, setActiveSelectionText] = useState<string>('');
   const [atosEmOutrasJanelas, setAtosEmOutrasJanelas] = useState<AtoAberto[]>([]);
+
+  useEffect(() => {
+    const removerMenu = window.electronAPI?.onArquivoMenu?.((comando) => {
+      if (comando === 'novo') {
+        executeNewDoc();
+        return;
+      }
+      if (comando === 'abrir') {
+        handleOpenNativeFile();
+        return;
+      }
+      setShowUrlModal(true);
+    });
+    const removerRecente = window.electronAPI?.onArquivoRecente?.((caminho) => {
+      void openRecentNativeFile(caminho).catch((error: unknown) => {
+        setNotice(error instanceof Error ? error.message : 'Não foi possível abrir o arquivo recente.');
+      });
+    });
+
+    return () => {
+      removerMenu?.();
+      removerRecente?.();
+    };
+  }, [executeNewDoc, handleOpenNativeFile, openRecentNativeFile]);
 
   const carregarAtosEmOutrasJanelas = () => {
     if (!window.electronAPI?.listarAtosAbertos) {
