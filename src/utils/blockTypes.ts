@@ -105,12 +105,17 @@ export function toLetters(value: number): string {
  * superior, que é justamente onde o pai começa. Blocos fora da hierarquia —
  * tabelas, citações, omissis, linhas sem formatação — não contam nem
  * interrompem a contagem.
+ *
+ * O dispositivo tachado também não conta por padrão: o tachado marca o que já
+ * foi revogado, mantido na folha só pelo contexto histórico — e um artigo
+ * revogado não desloca o número do que vem depois dele, como um artigo
+ * revogado de verdade não desloca no ato publicado.
  */
 export function ordinalForTypeAt(
   blocks: readonly LegislativeBlock[],
   index: number,
   type: BlockType,
-  counts: (block: LegislativeBlock) => boolean = () => true
+  counts: (block: LegislativeBlock) => boolean = (block) => !block.identificadorTachado
 ): number {
   const rank = rankOf(type);
   const upTo = Math.max(0, Math.min(index, blocks.length));
@@ -510,8 +515,14 @@ export function renumberBlocks(
    * isso escapava, mas o inciso e a alínea do **meio** da citação continuam
    * sendo INCISO e ALINEA, com rótulo canônico, e eram reescritos na série do
    * ato alterador a cada clique em "Renumerar".
+   *
+   * O tachado também fica de fora: é o dispositivo revogado, preservado só
+   * pelo contexto histórico, e nem entra na conta dos que vêm depois nem tem o
+   * próprio número refeito — o número que ele exibe é o que ele tinha quando
+   * revogado, não uma posição corrente na série.
    */
-  const contaNaSerie = (block: LegislativeBlock) => hasCanonicalLabel(block) && !estaEmCitacao(block);
+  const contaNaSerie = (block: LegislativeBlock) =>
+    hasCanonicalLabel(block) && !estaEmCitacao(block) && !block.identificadorTachado;
 
   blocks.forEach((block) => {
     if (!contaNaSerie(block) || (ids && !ids.has(block.id))) {

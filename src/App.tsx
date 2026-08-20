@@ -852,6 +852,24 @@ export const App: React.FC = () => {
     const defaultName = suggestedName || suggestedFileName(snapshot.title);
 
     /*
+     * O aviso é sobre o conteúdo salvo, não sobre a gravação em si — por isso
+     * fica calculado aqui, antes do "onde" e do "como" gravar. Um erro real de
+     * disco, adiante, sobrescreve este recado com o dele: perder a numeração
+     * fora de sequência de vista importa menos do que saber que o arquivo não
+     * foi para lugar nenhum.
+     */
+    const foraDeSequencia = validateLegislativeDocument(snapshot).filter((issue) =>
+      issue.id.startsWith('art-seq-')
+    );
+    if (foraDeSequencia.length > 0) {
+      setNotice(
+        foraDeSequencia.length === 1
+          ? `Salvo com um aviso: ${foraDeSequencia[0].message}`
+          : `Salvo com ${foraDeSequencia.length} avisos de numeração fora de sequência. O botão "Renumerar", na barra de estrutura, acerta a sequência do ato.`
+      );
+    }
+
+    /*
      * O que fica limpo é o que foi para o disco — e não o `doc` da aba: quem
      * salva lê antes o campo com o foco, e essa leitura é um documento mais
      * novo. Marcar o outro deixaria a aba com a marca de não salvo acesa logo

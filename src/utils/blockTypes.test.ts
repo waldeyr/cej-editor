@@ -334,4 +334,32 @@ describe('renumeração dos dispositivos', () => {
     };
     expect(renumberBlocks([artigo])[0].linkName).toBe('art3');
   });
+
+  it('não conta o artigo tachado — revogado, mora ali só pelo histórico — e não refaz o rótulo dele', () => {
+    const blocks = [
+      rotulado('b1', 'ARTIGO', 'Art. 1º'),
+      { ...rotulado('b2', 'ARTIGO', 'Art. 7º'), identificadorTachado: true },
+      rotulado('b3', 'ARTIGO', 'Art. 3º'),
+    ];
+    expect(rotulos(renumberBlocks(blocks))).toEqual(['Art. 1º', 'Art. 7º', 'Art. 2º']);
+  });
+
+  it('não conta o inciso tachado dentro do artigo, mesmo com rótulo canônico', () => {
+    const blocks = [
+      rotulado('b1', 'ARTIGO', 'Art. 1º'),
+      { ...rotulado('b2', 'INCISO', 'I -'), identificadorTachado: true },
+      rotulado('b3', 'INCISO', 'IV -'),
+    ];
+    expect(rotulos(renumberBlocks(blocks))).toEqual(['Art. 1º', 'I -', 'I -']);
+  });
+});
+
+describe('numeração ignora o dispositivo tachado', () => {
+  it('não conta o artigo tachado ao numerar o próximo', () => {
+    const blocks = [
+      block('b1', 'ARTIGO'),
+      { ...block('b2', 'ARTIGO'), identificadorTachado: true },
+    ];
+    expect(numberLabelForTypeAt(blocks, blocks.length, 'ARTIGO')).toBe('Art. 2º');
+  });
 });

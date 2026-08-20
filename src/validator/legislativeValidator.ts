@@ -58,6 +58,15 @@ export function validateLegislativeDocument(doc: LegislativeDocument): Validatio
     // Validação de Sequência de Artigos
     if (block.type === 'ARTIGO') {
       hasArtigo = true;
+
+      /*
+       * O artigo tachado é o revogado, mantido só pelo contexto histórico
+       * (ver `ordinalForTypeAt` em blockTypes.ts): o número dele é congelado,
+       * não uma posição corrente na série, e por isso nem entra na conta nem
+       * é acusado de estar fora dela.
+       */
+      if (block.identificadorTachado) return;
+
       const numMatch = block.numberLabel?.match(/\d+/);
       if (numMatch) {
         const actualNum = parseInt(numMatch[0], 10);
