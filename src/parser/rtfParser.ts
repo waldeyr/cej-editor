@@ -680,15 +680,23 @@ function classificarDispositivo(
   clean: string,
   isAlteration: boolean
 ): { type: BlockType; numberLabel?: string; cleanText: string } {
-  if (new RegExp(`^Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}`, 'i').test(clean)) {
-    const m = clean.match(new RegExp(`^(Art\\.\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i'));
-    return { type: isAlteration ? 'ALTERACAO' : 'ARTIGO', numberLabel: m ? m[1] : '', cleanText: m ? m[2] : clean };
+  if (new RegExp(`^Art\\.\\s*\\d+[ºo°]?${SUFIXO_DE_INCLUSAO}`, 'i').test(clean)) {
+    const m = clean.match(new RegExp(`^(Art\\.\\s*\\d+[ºo°]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i'));
+    return {
+      type: isAlteration ? 'ALTERACAO' : 'ARTIGO',
+      numberLabel: m ? normalizarOrdinalDoRotulo(m[1]) : '',
+      cleanText: m ? m[2] : clean,
+    };
   }
-  if (new RegExp(`^(Parágrafo\\s+único|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO})`, 'i').test(clean)) {
+  if (new RegExp(`^(Parágrafo\\s+único|§\\s*\\d+[ºo°]?${SUFIXO_DE_INCLUSAO})`, 'i').test(clean)) {
     const m = clean.match(
-      new RegExp(`^(Parágrafo\\s+único\\.?|§\\s*\\d+[ºo]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i')
+      new RegExp(`^(Parágrafo\\s+único\\.?|§\\s*\\d+[ºo°]?${SUFIXO_DE_INCLUSAO}\\.?)\\s*(.*)`, 'i')
     );
-    return { type: isAlteration ? 'ALTERACAO' : 'PARAGRAFO', numberLabel: m ? m[1] : '', cleanText: m ? m[2] : clean };
+    return {
+      type: isAlteration ? 'ALTERACAO' : 'PARAGRAFO',
+      numberLabel: m ? normalizarOrdinalDoRotulo(m[1]) : '',
+      cleanText: m ? m[2] : clean,
+    };
   }
   if (new RegExp(`^[IVXLCDM]+${SUFIXO_DE_INCLUSAO}\\s*${SEPARADOR_DE_INCISO}`, 'i').test(clean)) {
     const m = clean.match(new RegExp(`^([IVXLCDM]+${SUFIXO_DE_INCLUSAO})\\s*${SEPARADOR_DE_INCISO}\\s*(.*)`, 'i'));
@@ -715,6 +723,10 @@ function classificarDispositivo(
     return { type: 'OMISSIS', cleanText: OMISSIS_LINE };
   }
   return { type: 'TEXTO_LIVRE', cleanText: clean };
+}
+
+function normalizarOrdinalDoRotulo(rotulo: string): string {
+  return rotulo.replace(/(\d)[ºo°]/gi, '$1º');
 }
 
 /**

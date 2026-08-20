@@ -373,6 +373,92 @@ describe('abertura de ato publicado', () => {
     expect(artigo?.numberLabel).toBe('Art. 12º');
     expect(artigo?.content).toContain('<s>Fica revogado o decreto anterior.</s>');
   });
+
+  it('promove o tachado do dispositivo mesmo quando o aviso legal vem depois', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p><a name="art8iii"></a><strike>III&nbsp;-&nbsp;ascensão;</strike> <a href="L9527.htm#art18">(Revogado pela Lei nº 9.527)</a></p>
+      <p><a name="art8iv"></a><strike>IV&nbsp;- transferência;</strike> <strike><a href="resf46.htm">(Execução suspensa)</a></strike> <a href="L9527.htm#art18">(Revogado)</a></p>
+      <p><strike><a name="art9ii."></a>II - em comissão, para cargos de confiança.</strike></p>
+      </body></html>`
+    );
+    const incisos = importado.blocks.filter((block) => block.type === 'INCISO');
+
+    expect(incisos).toHaveLength(3);
+    expect(incisos.slice(0, 2).every((block) => block.identificadorTachado)).toBe(true);
+    expect(incisos[0].content).toContain('<strike>ascensão;</strike>');
+    expect(incisos[1].content).toContain('<strike>transferência;</strike>');
+    expect(incisos[2].identificadorTachado).toBe(true);
+  });
+
+  it('normaliza o ordinal legado escrito como o ou grau', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      '<html><body><p>Art.&nbsp;9<sup><u>o</u></sup>&nbsp;&nbsp;A nomeação far-se-á.</p><p>§ 1° O prazo será contado.</p></body></html>'
+    );
+
+    expect(importado.blocks[0].numberLabel).toBe('Art. 9º');
+    expect(importado.blocks[1].numberLabel).toBe('§ 1º');
+  });
+
+  it('mantém ementa, avisos e publicação consolidada antes do preâmbulo', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p align="center">LEI Nº 8.112, DE 11 DE DEZEMBRO DE 1990</p>
+      <table><tr>
+        <td><font size="2"><a href="L8112compilado.htm">Texto compilado</a><br><a href="#art1">Vigência</a><br><a href="L12702.htm">(Vide Lei nº 12.702, de 2012)</a></font></td>
+        <td><p align="justify"><font color="#800000"><small>Dispõe sobre o regime jurídico dos servidores.</small></font></p></td>
+      </tr></table>
+      <p align="center"><strong>PUBLICAÇÃO CONSOLIDADA DA LEI Nº 8.112.</strong></p>
+      <p><strong>O PRESIDENTE DA REPÚBLICA</strong> Faço saber que a lei decreta:</p>
+      <p>Art. 1o Esta Lei institui o regime.</p>
+      </body></html>`
+    );
+    const html = serializeToPlanaltoHtml(importado);
+
+    expect(visibleTextOfHtml(importado.ementa)).toBe('Dispõe sobre o regime jurídico dos servidores.');
+    expect(importado.avisosPreliminares).toContain('Texto compilado');
+    expect(importado.avisosPreliminares).toContain('PUBLICAÇÃO CONSOLIDADA');
+    expect(importado.blocks.some((block) => block.rawText.startsWith('PUBLICAÇÃO CONSOLIDADA'))).toBe(false);
+    expect(html.indexOf('Dispõe sobre')).toBeLessThan(html.indexOf('Texto compilado'));
+    expect(html.indexOf('Texto compilado')).toBeLessThan(html.indexOf('O PRESIDENTE DA REPÚBLICA'));
+  });
+
+  it('sobrevive a uma segunda abertura: os avisos preliminares não se perdem ao reexportar', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <table><tr>
+        <td><font size="2"><a href="L8112compilado.htm">Texto compilado</a><br><a href="#art1">Vigência</a></font></td>
+        <td><p align="justify"><font color="#800000"><small>Dispõe sobre o regime jurídico dos servidores.</small></font></p></td>
+      </tr></table>
+      <p><strong>O PRESIDENTE DA REPÚBLICA</strong> Faço saber que a lei decreta:</p>
+      <p>Art. 1o Esta Lei institui o regime.</p>
+      </body></html>`
+    );
+
+    const reaberto = deserializePlanaltoHtmlToDocument(serializeToPlanaltoHtml(importado));
+
+    expect(reaberto.avisosPreliminares).toContain('Texto compilado');
+  });
+
+  it('acha a ementa de uma tabela legada sem parágrafo justificado na célula', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      '<html><body><table><tr><td></td><td><span>Aprova o Regimento Interno.</span></td></tr></table></body></html>'
+    );
+
+    expect(visibleTextOfHtml(importado.ementa)).toBe('Aprova o Regimento Interno.');
+  });
+
+  it('reconhece o tachado do dispositivo com anotações além de "Revogado" e "Execução suspensa"', () => {
+    const importado = deserializePlanaltoHtmlToDocument(
+      `<html><body>
+      <p><a name="art9"></a><strike>Art. 9º Fica extinto o cargo.</strike> <a href="L1.htm">(Vigência encerrada)</a></p>
+      <p><a name="art10"></a><strike>Art. 10. O prazo é de trinta dias.</strike> <a href="L2.htm">(Redação suprimida)</a></p>
+      </body></html>`
+    );
+
+    expect(importado.blocks[0].identificadorTachado).toBe(true);
+    expect(importado.blocks[1].identificadorTachado).toBe(true);
+  });
 });
 
 describe('o anexo se lê depois das assinaturas', () => {

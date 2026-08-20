@@ -1177,14 +1177,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         {/* Ementa — tabela de duas colunas, tal como sai no arquivo salvo. */}
         {!isEmptyHtml(doc.ementa) && (
           <div id="block-ementa" onClick={() => handleCanvasBlockClick('ementa')} className="w-full flex gap-4">
-            <div className="w-1/2 shrink-0 text-[10pt]">
-              <span
-                className="text-[var(--cej-link)] underline"
-                title="Link de vigência gerado na exportação"
-              >
-                Vigência
-              </span>
-            </div>
+            <div className="w-1/2 shrink-0 text-[10pt]" />
             <div
               className={`relative group w-1/2 p-1 rounded cursor-text transition-all ${selectionRingClass('ementa')}`}
             >
@@ -1200,6 +1193,27 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
                 style={partLayout(partTarget('ementa'), false)}
               />
             </div>
+          </div>
+        )}
+
+        {(doc.avisosPreliminares || !isEmptyHtml(doc.ementa)) && (
+          <div
+            id="block-avisosPreliminares"
+            onClick={() => handleCanvasBlockClick('avisosPreliminares')}
+            className={`relative group w-full my-[15px] p-1 rounded cursor-text transition-all ${selectionRingClass(
+              'avisosPreliminares'
+            )}`}
+          >
+            {partActions('Aviso preliminar', () => handleDeletePart({ avisosPreliminares: '' }))}
+            <Editable
+              target={partTarget('avisosPreliminares')}
+              html={doc.avisosPreliminares || '<a href="#art1">Vigência</a>'}
+              onCommit={(html) => commitTarget(partTarget('avisosPreliminares'), html)}
+              onKeyDown={handlePartEnter}
+              ariaLabel="Aviso preliminar do ato"
+              placeholder="Aviso preliminar"
+              className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
+            />
           </div>
         )}
 

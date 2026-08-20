@@ -16,7 +16,7 @@ export const EDITABLE_TARGET_ATTR = 'data-cej-target';
 export const EDITABLE_SELECTOR = `[${EDITABLE_TARGET_ATTR}]`;
 
 /** Partes fixas do ato, fora da lista de dispositivos. */
-export type DocPart = 'epigrafe' | 'ementa' | 'preambulo' | 'ordemExecucao' | 'fecho';
+export type DocPart = 'epigrafe' | 'ementa' | 'avisosPreliminares' | 'preambulo' | 'ordemExecucao' | 'fecho';
 
 /**
  * As partes que abrem o ato (Decreto nº 12.002/2024, art. 4º), e as únicas que
@@ -33,6 +33,7 @@ export const PARTES_PRELIMINARES: readonly DocPart[] = ['epigrafe', 'ementa', 'p
 export const NOME_DA_PARTE: Readonly<Record<DocPart, string>> = {
   epigrafe: 'Epígrafe',
   ementa: 'Ementa',
+  avisosPreliminares: 'Aviso preliminar',
   preambulo: 'Preâmbulo',
   ordemExecucao: 'Ordem de execução',
   fecho: 'Fecho',
@@ -49,6 +50,7 @@ export const NOME_DA_PARTE: Readonly<Record<DocPart, string>> = {
 export const GENERO_DA_PARTE: Readonly<Record<DocPart, 'a' | 'o'>> = {
   epigrafe: 'a',
   ementa: 'a',
+  avisosPreliminares: 'o',
   preambulo: 'o',
   ordemExecucao: 'a',
   fecho: 'o',
@@ -132,6 +134,8 @@ export function applyHtmlToTarget(
       };
     case 'ementa':
       return { ...doc, ementa: html };
+    case 'avisosPreliminares':
+      return { ...doc, avisosPreliminares: html };
     case 'preambulo':
       return { ...doc, preambulo: html };
     case 'ordemExecucao':

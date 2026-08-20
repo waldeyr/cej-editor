@@ -36,8 +36,46 @@ jobs:
       - name: Unit Tests
         run: npm test
 
+      # O ESLint acabou de entrar no projeto, e o código existente já tem
+      # dívida acumulada (regras de hooks, variáveis não usadas etc.) — travar
+      # o CI nela agora quebraria todo PR por um débito que ninguém introduziu.
+      # `continue-on-error` mantém o aviso visível no job sem barrar o merge;
+      # quando a dívida zerar, tirar a flag transforma isto num gate de verdade.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
       # Cobre a verificação de tipos (tsc), o empacotamento web (vite) e os
       # scripts da camada Electron (esbuild) — tudo menos o electron-builder,
       # que roda por sistema operacional apenas na publicação de uma versão.
       - name: Build (tipos, web e Electron)
         run: npm run build
+
+  package-dry-run:
+    name: Empacotamento (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    # Roda o electron-builder de verdade a cada push/PR, sem publicar nada
+    # ("--publish never", já embutido em build:desktop) — é o passo que o job
+    # "test" pula de propósito (ver comentário acima) e que só rodava na
+    # publicação de uma tag, em release.yml. Foi por essa lacuna que uma
+    # regressão no empacotamento Linux só apareceu numa release de verdade.
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22.12.0
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Desktop Package
+        run: npm run build:desktop

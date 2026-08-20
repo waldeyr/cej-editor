@@ -79,7 +79,6 @@ import {
   EditableSegment,
   InlineFormat,
   InlineFormatResult,
-  activeFormatsAtSelection,
   applyInlineFormat,
   clearFormatting,
   focusEditableTarget,
@@ -88,6 +87,9 @@ import {
   wrapInAnchorPoint,
   wrapInLink,
 } from './utils/richText';
+import { targetForSelectedId, targetsInPlay } from './utils/selection';
+import { useActiveSelection } from './hooks/useActiveSelection';
+import { useStatusNotice } from './hooks/useStatusNotice';
 import {
   applyBlockType,
   blockTypeName,
@@ -95,50 +97,19 @@ import {
   numberLabelForTypeAt,
 } from './utils/blockTypes';
 import { desenhaComoTitulo } from './utils/rank';
-import { Tema, aplicarTema, guardarTema, temaGuardado } from './utils/tema';
+import { useTema } from './hooks/useTema';
+import { useModalVisibility } from './hooks/useModalVisibility';
 import mammoth from 'mammoth';
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      /** Pergunta onde gravar e devolve o caminho escolhido — é ele que nomeia a aba. */
-      saveFile: (
-        content: Uint8Array | string,
-        defaultName: string,
-        caminhoAtual?: string
-      ) => Promise<{ ok: boolean; caminho?: string; cancelado?: boolean; erro?: string }>;
-      /** Grava por cima do arquivo de origem, sem diálogo. */
-      gravarArquivo?: (
-        caminho: string,
-        content: Uint8Array | string
-      ) => Promise<{ ok: boolean; erro?: string }>;
-      openFile: () => Promise<{ filePath: string; buffer: Uint8Array } | null>;
-      openRecentFile?: (caminho: string) => Promise<{ filePath: string; buffer: Uint8Array } | null>;
-      /** Baixa um endereço no processo principal, fora do alcance da política de origem. */
-      fetchUrl?: (url: string) => Promise<{ ok: boolean; bytes?: Uint8Array; error?: string }>;
-      /** Abre uma janela nova — o navegador já faz isto arrastando a aba para fora. */
-      abrirNovaJanela?: () => Promise<{ ok: boolean }>;
-      /** Publica os destinos abertos nesta janela, sem transferir o conteúdo dos atos. */
-      publicarAtosAbertos?: (atos: AtoAberto[]) => Promise<void>;
-      /** Lê os destinos publicados pelas outras janelas abertas. */
-      listarAtosAbertos?: () => Promise<AtoAberto[]>;
-      /** Alinha o `nativeTheme` do processo principal com a preferência salva. */
-      informarTema?: (tema: Tema) => Promise<void>;
-      /** O item "Exibir → Tema" do menu da aplicação mandou trocar o tema. */
-      onTemaDefinido?: (callback: (tema: Tema) => void) => () => void;
-      onArquivoMenu?: (callback: (comando: 'novo' | 'abrir' | 'abrirUrl') => void) => () => void;
-      onArquivoRecente?: (callback: (caminho: string) => void) => () => void;
-    };
-  }
-}
+// A tipagem de window.electronAPI mora em src/types/electron.d.ts e entra no
+// programa pelo "include" do tsconfig, sem import — como src/vite-env.d.ts.
+// Um import explícito para ela quebra o vite dev server: esbuild tenta
+// resolvê-la como módulo de runtime, e um .d.ts não é um.
 
 const IMPORT_ENCODING = {
   encoding: 'windows-1252' as const,
   declaredEncoding: 'ISO-8859-1',
   hasBom: false,
 };
-
-const NAMED_PARTS: readonly DocPart[] = ['epigrafe', 'ementa', 'preambulo', 'ordemExecucao', 'fecho'];
 
 /**
  * Partes que abrem o ato. O que vem imediatamente abaixo delas na folha é o
@@ -349,24 +320,6 @@ const estadoInicialDasAbas = (): EstadoDasAbas => {
   return { abas: recuperadas, ativa };
 };
 
-/** Traduz a posição selecionada na tela para o endereço do campo correspondente. */
-const targetForSelectedId = (id?: string): string | undefined => {
-  if (!id) return undefined;
-  if (NAMED_PARTS.includes(id as DocPart)) return partTarget(id as DocPart);
-  const assinatura = id.match(/^assinatura-(\d+)$/);
-  if (assinatura) return assinaturaTarget(Number.parseInt(assinatura[1], 10));
-  return blockTarget(id);
-};
-
-/** Campos alcançados pela seleção corrente — ou, sem seleção, o campo com o foco. */
-const targetsInPlay = (): string[] => {
-  const segments = getEditableSegments();
-  if (segments.length > 0) return segments.map((segment) => segment.target);
-
-  const active = document.activeElement as HTMLElement | null;
-  const target = active?.getAttribute?.(EDITABLE_TARGET_ATTR);
-  return target ? [target] : [];
-};
 
 export const App: React.FC = () => {
   /*
@@ -407,39 +360,12 @@ export const App: React.FC = () => {
 
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
 
-  /*
-   * Tema do chrome. O inline script de index.html já pintou a primeira tela;
-   * daqui em diante a escolha vive neste estado, vinda do menu "Exibir" da
-   * barra ou do menu da aplicação no desktop. Só o <html data-tema> muda:
-   * nenhum componente consulta o tema — todos leem tokens.
-   */
-  const [tema, setTema] = useState<Tema>(temaGuardado);
+  const { tema, definirTema } = useTema();
 
-  useEffect(() => {
-    aplicarTema(tema);
-    void window.electronAPI?.informarTema?.(tema);
-    if (tema !== 'sistema') return;
-
-    // Em "sistema", a troca de preferência do SO repinta o chrome na hora.
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const aoMudar = () => aplicarTema('sistema');
-    media.addEventListener('change', aoMudar);
-    return () => media.removeEventListener('change', aoMudar);
-  }, [tema]);
-
-  const definirTema = useCallback((escolhido: Tema) => {
-    guardarTema(escolhido);
-    setTema(escolhido);
-  }, []);
-
-  // O item "Exibir → Tema" do menu da aplicação dispara o mesmo canal.
-  useEffect(() => window.electronAPI?.onTemaDefinido?.(definirTema), [definirTema]);
   /** Aba que o redator mandou fechar e ainda tem trabalho a perder. */
   const [fechamentoPendente, setFechamentoPendente] = useState<FechamentoPendente | null>(null);
-  const [activeFormats, setActiveFormats] = useState<InlineFormat[]>([]);
-  const [activeTargets, setActiveTargets] = useState<string[]>([]);
-  /** Recado passageiro na barra de estado — uma remissão sem destino, por exemplo. */
-  const [notice, setNotice] = useState<string>('');
+  const { activeFormats, activeTargets, setActiveFormats, setActiveTargets } = useActiveSelection();
+  const { notice, setNotice } = useStatusNotice();
 
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -623,36 +549,12 @@ export const App: React.FC = () => {
     if (rolagemRef.current) rolagemRef.current.scrollTop = aba.rolagem;
   }, [estado.ativa]);
 
-  /*
-   * A barra de comandos acompanha a seleção viva: os botões de formato acendem
-   * conforme o trecho sob o cursor, e o alinhamento mostra o do campo em jogo.
-   */
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const formats = activeFormatsAtSelection();
-      setActiveFormats((previous) => (previous.join() === formats.join() ? previous : formats));
-
-      const targets = targetsInPlay();
-      setActiveTargets((previous) => (previous.join() === targets.join() ? previous : targets));
-    };
-
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, []);
-
   // O aviso "Salvo" na barra de estado responde ao botão "Salvar".
   useEffect(() => {
     if (!justSaved) return;
     const timer = setTimeout(() => despachar({ tipo: 'limparAvisoDeSalvo', id: aba.id }), 2500);
     return () => clearTimeout(timer);
   }, [justSaved, aba.id]);
-
-  // Recados da barra de estado se apagam sozinhos: são resposta a um gesto, não estado.
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(''), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   /**
    * Adota um ato recém-aberto — numa aba nova.
@@ -1427,7 +1329,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    const substituiu = !isEmptyHtml(base[part]);
+    const substituiu = !isEmptyHtml(base[part] || '');
     const novo = moverParaParte(base, part, alvos);
 
     if (novo === base) {
@@ -1532,11 +1434,18 @@ export const App: React.FC = () => {
     });
   };
 
-  const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
-  const [showUrlModal, setShowUrlModal] = useState<boolean>(false);
-  const [showTitleModal, setShowTitleModal] = useState<boolean>(false);
-  const [showTableModal, setShowTableModal] = useState<boolean>(false);
-  const [showSaveAsModal, setShowSaveAsModal] = useState<boolean>(false);
+  const {
+    showLinkModal,
+    setShowLinkModal,
+    showUrlModal,
+    setShowUrlModal,
+    showTitleModal,
+    setShowTitleModal,
+    showTableModal,
+    setShowTableModal,
+    showSaveAsModal,
+    setShowSaveAsModal,
+  } = useModalVisibility();
   const [activeSelectionText, setActiveSelectionText] = useState<string>('');
   const [atosEmOutrasJanelas, setAtosEmOutrasJanelas] = useState<AtoAberto[]>([]);
 

@@ -101,7 +101,7 @@ export interface LegislativeDocument {
   titleIsManual?: boolean;
   epigrafe: string;
   ementa: string;
-  linkVigencia?: string;
+  avisosPreliminares?: string;
   preambulo: string;
   ordemExecucao: string; // Ex: "DECRETA:"
   blocks: LegislativeBlock[];

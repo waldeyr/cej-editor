@@ -91,14 +91,18 @@ export function serializeToPlanaltoHtml(doc: LegislativeDocument): string {
   const ementaHtml = `
 	<table border="0" cellpadding="0" cellspacing="0" width="100%">
 		<tbody><tr>
-			<td width="50%">
-  					<font face="Arial" size="2"><a href="#art1">Vigência</a></font></td>
+      <td width="50%"></td>
 			<td width="50%">
 	<p align="${ementaAlign}">
 	<span style="font-size: 10.0pt; font-family: Arial,sans-serif; color: #800000">
 	${doc.ementa}</span></p></td>
 		</tr>
 	</tbody></table>`;
+
+  const avisosPreliminares = doc.avisosPreliminares || '<a href="#art1">Vigência</a>';
+  const avisosPreliminaresHtml = `
+	<p class="MsoNormal cej-avisos-preliminares" style="text-align: left; text-indent: 0; margin-top: 0; margin-bottom: 15px">
+  <span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${avisosPreliminares}</span></p>`;
 
   // A ordem só sai quando o ato a tem: a MPV não decreta, e um parágrafo em
   // negrito vazio no arquivo não espelharia a folha, que esconde a parte vazia.
@@ -165,6 +169,7 @@ ${coatOfArmsSvg}
 ${epigrafeHtml}
 	</blockquote>
 ${ementaHtml}
+${avisosPreliminaresHtml}
 ${preambuloHtml}
 ${blocksHtml}
 ${fechoHtml}
@@ -371,12 +376,13 @@ function etiquetaTemTachado(nome: string, bruto: string): boolean {
  * por isso a checagem caminha pedaço a pedaço (a mesma varredura de
  * `inlineHtml.ts`), e não por posição no início da string. A marca é do
  * identificador quando fecha no fim do rótulo, ou do dispositivo quando fecha
- * no fim de todo o texto visível. No segundo caso ela permanece no conteúdo,
+ * no fim do dispositivo classificado. No segundo caso ela permanece no conteúdo,
  * para que o caput continue riscado.
  */
 function extrairTachadoDoRotulo(
   interior: string,
-  visiveisDoRotulo: number
+  visiveisDoRotulo: number,
+  visiveisDoDispositivo: number
 ): { interior: string; identificadorTachado?: boolean } {
   if (visiveisDoRotulo <= 0) return { interior };
 
@@ -412,7 +418,7 @@ function extrairTachadoDoRotulo(
       continue;
     }
 
-    if (visiveis === visiveisTotais) {
+    if (visiveis === visiveisTotais || visiveis === visiveisDoDispositivo) {
       return { interior, identificadorTachado: true };
     }
 
@@ -426,6 +432,21 @@ function extrairTachadoDoRotulo(
   }
 
   return { interior };
+}
+
+/*
+ * As anotações que o padrão Planalto acrescenta depois do dispositivo alterado
+ * — "(Revogado…)", "(Execução suspensa)", "(Vigência encerrada)", "(Redação
+ * suprimida)", "(Vide…)", "(Incluído…)", "(Promulgação…)" — todas abrem com
+ * uma destas palavras. A lista é por radical, e não pela frase inteira, porque
+ * o ato publicado varia o texto depois dela ("Revogado pela Lei nº…",
+ * "Redação dada por…", "Redação suprimida por…").
+ */
+const ANOTACAO_DE_HISTORICO = /\s+\((?:Revogad[ao]|Execução suspensa|Vigência|Redação|Vide|Inclu[ií]d[ao]|Promulga[çc][ãa]o|Regulamento)\b/i;
+
+function limiteDoDispositivo(texto: string, inicio: number, fimDoTexto: number): number {
+  const historico = texto.search(ANOTACAO_DE_HISTORICO);
+  return historico >= inicio ? historico : fimDoTexto;
 }
 
 /**
@@ -511,7 +532,8 @@ function absorverParagrafo(
     jaLidas.epigrafe = true;
     return;
   }
-  if (doc.ementa && texto.includes(doc.ementa) && !jaLidas.ementa) {
+  const textoDaEmenta = visibleTextOfHtml(doc.ementa);
+  if (textoDaEmenta && texto.includes(textoDaEmenta) && !jaLidas.ementa) {
     jaLidas.ementa = true;
     return;
   }
@@ -567,7 +589,11 @@ function absorverParagrafo(
    * que tem forma canônica própria —, o conteúdo é o texto mesmo.
    */
   const inicio = cleanText ? texto.indexOf(cleanText) : texto.length;
-  const { interior: semTachado, identificadorTachado } = extrairTachadoDoRotulo(interior, inicio);
+  const { interior: semTachado, identificadorTachado } = extrairTachadoDoRotulo(
+    interior,
+    inicio,
+    limiteDoDispositivo(texto, inicio, inicio + cleanText.length)
+  );
   const content =
     inicio >= 0
       ? stripVisibleEdges(semTachado, inicio, texto.length - inicio - cleanText.length)
@@ -630,6 +656,9 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
 
   doc.epigrafe = acharEpigrafeNoDom(parsedDoc);
 
+  let tabelaDeAbertura: HTMLTableElement | null = null;
+  let paragrafoDePublicacao: HTMLParagraphElement | null = null;
+
   /*
    * A ementa volta como HTML, e não como texto corrido.
    *
@@ -639,8 +668,58 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
    * salvar gravava o link no arquivo, e a releitura o apagava. Perda silenciosa
    * que só aparecia na segunda abertura (invariante 9).
    */
-  const ementaEl = parsedDoc.querySelector('table p[align="justify"] span') || parsedDoc.querySelector('table span');
-  if (ementaEl) doc.ementa = textoCorrido(sanitizeInlineHtml(ementaEl.innerHTML));
+  tabelaDeAbertura = Array.from(parsedDoc.querySelectorAll('table')).find((tabela) => {
+    const celulas = Array.from(tabela.querySelectorAll('td'));
+    const direita = celulas[1] || celulas[0];
+    return Boolean(
+      direita &&
+        (celulas.length === 1 || !celulas[0]?.textContent?.trim() || celulas[0]?.querySelector('a[href]')) &&
+        Array.from(direita.querySelectorAll('p')).some((paragrafo) =>
+          /justify/i.test(paragrafo.getAttribute('align') || '') ||
+          /text-align:\s*justify/i.test(paragrafo.getAttribute('style') || '')
+        )
+    );
+  }) || null;
+
+  if (tabelaDeAbertura) {
+    const celulas = Array.from(tabelaDeAbertura.querySelectorAll('td'));
+    const esquerda = celulas.length > 1 ? celulas[0] : null;
+    const direita = celulas[1] || celulas[0];
+    const paragrafoEmenta = direita
+      ? Array.from(direita.querySelectorAll('p')).find((paragrafo) =>
+          /justify/i.test(paragrafo.getAttribute('align') || '') ||
+          /text-align:\s*justify/i.test(paragrafo.getAttribute('style') || '')
+        )
+      : null;
+    const fonteEmenta = paragrafoEmenta?.querySelector('font, span') || paragrafoEmenta;
+    if (fonteEmenta) doc.ementa = textoCorrido(sanitizeInlineHtml(fonteEmenta.innerHTML));
+
+    if (esquerda) {
+      const avisos = sanitizeInlineHtml(esquerda.innerHTML).trim();
+      if (visibleTextOfHtml(avisos)) {
+        doc.avisosPreliminares = avisos;
+      }
+    }
+  } else {
+    /*
+     * Tabela legada sem `<p align="justify">` na célula — o corpus antigo
+     * guarda a ementa direto num `<span>`, sem parágrafo em volta. Sem este
+     * resgate, um ato assim abre com `doc.ementa` vazio.
+     */
+    const ementaEl = parsedDoc.querySelector('table p[align="justify"] span') || parsedDoc.querySelector('table span');
+    if (ementaEl) doc.ementa = textoCorrido(sanitizeInlineHtml(ementaEl.innerHTML));
+  }
+
+  paragrafoDePublicacao = Array.from(parsedDoc.querySelectorAll('p')).find(
+    (paragrafo) =>
+      !paragrafo.closest('table') &&
+      !paragrafo.classList.contains('cej-avisos-preliminares') &&
+      /^PUBLICAÇÃO CONSOLIDADA\b/i.test(textoCorrido(paragrafo.textContent))
+  ) || null;
+  if (paragrafoDePublicacao) {
+    const publicacao = sanitizeInlineHtml(paragrafoDePublicacao.innerHTML).trim();
+    doc.avisosPreliminares = [doc.avisosPreliminares, publicacao].filter(Boolean).join('<br>');
+  }
 
   /*
    * O agrupador do ato publicado costuma ser um título de seção do HTML, e não
@@ -652,7 +731,12 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
 
   // Quantos dispositivos havia quando o fecho apareceu — ver `aindaSeAssina`.
   let blocosNoFecho = -1;
-  const jaLidas: PartesJaLidas = { epigrafe: false, ementa: false, fecho: false, ordemExecucao: false };
+  const jaLidas: PartesJaLidas = {
+    epigrafe: false,
+    ementa: Boolean(doc.ementa),
+    fecho: false,
+    ordemExecucao: false,
+  };
 
   paragraphs.forEach((p, indice) => {
     if (p.tagName.toLowerCase() === 'table') {
@@ -672,6 +756,21 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
      * `<p class=MsoNormal>` dentro de toda célula que gera.
      */
     if (p.closest('table.MsoTableGrid')) return;
+    if (tabelaDeAbertura && p.closest('table') === tabelaDeAbertura) return;
+    if (p === paragrafoDePublicacao) return;
+    /*
+     * O parágrafo com que este próprio serializador reexporta os avisos
+     * preliminares (Vigência, Texto compilado, PUBLICAÇÃO CONSOLIDADA…) — ver
+     * `avisosPreliminaresHtml` acima. Sem recolher o conteúdo aqui, reabrir um
+     * ato salvo por este editor apagava o campo de vez: a tabela de abertura
+     * não guarda mais o aviso na célula esquerda desde que ele ganhou
+     * parágrafo próprio, e este era o único lugar onde ele ainda aparecia.
+     */
+    if (p.classList.contains('cej-avisos-preliminares')) {
+      const avisos = sanitizeInlineHtml(p.innerHTML).trim();
+      if (visibleTextOfHtml(avisos)) doc.avisosPreliminares = avisos;
+      return;
+    }
 
     const tinhaFecho = Boolean(doc.fecho);
     absorverParagrafo(doc, p.innerHTML, indice, blocosNoFecho, jaLidas);
