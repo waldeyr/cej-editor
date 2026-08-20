@@ -1949,6 +1949,7 @@ export const App: React.FC = () => {
           onNavigateAnchor={handleNavigateAnchor}
           onInsertAnchor={() => handleFormatInline('anchor')}
           onInsertLink={() => handleFormatInline('link')}
+          onStrikethrough={() => handleFormatInline('strikethrough')}
         />
       </div>
 

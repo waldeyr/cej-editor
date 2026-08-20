@@ -38,6 +38,7 @@ const renderCanvas = (
       onNavigateAnchor={noop}
       onInsertAnchor={noop}
       onInsertLink={noop}
+      onStrikethrough={noop}
       {...overrides}
     />
   );

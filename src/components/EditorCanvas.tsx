@@ -1,12 +1,11 @@
 import React, { useCallback, useState } from 'react';
 import {
   Trash2,
-  Copy,
-  Plus,
   ArrowUp,
   ArrowDown,
   CornerDownLeft,
   Link2,
+  Strikethrough,
   Table as TableIcon,
 } from 'lucide-react';
 import {
@@ -27,7 +26,6 @@ import {
   LINK_INK_HOVER,
   describeBlock,
   findAnchorBlock,
-  semPontosDeAncoragem,
 } from '../utils/anchors';
 import {
   EDITABLE_SELECTOR,
@@ -84,6 +82,7 @@ interface EditorCanvasProps {
   onNavigateAnchor: (name: string) => void;
   onInsertAnchor: () => void;
   onInsertLink: () => void;
+  onStrikethrough: () => void;
   /**
    * A área rolável, para que cada aba volte onde estava.
    *
@@ -105,6 +104,7 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
   onNavigateAnchor,
   onInsertAnchor,
   onInsertLink,
+  onStrikethrough,
   rolagemRef,
 }) => {
   const [menu, setMenu] = useState<CanvasMenuState | null>(null);
@@ -313,40 +313,6 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
     newBlocks[index] = newBlocks[targetIndex];
     newBlocks[targetIndex] = temp;
 
-    onUpdateStructure({ ...doc, blocks: newBlocks });
-  };
-
-  const handleDuplicateBlock = (block: LegislativeBlock, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const index = doc.blocks.findIndex((b) => b.id === block.id);
-    /*
-     * A cópia nasce **sem** endereço, e ganha o seu em `onUpdateStructure`.
-     *
-     * Levar o `linkName` junto punha dois `<a name="art2">` no mesmo arquivo:
-     * o navegador para no primeiro, de modo que metade das remissões apontava
-     * para o dispositivo errado sem que nada na tela denunciasse. Endereço é
-     * identidade — duas cópias de um artigo são dois artigos.
-     */
-    const newBlock: LegislativeBlock = {
-      ...block,
-      id: newBlockId(),
-      linkName: undefined,
-      content: semPontosDeAncoragem(block.content),
-      rawText: block.rawText,
-    };
-
-    const newBlocks = [...doc.blocks];
-    if (index >= 0) {
-      newBlocks.splice(index + 1, 0, newBlock);
-    } else {
-      newBlocks.push(newBlock);
-    }
-    onUpdateStructure({ ...doc, blocks: newBlocks });
-  };
-
-  const handleDeleteBlock = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newBlocks = doc.blocks.filter((b) => b.id !== id);
     onUpdateStructure({ ...doc, blocks: newBlocks });
   };
 
@@ -822,25 +788,28 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
         {/* Barra flutuante de ações do bloco — chrome sobre a folha, acompanha o tema. */}
         <div className="absolute -right-2 -top-3 hidden group-hover:flex items-center bg-sup-1 text-texto rounded-[7px] shadow-cej-3 border border-borda p-[3px] z-20 space-x-1 text-xs">
           <button
-            onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
-            className="p-1 rounded text-texto hover:bg-sup-3 transition-colors flex items-center gap-0.5"
-            title="Inserir linha sem formatação abaixo (ou tecle Enter)"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onInsertLink();
+            }}
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
+            title="Inserir link no trecho selecionado"
           >
-            <CornerDownLeft size={13} /> Novo conteúdo
+            <Link2 size={13} />
           </button>
           <button
-            onClick={(e) => handleAddBlockBelow(index, 'ARTIGO', e)}
-            className="p-1 rounded text-rank hover:bg-sup-3 transition-colors flex items-center gap-0.5"
-            title="Adicionar Artigo Abaixo"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStrikethrough();
+            }}
+            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
+            title="Tachar o trecho selecionado"
           >
-            <Plus size={13} /> Art
-          </button>
-          <button
-            onClick={(e) => handleAddBlockBelow(index, 'PARAGRAFO', e)}
-            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors flex items-center gap-0.5"
-            title="Adicionar Parágrafo Abaixo"
-          >
-            <Plus size={13} /> §
+            <Strikethrough size={13} />
           </button>
           {/*
             As setas param na fronteira entre o corpo e o anexo, e não só nas
@@ -865,30 +834,11 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
             <ArrowDown size={13} />
           </button>
           <button
-            onClick={(e) => handleDuplicateBlock(block, e)}
-            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
-            title="Duplicar Bloco"
+            onClick={(e) => handleAddBlockBelow(index, 'TEXTO_LIVRE', e)}
+            className="p-1 rounded text-texto hover:bg-sup-3 transition-colors flex items-center gap-0.5"
+            title="Inserir linha sem formatação abaixo (ou tecle Enter)"
           >
-            <Copy size={13} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onInsertLink();
-            }}
-            className="p-1 rounded text-texto-fraco hover:bg-sup-3 hover:text-texto transition-colors"
-            title="Inserir link no trecho selecionado"
-          >
-            <Link2 size={13} />
-          </button>
-          <button
-            onClick={(e) => handleDeleteBlock(block.id, e)}
-            className="p-1 rounded text-texto-fraco hover:bg-falha-suave hover:text-falha transition-colors"
-            title="Excluir Bloco"
-          >
-            <Trash2 size={13} />
+            <CornerDownLeft size={13} /> Novo conteúdo
           </button>
         </div>
 
