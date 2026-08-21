@@ -1124,46 +1124,58 @@ export const EditorCanvas: React.FC<EditorCanvasProps> = ({
           )}
         </div>
 
-        {/* Ementa — tabela de duas colunas, tal como sai no arquivo salvo. */}
-        {!isEmptyHtml(doc.ementa) && (
-          <div id="block-ementa" onClick={() => handleCanvasBlockClick('ementa')} className="w-full flex gap-4">
-            <div className="w-1/2 shrink-0 text-[10pt]" />
+        {/*
+          Links à esquerda, ementa à direita — a mesma tabela de duas colunas
+          que o arquivo salvo escreve, e a mesma forma em que um ato real do
+          Planalto chega (a esquerda com "Vide…", "Texto compilado", "Índice";
+          a direita com a ementa). Na Constituição, que não tem ementa, é o
+          mesmo campo da direita que recebe os quatro links que ela tem no
+          lugar — ADCT, art. 5º §3º, Emendas Constitucionais, Emendas
+          Constitucionais de Revisão, nesta ordem —, sem tratamento especial
+          algum aqui: o redator só digita ali o que a Constituição pede.
+        */}
+        {(doc.avisosPreliminares || !isEmptyHtml(doc.ementa)) && (
+          <div className="w-full flex gap-4 my-[15px]">
             <div
-              className={`relative group w-1/2 p-1 rounded cursor-text transition-all ${selectionRingClass('ementa')}`}
+              id="block-avisosPreliminares"
+              onClick={() => handleCanvasBlockClick('avisosPreliminares')}
+              className={`relative group w-1/2 p-1 rounded cursor-text transition-all ${selectionRingClass(
+                'avisosPreliminares'
+              )}`}
             >
-              {partActions('Ementa', () => handleDeletePart({ ementa: '' }))}
+              {partActions('Aviso preliminar', () => handleDeletePart({ avisosPreliminares: '' }))}
               <Editable
-                target={partTarget('ementa')}
-                html={doc.ementa}
-                onCommit={(html) => commitTarget(partTarget('ementa'), html)}
+                target={partTarget('avisosPreliminares')}
+                html={doc.avisosPreliminares || '<a href="#art1">Vigência</a>'}
+                onCommit={(html) => commitTarget(partTarget('avisosPreliminares'), html)}
                 onKeyDown={handlePartEnter}
-                ariaLabel="Ementa do ato"
-                placeholder="Ementa"
-                className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt] text-[#800000]"
-                style={partLayout(partTarget('ementa'), false)}
+                ariaLabel="Links do ato"
+                placeholder="Vide, Texto compilado, Índice…"
+                className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
               />
             </div>
-          </div>
-        )}
 
-        {(doc.avisosPreliminares || !isEmptyHtml(doc.ementa)) && (
-          <div
-            id="block-avisosPreliminares"
-            onClick={() => handleCanvasBlockClick('avisosPreliminares')}
-            className={`relative group w-full my-[15px] p-1 rounded cursor-text transition-all ${selectionRingClass(
-              'avisosPreliminares'
-            )}`}
-          >
-            {partActions('Aviso preliminar', () => handleDeletePart({ avisosPreliminares: '' }))}
-            <Editable
-              target={partTarget('avisosPreliminares')}
-              html={doc.avisosPreliminares || '<a href="#art1">Vigência</a>'}
-              onCommit={(html) => commitTarget(partTarget('avisosPreliminares'), html)}
-              onKeyDown={handlePartEnter}
-              ariaLabel="Aviso preliminar do ato"
-              placeholder="Aviso preliminar"
-              className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt]"
-            />
+            <div
+              id="block-ementa"
+              onClick={() => handleCanvasBlockClick('ementa')}
+              className="w-1/2 flex flex-col justify-center"
+            >
+              <div
+                className={`relative group p-1 rounded cursor-text transition-all ${selectionRingClass('ementa')}`}
+              >
+                {partActions('Ementa', () => handleDeletePart({ ementa: '' }))}
+                <Editable
+                  target={partTarget('ementa')}
+                  html={doc.ementa}
+                  onCommit={(html) => commitTarget(partTarget('ementa'), html)}
+                  onKeyDown={handlePartEnter}
+                  ariaLabel="Ementa do ato"
+                  placeholder="Ementa"
+                  className="outline-none focus:bg-[#e8f0fb] rounded text-[10pt] text-[#800000]"
+                  style={partLayout(partTarget('ementa'), false)}
+                />
+              </div>
+            </div>
           </div>
         )}
 

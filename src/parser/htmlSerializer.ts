@@ -88,21 +88,26 @@ export function serializeToPlanaltoHtml(doc: LegislativeDocument): string {
             <a name="epigrafe" href="#">
 							<font color="#000080" style="color: #000080 !important">${doc.epigrafe}</font></a></strong></small></font></p>`;
 
+  /*
+   * Links à esquerda, ementa à direita — a mesma tabela de abertura de um ato
+   * real do Planalto, e o mesmo formato que `deserializePlanaltoHtmlToDocument`
+   * já lê de volta (célula esquerda = avisos preliminares, célula direita =
+   * ementa). A ementa fica com `vertical-align: middle`: quando os links da
+   * esquerda ocupam mais de uma linha, ela continua centralizada no box dela.
+   */
+  const avisosPreliminares = doc.avisosPreliminares || '<a href="#art1">Vigência</a>';
   const ementaHtml = `
 	<table border="0" cellpadding="0" cellspacing="0" width="100%">
 		<tbody><tr>
-      <td width="50%"></td>
-			<td width="50%">
+			<td width="50%" valign="top">
+	<p style="text-align: left; text-indent: 0; margin-top: 0; margin-bottom: 15px">
+	<span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${avisosPreliminares}</span></p></td>
+			<td width="50%" style="vertical-align: middle">
 	<p align="${ementaAlign}">
 	<span style="font-size: 10.0pt; font-family: Arial,sans-serif; color: #800000">
 	${doc.ementa}</span></p></td>
 		</tr>
 	</tbody></table>`;
-
-  const avisosPreliminares = doc.avisosPreliminares || '<a href="#art1">Vigência</a>';
-  const avisosPreliminaresHtml = `
-	<p class="MsoNormal cej-avisos-preliminares" style="text-align: left; text-indent: 0; margin-top: 0; margin-bottom: 15px">
-  <span style="font-size:10.0pt;font-family:&quot;Arial&quot;,sans-serif">${avisosPreliminares}</span></p>`;
 
   // A ordem só sai quando o ato a tem: a MPV não decreta, e um parágrafo em
   // negrito vazio no arquivo não espelharia a folha, que esconde a parte vazia.
@@ -169,7 +174,6 @@ ${coatOfArmsSvg}
 ${epigrafeHtml}
 	</blockquote>
 ${ementaHtml}
-${avisosPreliminaresHtml}
 ${preambuloHtml}
 ${blocksHtml}
 ${fechoHtml}
@@ -759,12 +763,11 @@ export function deserializePlanaltoHtmlToDocument(html: string): LegislativeDocu
     if (tabelaDeAbertura && p.closest('table') === tabelaDeAbertura) return;
     if (p === paragrafoDePublicacao) return;
     /*
-     * O parágrafo com que este próprio serializador reexporta os avisos
-     * preliminares (Vigência, Texto compilado, PUBLICAÇÃO CONSOLIDADA…) — ver
-     * `avisosPreliminaresHtml` acima. Sem recolher o conteúdo aqui, reabrir um
-     * ato salvo por este editor apagava o campo de vez: a tabela de abertura
-     * não guarda mais o aviso na célula esquerda desde que ele ganhou
-     * parágrafo próprio, e este era o único lugar onde ele ainda aparecia.
+     * O parágrafo com que versões antigas deste serializador reexportavam os
+     * avisos preliminares (Vigência, Texto compilado, PUBLICAÇÃO CONSOLIDADA…),
+     * antes de eles voltarem a morar na célula esquerda da tabela de abertura
+     * — ver `ementaHtml` acima. Continua lido aqui só para não apagar o campo
+     * de quem reabre um arquivo salvo por uma dessas versões.
      */
     if (p.classList.contains('cej-avisos-preliminares')) {
       const avisos = sanitizeInlineHtml(p.innerHTML).trim();

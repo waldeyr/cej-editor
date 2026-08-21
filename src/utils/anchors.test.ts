@@ -292,6 +292,56 @@ describe('criação automática dos pontos de ancoragem', () => {
     expect(enderecos(doc)).toEqual(['art1', 'art2']);
   });
 
+  it('ainda deixa sem endereço o artigo repetido quando o anterior não foi tachado', () => {
+    // Guarda de regressão: só o artigo tachado libera o sufixo para o que vem
+    // depois. Um número repetido por outro motivo continua sem endereço.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', undefined]);
+  });
+
+  it('dá à nova redação de um artigo tachado um endereço sufixado, preservando o original', () => {
+    // Confirmado num ato real (l14293.htm, art. 1º): o tachado guarda "art1",
+    // e "(Redação dada pela Lei nº 15.490, de 2026)" que vem logo depois vira
+    // "art1.0" — nunca se toca no endereço já publicado do tachado.
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', 'art1.0']);
+  });
+
+  it('sufixa de novo quando a própria redação nova também é tachada', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b3', type: 'ARTIGO', numberLabel: 'Art. 1º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', 'art1.0', 'art1.1']);
+  });
+
+  it('pendura os filhos da nova redação no endereço sufixado dela, não no original', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b3', type: 'INCISO', numberLabel: 'I -' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', 'art1.0', 'art1.0i']);
+  });
+
+  it('não reaproveita o sufixo entre o corpo e o anexo', () => {
+    const doc = docWith(
+      block({ id: 'b1', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b2', type: 'ARTIGO', numberLabel: 'Art. 1º' }),
+      block({ id: 'b3', type: 'ANEXO', content: 'ANEXO I', rawText: 'ANEXO I' }),
+      block({ id: 'b4', type: 'ARTIGO', numberLabel: 'Art. 1º', identificadorTachado: true }),
+      block({ id: 'b5', type: 'ARTIGO', numberLabel: 'Art. 1º' })
+    );
+    expect(enderecos(doc)).toEqual(['art1', 'art1.0', 'anexoi', 'anexoiart1', 'anexoiart1.0']);
+  });
+
   it('devolve o mesmo documento quando não há endereço a acrescentar', () => {
     const doc = ancorarDispositivos(ato(['ARTIGO', 'Art. 1º'], ['INCISO', 'I -']));
     expect(ancorarDispositivos(doc)).toBe(doc);

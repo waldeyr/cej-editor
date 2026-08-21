@@ -419,8 +419,10 @@ describe('abertura de ato publicado', () => {
     expect(importado.avisosPreliminares).toContain('Texto compilado');
     expect(importado.avisosPreliminares).toContain('PUBLICAÇÃO CONSOLIDADA');
     expect(importado.blocks.some((block) => block.rawText.startsWith('PUBLICAÇÃO CONSOLIDADA'))).toBe(false);
-    expect(html.indexOf('Dispõe sobre')).toBeLessThan(html.indexOf('Texto compilado'));
-    expect(html.indexOf('Texto compilado')).toBeLessThan(html.indexOf('O PRESIDENTE DA REPÚBLICA'));
+    // Links à esquerda, ementa à direita, na mesma tabela — a esquerda vem
+    // primeiro no markup, mesmo os dois lendo lado a lado na folha.
+    expect(html.indexOf('Texto compilado')).toBeLessThan(html.indexOf('Dispõe sobre'));
+    expect(html.indexOf('Dispõe sobre')).toBeLessThan(html.indexOf('O PRESIDENTE DA REPÚBLICA'));
   });
 
   it('sobrevive a uma segunda abertura: os avisos preliminares não se perdem ao reexportar', () => {

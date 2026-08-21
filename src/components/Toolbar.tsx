@@ -52,7 +52,7 @@ import marcaCej from '../assets/marca-cej.svg';
 import { NOME_DO_TEMA, TEMAS, Tema } from '../utils/tema';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 
-export type TextCommand = InlineFormat | 'clearStyle' | 'link' | 'anchor';
+export type TextCommand = InlineFormat | 'clearStyle' | 'link' | 'anchor' | 'upperCase' | 'lowerCase' | 'titleCase';
 
 interface ToolbarProps {
   documentTitle: string;
@@ -485,6 +485,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="flex items-center gap-1 mx-auto">
         {ALINHAMENTOS.map(({ align, label, icon }) =>
           textButton(label, icon, () => onAlign(align), activeAlign === align)
+        )}
+
+        <Divider />
+
+        {/*
+          Maiúsculas / minúsculas / Iniciais Maiúsculas: transformam o texto
+          selecionado no lugar, sem marcação nova — por isso ficam à parte dos
+          botões de negrito/itálico, que envolvem o texto numa tag.
+        */}
+        {textButton(
+          'Maiúsculas',
+          <span className="text-[11px] font-bold leading-none">AA</span>,
+          () => onFormatInline('upperCase')
+        )}
+        {textButton(
+          'minúsculas',
+          <span className="text-[11px] font-bold leading-none">aa</span>,
+          () => onFormatInline('lowerCase')
+        )}
+        {textButton(
+          'Iniciais Maiúsculas',
+          <span className="text-[11px] font-bold leading-none">Aa</span>,
+          () => onFormatInline('titleCase')
         )}
 
         <Divider />

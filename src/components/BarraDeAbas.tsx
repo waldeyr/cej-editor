@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, Plus, X } from 'lucide-react';
+import { Copy, ExternalLink, Plus, X } from 'lucide-react';
 import { Aba, precisaSalvar } from '../types/abas';
 import { dicaDaAba, rotuloDaAba } from '../utils/abas';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
@@ -17,6 +17,11 @@ interface BarraDeAbasProps {
    * não oferece o menu de contexto nenhum.
    */
   onMoverParaNovaJanela?: (id: string) => void;
+  /**
+   * Abre uma cópia do ato numa janela nova, sem fechar a aba de origem — ao
+   * lado de `onMoverParaNovaJanela`, que em vez disso a leva embora.
+   */
+  onAbrirCopiaEmNovaJanela?: (id: string) => void;
 }
 
 /** Qual aba pediu o menu de contexto, e onde o clique aconteceu. */
@@ -42,6 +47,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
   onFechar,
   onNova,
   onMoverParaNovaJanela,
+  onAbrirCopiaEmNovaJanela,
 }) => {
   const [menu, setMenu] = useState<MenuDaAba | null>(null);
 
@@ -59,7 +65,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
           <div
             key={aba.id}
             onContextMenu={(e) => {
-              if (!onMoverParaNovaJanela) return;
+              if (!onMoverParaNovaJanela && !onAbrirCopiaEmNovaJanela) return;
               e.preventDefault();
               setMenu({ abaId: aba.id, x: e.clientX, y: e.clientY });
             }}
@@ -115,7 +121,7 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
       </button>
 
       {menu &&
-        onMoverParaNovaJanela &&
+        (onMoverParaNovaJanela || onAbrirCopiaEmNovaJanela) &&
         (() => {
           // Um atalho de teclado (Ctrl+W) pode fechar a aba com o menu ainda
           // aberto; sem esta guarda, o clique em "Abrir em nova janela" agiria
@@ -130,12 +136,23 @@ export const BarraDeAbas: React.FC<BarraDeAbasProps> = ({
               ariaLabel={`Ações de “${rotuloDaAba(alvoDoMenu)}”`}
               onClose={() => setMenu(null)}
             >
-              <ContextMenuItem
-                label="Abrir em nova janela"
-                icon={<ExternalLink size={14} />}
-                onActivate={() => onMoverParaNovaJanela(menu.abaId)}
-                onClose={() => setMenu(null)}
-              />
+              {onMoverParaNovaJanela && (
+                <ContextMenuItem
+                  label="Abrir em nova janela"
+                  icon={<ExternalLink size={14} />}
+                  onActivate={() => onMoverParaNovaJanela(menu.abaId)}
+                  onClose={() => setMenu(null)}
+                />
+              )}
+
+              {onAbrirCopiaEmNovaJanela && (
+                <ContextMenuItem
+                  label="Abrir uma cópia em nova janela"
+                  icon={<Copy size={14} />}
+                  onActivate={() => onAbrirCopiaEmNovaJanela(menu.abaId)}
+                  onClose={() => setMenu(null)}
+                />
+              )}
             </ContextMenu>
           );
         })()}

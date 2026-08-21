@@ -30,6 +30,7 @@ import { hrefDeCaminho, nomeDe, relativizar } from './utils/caminhos';
 import {
   abaAtiva,
   criarAba,
+  novoIdDeAba,
   reduzirAbas,
   rotuloDaAba,
 } from './utils/abas';
@@ -80,6 +81,7 @@ import {
   InlineFormat,
   InlineFormatResult,
   applyInlineFormat,
+  applyTextTransform,
   clearFormatting,
   focusEditableTarget,
   getEditableSegments,
@@ -87,6 +89,7 @@ import {
   wrapInAnchorPoint,
   wrapInLink,
 } from './utils/richText';
+import { paraTituloPtBr } from './utils/textCase';
 import { targetForSelectedId, targetsInPlay } from './utils/selection';
 import { useActiveSelection } from './hooks/useActiveSelection';
 import { useStatusNotice } from './hooks/useStatusNotice';
@@ -1138,6 +1141,43 @@ export const App: React.FC = () => {
   };
 
   /**
+   * Abre uma cópia do ato numa janela nova — a aba de origem continua aberta.
+   *
+   * Quase o mesmo gesto de `moverAbaParaNovaJanela`, com duas diferenças: o
+   * rascunho grava sob um id de aba **novo**, porque a aba de origem continua
+   * viva e reivindicando o id dela — reaproveitá-lo faria as duas janelas
+   * disputar o mesmo rascunho; e não há `despachar({ tipo: 'fechar' })` no
+   * fim, porque nada aqui deveria fechar.
+   */
+  const abrirCopiaAbaEmNovaJanela = async (id: string) => {
+    if (!window.electronAPI?.abrirNovaJanela) return;
+
+    const alvo = estado.abas.find((a) => a.id === id);
+    if (!alvo) return;
+
+    const doc = id === estado.ativa ? currentDoc() : alvo.doc;
+    const copiaId = novoIdDeAba();
+
+    gravarRascunho({
+      abaId: copiaId,
+      doc,
+      arquivo: alvo.arquivo ? { ...alvo.arquivo, handle: undefined } : null,
+      rotulo: rotuloDaAba({ ...alvo, doc }),
+      gravadoEm: Date.now(),
+    });
+    gravarSessao(copiaId, { abas: [copiaId], ativa: copiaId, gravadaEm: Date.now() });
+
+    const resultado = await window.electronAPI.abrirNovaJanela();
+    if (!resultado?.ok) {
+      // Mesma cautela de `moverAbaParaNovaJanela`: sem isto, uma tentativa que
+      // falhou deixaria uma sessão órfã capaz de ser adotada por engano por
+      // uma janela futura.
+      descartarSessao(copiaId);
+      setNotice('Não foi possível abrir uma nova janela.');
+    }
+  };
+
+  /**
    * Dispositivos que a seleção alcança.
    *
    * Com um trecho selecionado, são todos os que ele atravessa; com o cursor
@@ -1575,6 +1615,27 @@ export const App: React.FC = () => {
       return;
     }
 
+    /*
+     * Maiúsculas/minúsculas/Título reescrevem o texto no lugar — sem tag para
+     * envolver ou desfazer, então não passam por `applyInlineFormat`.
+     */
+    if (format === 'upperCase' || format === 'lowerCase' || format === 'titleCase') {
+      const segments = getEditableSegments();
+      if (segments.length === 0) {
+        setNotice('Selecione no corpo do ato o trecho de texto a formatar.');
+        return;
+      }
+      const transform =
+        format === 'upperCase'
+          ? (texto: string) => texto.toUpperCase()
+          : format === 'lowerCase'
+            ? (texto: string) => texto.toLowerCase()
+            : paraTituloPtBr;
+      applyTextTransform(segments, transform);
+      commitSegments(segments, format);
+      return;
+    }
+
     const segments = getEditableSegments();
     if (segments.length === 0) {
       // Recado na barra de estado, como os demais: uma caixa modal para dizer
@@ -1932,6 +1993,7 @@ export const App: React.FC = () => {
         onFechar={fecharAba}
         onNova={executeNewDoc}
         onMoverParaNovaJanela={window.electronAPI?.abrirNovaJanela ? moverAbaParaNovaJanela : undefined}
+        onAbrirCopiaEmNovaJanela={window.electronAPI?.abrirNovaJanela ? abrirCopiaAbaEmNovaJanela : undefined}
       />
 
       {/* Área Central: Árvore + Canvas */}

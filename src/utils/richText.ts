@@ -466,6 +466,45 @@ export function clearFormatting(segments: EditableSegment[]): void {
   reselect(boundaries[0], boundaries[boundaries.length - 1]);
 }
 
+/**
+ * Transforma o texto da seleção (maiúsculas, minúsculas, título…), sem tocar
+ * em marcação alguma — diferente de `applyInlineFormat`, não há tag para
+ * envolver ou desfazer, só o conteúdo dos nós de texto para reescrever.
+ *
+ * O texto de cada segmento é concatenado antes de passar por `transform`, e
+ * não nó a nó: um título precisa saber onde uma palavra começa mesmo quando
+ * ela atravessa a fronteira de um `<b>` no meio da seleção. Depois, o
+ * resultado volta para os mesmos nós, comprimento a comprimento — maiúsculas
+ * e minúsculas em português não mudam a quantidade de caracteres, e o último
+ * nó absorve qualquer sobra na rara transformação que mudar.
+ */
+export function applyTextTransform(
+  segments: EditableSegment[],
+  transform: (texto: string) => string
+): void {
+  const tocados: Text[] = [];
+
+  segments.forEach((segment) => {
+    splitBoundaryTextNodes(segment.range);
+    const nodes = collectTextNodes(segment.range, segment.element);
+    if (nodes.length === 0) return;
+
+    const original = nodes.map((node) => node.data).join('');
+    const transformado = transform(original);
+
+    let cursor = 0;
+    nodes.forEach((node, indice) => {
+      const comprimento = node.data.length;
+      node.data =
+        indice === nodes.length - 1 ? transformado.slice(cursor) : transformado.slice(cursor, cursor + comprimento);
+      cursor += comprimento;
+      tocados.push(node);
+    });
+  });
+
+  reselect(tocados[0], tocados[tocados.length - 1]);
+}
+
 /** Apaga o conteúdo selecionado em todos os campos tocados. */
 export function deleteSegments(segments: EditableSegment[]): void {
   [...segments].reverse().forEach(({ range, element }) => {

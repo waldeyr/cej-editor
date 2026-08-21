@@ -426,6 +426,10 @@ export function ancorarDispositivos(doc: LegislativeDocument): LegislativeDocume
   let agrupadores: number[] = [];
   /** Último artigo aceito no segmento, para exigir a série crescente. */
   let ultimoArtigo: string | null = null;
+  /** Se o último artigo aceito veio tachado — só assim um repetido é nova redação. */
+  let ultimoArtigoTachado = false;
+  /** Quantas redações novas já tomaram o lugar de um artigo tachado, por número-base. */
+  const repeticoesDoArtigo = new Map<string, number>();
 
   const encaixes = doc.blocks.map((block, posicao): Encaixe | undefined => {
     const jaTem = ancoraDe(block);
@@ -435,6 +439,8 @@ export function ancorarDispositivos(doc: LegislativeDocument): LegislativeDocume
       articulacao = [];
       agrupadores = [];
       ultimoArtigo = null;
+      ultimoArtigoTachado = false;
+      repeticoesDoArtigo.clear();
 
       const designacao = designacaoDe(block);
       /*
@@ -506,8 +512,31 @@ export function ancorarDispositivos(doc: LegislativeDocument): LegislativeDocume
 
     let componente = componenteDe(block);
     if (block.type === 'ARTIGO' && componente) {
-      if (continuaASerie(ultimoArtigo, componente)) ultimoArtigo = componente;
-      else componente = undefined;
+      if (continuaASerie(ultimoArtigo, componente)) {
+        ultimoArtigo = componente;
+        ultimoArtigoTachado = block.identificadorTachado === true;
+      } else if (componente === ultimoArtigo && ultimoArtigoTachado) {
+        /*
+         * Mesmo número do artigo anterior, e o anterior foi tachado: este é a
+         * nova redação que toma o lugar dele. O ato publicado endereça o
+         * primeiro sem sufixo — é o endereço que remissões já publicadas
+         * citam, e por isso nunca se toca — e cada redação seguinte com o
+         * mesmo número ganha ".0", ".1"... Ver `l14293.htm`, art. 1º: o
+         * tachado fica em "art1", a redação dada pela Lei nº 15.490 vira
+         * "art1.0".
+         *
+         * `ultimoArtigo` continua na base, sem sufixo: é o que faz um
+         * terceiro "Art. 1º" só cair aqui de novo se este também for
+         * tachado, e faz o artigo seguinte (Art. 2º) comparar contra "art1",
+         * não "art1.0".
+         */
+        const proximoSufixo = repeticoesDoArtigo.get(componente) ?? 0;
+        repeticoesDoArtigo.set(componente, proximoSufixo + 1);
+        componente = `${componente}.${proximoSufixo}`;
+        ultimoArtigoTachado = block.identificadorTachado === true;
+      } else {
+        componente = undefined;
+      }
     }
 
     return {

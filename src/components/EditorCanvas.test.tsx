@@ -87,7 +87,7 @@ describe('EditorCanvas — avisos preliminares', () => {
     const { container } = renderCanvas(doc, { onUpdateDoc });
 
     const campo = container.querySelector(
-      '[aria-label="Aviso preliminar do ato"]'
+      '[aria-label="Links do ato"]'
     ) as HTMLElement;
     expect(campo).toBeTruthy();
 
